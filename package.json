@@ -1,0 +1,22 @@
+{
+	"name": "ntn-ui",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Local web UI for the Notion Workers (ntn) CLI",
+	"license": "MIT",
+	"author": "Ashley Guberman",
+	"engines": {
+		"node": ">=22",
+		"pnpm": ">=11"
+	},
+	"packageManager": "pnpm@11.18.0",
+	"scripts": {
+		"dev": "pnpm -r --parallel --stream dev",
+		"build": "pnpm -r build",
+		"check": "pnpm -r check",
+		"clean": "pnpm -r exec rm -rf dist node_modules/.cache"
+	},
+	"devDependencies": {
+		"typescript": "^5.6.3"
+	}
+}
