@@ -1,11 +1,14 @@
 import type { Whoami } from "@ntn-ui/shared";
-import { runNtnPlain } from "./ntn.js";
+import { runNtnPlainWithTrace } from "./ntn.js";
 
 // `ntn whoami --plain` returns a single tab-separated line:
 //   userId  userName  userType  userEmail  spaceId  spaceName  [ownerId  ownerName  ownerType]
 // The owner triplet appears when the authenticated principal is a bot / integration.
-export async function fetchWhoami(): Promise<Whoami> {
-	const raw = (await runNtnPlain(["whoami"])).trim();
+export async function fetchWhoami(verbose = false): Promise<Whoami> {
+	const args = ["whoami"];
+	if (verbose) args.push("-v");
+	const { stdout, stderr } = await runNtnPlainWithTrace(args);
+	const raw = stdout.trim();
 	const cols = raw.split("\t");
 	if (cols.length < 6) {
 		throw new Error(`Unexpected whoami output (${cols.length} cols): ${raw}`);
@@ -21,5 +24,6 @@ export async function fetchWhoami(): Promise<Whoami> {
 		ownerId: ownerId || undefined,
 		ownerName: ownerName || undefined,
 		ownerType: ownerType || undefined,
+		...(verbose && stderr ? { _trace: stderr } : {}),
 	};
 }

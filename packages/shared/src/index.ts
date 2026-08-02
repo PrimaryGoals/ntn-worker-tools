@@ -8,6 +8,8 @@ export interface Whoami {
 	ownerId?: string;
 	ownerName?: string;
 	ownerType?: string;
+	// populated only when the request set ?verbose=1
+	_trace?: string;
 }
 
 export interface Worker {
@@ -17,6 +19,8 @@ export interface Worker {
 	createdAt: string;
 	updatedAt: string;
 	updatedByName?: string;
+	// populated only when the request set ?verbose=1
+	_trace?: string;
 }
 
 export interface Run {
@@ -37,6 +41,61 @@ export interface RunsPayload {
 
 export interface LogsPayload {
 	logs: string;
+	// populated only when the request set ?verbose=1
+	_trace?: string;
+}
+
+export interface WorkerUsage {
+	worker: Worker;
+	days: number;
+	usage: {
+		sandboxCount: number;
+		credits: number;
+		activeCpuDurationMs: number;
+		durationMs: number;
+		networkIngressBytes: number;
+		networkEgressBytes: number;
+	};
+	dailyUsage: Array<{
+		day: string;
+		sandboxCount: number;
+		creditsMicro: number;
+		activeCpuDurationMs: number;
+		durationMs: number;
+		networkIngressBytes: number;
+		networkEgressBytes: number;
+	}>;
+	// populated only when the request set ?verbose=1
+	_trace?: string;
+}
+
+export interface WebhookEntry {
+	key: string;
+	url: string;
+	worker_id: string;
+	worker_name: string;
+	workspace_id: string;
+}
+
+export interface WebhooksPayload {
+	webhooks: WebhookEntry[];
+	// populated only when the request set ?verbose=1
+	_trace?: string;
+}
+
+export interface WorkerEnvPayload {
+	// raw .env-style KEY=VALUE lines from `ntn workers env pull --no-file --yes`
+	text: string;
+	// populated only when the request set ?verbose=1
+	_trace?: string;
+}
+
+export interface WebhookFireResult {
+	url: string;
+	status: number;
+	statusText: string;
+	body: string;
+	durationMs: number;
 }
 
 export interface AppConfig {

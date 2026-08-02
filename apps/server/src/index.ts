@@ -1,8 +1,29 @@
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import type { AppConfig, LogsPayload, RunsPayload, Whoami, Worker } from "@ntn-ui/shared";
+import type {
+	AppConfig,
+	LogsPayload,
+	RunsPayload,
+	WebhookEntry,
+	WebhookFireResult,
+	WebhooksPayload,
+	Whoami,
+	Worker,
+	WorkerEnvPayload,
+	WorkerUsage,
+} from "@ntn-ui/shared";
 import { getConfigPath, loadConfig, saveConfig } from "./config.js";
-import { NtnError, runNtnJson } from "./ntn.js";
+import { NtnError, runNtnJson, runNtnJsonWithTrace, runNtnRawWithTrace } from "./ntn.js";
+
+const NOTION_WEBHOOK_PREFIX = "https://www.notion.so/webhooks/worker/";
+
+function isVerbose(v?: string): boolean {
+	return v === "1" || v === "true";
+}
+
+function attachTrace<T extends object>(data: T, stderr: string): T {
+	return stderr ? ({ ...data, _trace: stderr } as T) : data;
+}
 import { fetchWhoami } from "./whoami.js";
 
 const PORT = Number(process.env.PORT ?? 5174);
@@ -33,13 +54,78 @@ app.patch<{ Body: Partial<AppConfig["ui"]> }>("/api/config/ui", async (req) => {
 	return config;
 });
 
-app.get("/api/whoami", async (): Promise<Whoami> => fetchWhoami());
+app.get<{ Querystring: { verbose?: string } }>(
+	"/api/whoami",
+	async (req): Promise<Whoami> => fetchWhoami(isVerbose(req.query.verbose)),
+);
 
 app.get("/api/workers", async (): Promise<Worker[]> => runNtnJson<Worker[]>(["workers", "list"]));
 
-app.get<{ Params: { id: string } }>(
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id",
-	async (req): Promise<Worker> => runNtnJson<Worker>(["workers", "get", req.params.id]),
+	async (req): Promise<Worker> => {
+		const args = ["workers", "get", req.params.id];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<Worker>(args);
+		return verbose ? attachTrace(data, stderr) : data;
+	},
+);
+
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	"/api/workers/:id/webhooks",
+	async (req): Promise<WebhooksPayload> => {
+		const args = ["workers", "webhooks", "list", req.params.id];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<WebhookEntry[]>(args);
+		return verbose && stderr ? { webhooks: data, _trace: stderr } : { webhooks: data };
+	},
+);
+
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	"/api/workers/:id/usage",
+	async (req): Promise<WorkerUsage> => {
+		const args = ["workers", "usage", req.params.id];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<WorkerUsage>(args);
+		return verbose ? attachTrace(data, stderr) : data;
+	},
+);
+
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	"/api/workers/:id/env",
+	async (req): Promise<WorkerEnvPayload> => {
+		const args = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { stdout, stderr } = await runNtnRawWithTrace(args);
+		return verbose && stderr ? { text: stdout, _trace: stderr } : { text: stdout };
+	},
+);
+
+app.post<{ Body: { url: string } }>(
+	"/api/webhook/fire",
+	async (req, reply): Promise<WebhookFireResult> => {
+		const url = req.body?.url;
+		if (typeof url !== "string" || !url.startsWith(NOTION_WEBHOOK_PREFIX)) {
+			return reply.code(400).send({
+				error: "invalid webhook url",
+				detail: `url must start with ${NOTION_WEBHOOK_PREFIX}`,
+			}) as unknown as WebhookFireResult;
+		}
+		const start = Date.now();
+		const res = await fetch(url, { method: "POST" });
+		const body = await res.text();
+		return {
+			url,
+			status: res.status,
+			statusText: res.statusText,
+			body,
+			durationMs: Date.now() - start,
+		};
+	},
 );
 
 app.get<{ Params: { id: string }; Querystring: { cursor?: string; pageSize?: string } }>(
@@ -56,8 +142,10 @@ app.get<{ Params: { id: string; runId: string }; Querystring: { verbose?: string
 	"/api/workers/:id/runs/:runId/logs",
 	async (req): Promise<LogsPayload> => {
 		const args = ["workers", "runs", "logs", req.params.runId, "--worker-id", req.params.id];
-		if (req.query.verbose === "1" || req.query.verbose === "true") args.push("-v");
-		return runNtnJson<LogsPayload>(args);
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<LogsPayload>(args);
+		return verbose ? attachTrace(data, stderr) : data;
 	},
 );
 
