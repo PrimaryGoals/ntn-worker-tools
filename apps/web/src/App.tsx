@@ -1,22 +1,74 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import type { WebhookFireResult } from "@ntn-ui/shared";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import type { DeployResult, WebhookFireResult } from "@ntn-ui/shared";
 import { api } from "./api";
 import { formatDateTime, formatDuration } from "./format";
 
 export function App() {
+	const qc = useQueryClient();
 	const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 	const [verboseLogs, setVerboseLogs] = useState(false);
 	const [webhookResult, setWebhookResult] = useState<WebhookFireResult | null>(null);
+	const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
+	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
+	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+
 	const fireWebhook = useMutation({
 		mutationFn: api.fireWebhook,
 		onSuccess: (data) => setWebhookResult(data),
 	});
 
-	function clearWebhookResult() {
+	const setLocalPath = useMutation({
+		mutationFn: ({ workerId, path }: { workerId: string; path: string }) =>
+			api.setWorkerLocalPath(workerId, path),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			// Only close the folder picker after the workerId-match check server-side
+			// has accepted the path. On failure (e.g. worker mismatch) it stays open
+			// so the user sees the inline error and can navigate somewhere else.
+			setFolderPickerOpen(false);
+		},
+	});
+	const clearLocalPath = useMutation({
+		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
+	});
+	const revealWorker = useMutation({
+		mutationFn: api.revealWorker,
+		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
+	});
+	const deployWorker = useMutation({
+		mutationFn: (workerId: string) => api.deployWorker(workerId, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const pnpmDeployWorker = useMutation({
+		mutationFn: api.pnpmDeployWorker,
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const pushSecrets = useMutation({
+		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const runningCommand = deployWorker.isPending
+		? "ntn workers deploy"
+		: pnpmDeployWorker.isPending
+			? "pnpm run deploy"
+			: pushSecrets.isPending
+				? "ntn workers env push"
+				: null;
+	const anyDeployError =
+		(deployWorker.error as Error | null) ??
+		(pnpmDeployWorker.error as Error | null) ??
+		(pushSecrets.error as Error | null);
+
+	function clearTransientOutputs() {
 		setWebhookResult(null);
 		fireWebhook.reset();
+		setDeployResult(null);
+		deployWorker.reset();
+		pnpmDeployWorker.reset();
+		pushSecrets.reset();
 	}
 
 	const whoamiQ = useQuery({
@@ -24,6 +76,19 @@ export function App() {
 		queryFn: () => api.getWhoami(true),
 		retry: false,
 	});
+	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
+	const envInfoQ = useQuery({ queryKey: ["envInfo"], queryFn: api.getEnvInfo, staleTime: Infinity });
+	const gitAvailable = envInfoQ.data?.gitAvailable ?? false;
+	const localPath = selectedWorkerId
+		? (configQ.data?.workerLocalPaths?.[selectedWorkerId] ?? null)
+		: null;
+	const localInfoQ = useQuery({
+		queryKey: ["localInfo", selectedWorkerId, localPath],
+		queryFn: () => api.getWorkerLocalInfo(selectedWorkerId!),
+		enabled: !!(selectedWorkerId && localPath),
+	});
+	const hasDeployScript = localInfoQ.data?.hasDeployScript ?? false;
+	const isGitRepo = localInfoQ.data?.isGitRepo ?? false;
 	const workersQ = useQuery({
 		queryKey: ["workers"],
 		queryFn: api.getWorkers,
@@ -66,12 +131,74 @@ export function App() {
 	);
 
 	return (
+		<>
 		<div className="flex h-screen flex-col">
 			<MenuBar
 				workspaceName={whoamiQ.data?.spaceName}
 				userName={whoamiQ.data?.userName}
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
+				workerId={selectedWorkerId}
+				workerName={
+					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
+				}
+				localPath={localPath}
+				hasDeployScript={hasDeployScript}
+				gitAvailable={gitAvailable}
+				isGitRepo={isGitRepo}
+				setLocalPathError={friendlySetPathError(
+					setLocalPath.error as Error | null,
+					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
+				)}
+				onSetLocalPath={() => {
+					if (!selectedWorkerId) return;
+					setLocalPath.reset();
+					setFolderPickerOpen(true);
+				}}
+				onClearLocalPath={() => {
+					if (!selectedWorkerId) return;
+					if (window.confirm("Forget the local folder for this worker?")) {
+						clearLocalPath.mutate(selectedWorkerId);
+					}
+				}}
+				onReveal={() => {
+					if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
+				}}
+				onNtnDeploy={() => {
+					if (!selectedWorkerId || !localPath) return;
+					if (
+						window.confirm(
+							`Deploy from ${localPath}?\nThis runs \`ntn workers deploy\` and pushes local changes to Notion.`,
+						)
+					) {
+						clearTransientOutputs();
+						deployWorker.mutate(selectedWorkerId);
+					}
+				}}
+				onPnpmDeploy={() => {
+					if (!selectedWorkerId || !localPath) return;
+					if (
+						window.confirm(
+							`Run \`pnpm run deploy\` in ${localPath}?\nThis executes whatever the project's package.json defines under scripts.deploy.`,
+						)
+					) {
+						clearTransientOutputs();
+						pnpmDeployWorker.mutate(selectedWorkerId);
+					}
+				}}
+				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
+				onPushSecrets={() => {
+					if (!selectedWorkerId || !localPath) return;
+					if (
+						window.confirm(
+							`Push .env from ${localPath} to this worker's remote environment on Notion?\nThis overwrites remote env vars.`,
+						)
+					) {
+						clearTransientOutputs();
+						pushSecrets.mutate(selectedWorkerId);
+					}
+				}}
+				onOpenGitCheckin={() => setGitCheckinOpen(true)}
 			/>
 
 			<div className="grid flex-1 grid-cols-[minmax(240px,1fr)_2fr] gap-2 overflow-hidden p-2">
@@ -84,7 +211,7 @@ export function App() {
 						onSelect={(id) => {
 							setSelectedWorkerId(id);
 							setSelectedRunId(null);
-							clearWebhookResult();
+							clearTransientOutputs();
 						}}
 					/>
 				</Panel>
@@ -100,7 +227,7 @@ export function App() {
 							selectedId={selectedRunId}
 							onSelect={(id) => {
 								setSelectedRunId(id);
-								clearWebhookResult();
+								clearTransientOutputs();
 							}}
 						/>
 					)}
@@ -160,7 +287,18 @@ export function App() {
 			</div>
 
 			<div className="h-[38vh] border-t border-neutral-200 bg-neutral-950 p-0 dark:border-neutral-800">
-				{fireWebhook.isPending ? (
+				{runningCommand ? (
+					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
+				) : anyDeployError ? (
+					<div className="p-3 text-sm text-red-400">
+						Command failed: {anyDeployError.message}
+					</div>
+				) : deployResult ? (
+					<OutputWithCommands
+						commands={[deployResult.command]}
+						body={formatDeployResult(deployResult)}
+					/>
+				) : fireWebhook.isPending ? (
 					<div className="p-3 text-sm text-neutral-400">
 						Firing POST to {fireWebhook.variables}…
 					</div>
@@ -240,9 +378,12 @@ export function App() {
 								.filter(Boolean)
 								.join("\n")}
 							body={
-								formatWorkerDetails(workerQ.data, workerUsageQ.data) +
-								"\n\n" +
-								(envQ.data.text.trim() || "(no environment variables)")
+								<WorkerDetailsBody
+									worker={workerQ.data}
+									usage={workerUsageQ.data}
+									localPath={localPath}
+									envText={envQ.data.text}
+								/>
 							}
 						/>
 					) : (
@@ -261,6 +402,37 @@ export function App() {
 				)}
 			</div>
 		</div>
+		{gitCheckinOpen && selectedWorkerId && localPath ? (
+			<GitCheckinModal
+				workerId={selectedWorkerId}
+				localPath={localPath}
+				onClose={() => setGitCheckinOpen(false)}
+				onCommitted={(result) => {
+					setGitCheckinOpen(false);
+					clearTransientOutputs();
+					setDeployResult(result);
+				}}
+			/>
+		) : null}
+			{folderPickerOpen && selectedWorkerId ? (
+				<FolderPickerModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
+					}
+					startPath={localPath}
+					submitting={setLocalPath.isPending}
+					error={friendlySetPathError(
+						setLocalPath.error as Error | null,
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
+					)}
+					onClose={() => setFolderPickerOpen(false)}
+					onSelect={(path) => {
+						clearTransientOutputs();
+						setLocalPath.mutate({ workerId: selectedWorkerId, path });
+					}}
+				/>
+			) : null}
+		</>
 	);
 }
 
@@ -269,12 +441,44 @@ function MenuBar({
 	userName,
 	loading,
 	error,
+	workerId,
+	workerName,
+	localPath,
+	hasDeployScript,
+	hasEnvFile,
+	gitAvailable,
+	isGitRepo,
+	onSetLocalPath,
+	onClearLocalPath,
+	onReveal,
+	onNtnDeploy,
+	onPnpmDeploy,
+	onPushSecrets,
+	onOpenGitCheckin,
+	setLocalPathError,
 }: {
 	workspaceName?: string;
 	userName?: string;
 	loading: boolean;
 	error: Error | null;
+	workerId: string | null;
+	workerName: string | null;
+	localPath: string | null;
+	hasDeployScript: boolean;
+	hasEnvFile: boolean;
+	gitAvailable: boolean;
+	isGitRepo: boolean;
+	onSetLocalPath: () => void;
+	onClearLocalPath: () => void;
+	onReveal: () => void;
+	onNtnDeploy: () => void;
+	onPnpmDeploy: () => void;
+	onPushSecrets: () => void;
+	onOpenGitCheckin: () => void;
+	setLocalPathError: Error | null;
 }) {
+	const [open, setOpen] = useState(false);
+	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="flex items-center gap-3">
@@ -292,7 +496,152 @@ function MenuBar({
 							: `${workspaceName} · ${userName}`}
 				</span>
 			</div>
+			<div className="relative">
+				<button
+					type="button"
+					disabled={disabled}
+					onClick={() => setOpen((v) => !v)}
+					title={disabled ? "Select a worker first" : undefined}
+					className={
+						"rounded border px-2 py-1 text-xs " +
+						(disabled
+							? "cursor-not-allowed border-neutral-200 text-neutral-400 dark:border-neutral-800 dark:text-neutral-600"
+							: "border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900")
+					}
+				>
+					Worker{workerName ? `: ${workerName}` : ""} ▾
+				</button>
+				{open && workerId ? (
+					<div
+						className="absolute right-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+						onMouseLeave={() => setOpen(false)}
+					>
+						<MenuItem
+							label={localPath ? "Change local folder…" : "Set local folder…"}
+							onClick={() => {
+								setOpen(false);
+								onSetLocalPath();
+							}}
+						/>
+						<MenuItem
+							label="Reveal in Explorer"
+							disabled={!localPath}
+							disabledReason="No local folder registered — use Set local folder… first."
+							onClick={() => {
+								setOpen(false);
+								onReveal();
+							}}
+						/>
+						<MenuItem
+							label="ntn workers deploy"
+							disabled={!localPath || hasDeployScript}
+							disabledReason={
+								!localPath
+									? "Requires a registered local folder."
+									: "This project defines scripts.deploy in package.json — use pnpm run deploy."
+							}
+							onClick={() => {
+								setOpen(false);
+								onNtnDeploy();
+							}}
+						/>
+						<MenuItem
+							label="pnpm run deploy"
+							disabled={!localPath || !hasDeployScript}
+							disabledReason={
+								!localPath
+									? "Requires a registered local folder."
+									: "This project has no scripts.deploy in package.json — use ntn workers deploy."
+							}
+							onClick={() => {
+								setOpen(false);
+								onPnpmDeploy();
+							}}
+						/>
+						<MenuItem
+							label="push secrets to Notion"
+							disabled={!localPath || !hasEnvFile}
+							disabledReason={
+								!localPath
+									? "Requires a registered local folder."
+									: "No .env file found in the registered local folder."
+							}
+							onClick={() => {
+								setOpen(false);
+								onPushSecrets();
+							}}
+						/>
+						<MenuItem
+							label="local check-in"
+							disabled={!localPath || !gitAvailable || !isGitRepo}
+							disabledReason={
+								!localPath
+									? "Requires a registered local folder."
+									: !gitAvailable
+										? "git is not installed on this machine — install git to enable this."
+										: "The registered local folder is not a git repository."
+							}
+							onClick={() => {
+								setOpen(false);
+								onOpenGitCheckin();
+							}}
+						/>
+						{localPath ? (
+							<>
+								<div className="border-t border-neutral-200 dark:border-neutral-800" />
+								<div
+									className="px-3 py-1 font-mono text-[10px] text-neutral-500"
+									title={localPath}
+								>
+									{localPath}
+								</div>
+								<MenuItem
+									label="Forget local folder"
+									onClick={() => {
+										setOpen(false);
+										onClearLocalPath();
+									}}
+								/>
+							</>
+						) : null}
+						{setLocalPathError ? (
+							<div className="border-t border-red-200 px-3 py-1 text-[11px] text-red-600 dark:border-red-900/40 dark:text-red-400">
+								{setLocalPathError.message}
+							</div>
+						) : null}
+					</div>
+				) : null}
+			</div>
 		</header>
+	);
+}
+
+function MenuItem({
+	label,
+	onClick,
+	disabled,
+	disabledReason,
+}: {
+	label: string;
+	onClick: () => void;
+	disabled?: boolean;
+	disabledReason?: string;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={disabled}
+			title={disabled ? disabledReason : undefined}
+			className={
+				"block w-full px-3 py-1.5 text-left text-sm " +
+				(disabled
+					? "cursor-not-allowed text-neutral-400 dark:text-neutral-600"
+					: "hover:bg-neutral-100 dark:hover:bg-neutral-900")
+			}
+		>
+			{label}
+		</button>
 	);
 }
 
@@ -414,7 +763,7 @@ function OutputWithCommands({
 }: {
 	commands: string[];
 	trace?: string;
-	body: string;
+	body: React.ReactNode;
 }) {
 	const traceText = trace?.trim() ?? "";
 	return (
@@ -474,17 +823,26 @@ function formatWhoami(w: import("@ntn-ui/shared").Whoami): string {
 	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
 }
 
-function formatWorkerDetails(
-	w: import("@ntn-ui/shared").Worker,
-	u: import("@ntn-ui/shared").WorkerUsage,
-): string {
-	const rows: Array<[string, string]> = [
+// Local-path row is highlighted; the rest is plain text.
+function WorkerDetailsBody({
+	worker: w,
+	usage: u,
+	localPath,
+	envText,
+}: {
+	worker: import("@ntn-ui/shared").Worker;
+	usage: import("@ntn-ui/shared").WorkerUsage;
+	localPath: string | null;
+	envText: string;
+}) {
+	const rows: Array<[string, string, boolean?]> = [
 		["ID", w.workerId],
 		["Name", w.name],
 		["Space ID", w.spaceId],
 		["Created at", formatDateTime(w.createdAt)],
 		["Updated at", formatDateTime(w.updatedAt)],
 		["Updated by", w.updatedByName ?? ""],
+		["Local path", localPath ?? "(not set)", true],
 		["Usage window", `${u.days} day${u.days === 1 ? "" : "s"}`],
 		["Credits", u.usage.credits.toFixed(6)],
 		["Sandboxes", u.usage.sandboxCount.toLocaleString()],
@@ -494,7 +852,23 @@ function formatWorkerDetails(
 		["Egress", formatBytes(u.usage.networkEgressBytes)],
 	];
 	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
-	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
+	const env = envText.trim() || "(no environment variables)";
+	return (
+		<>
+			{rows.map(([label, value, highlight], i) => {
+				const line = `${label.padEnd(labelWidth)} ${value}\n`;
+				return highlight ? (
+					<span key={label} className="text-yellow-300">
+						{line}
+					</span>
+				) : (
+					<span key={label}>{line}</span>
+				);
+			})}
+			{"\n"}
+			{env}
+		</>
+	);
 }
 
 function WebhookLine({
@@ -550,10 +924,556 @@ function WebhookLine({
 	);
 }
 
+// Strip ANSI SGR escape codes (colors, dim, bold, etc.) so raw ntn output
+// renders cleanly in a plain <pre>. eslint-disable is for the intentional
+// control char in the regex.
+// eslint-disable-next-line no-control-regex
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s: string): string {
+	return s.replace(ANSI_RE, "");
+}
+
+function formatDeployResult(r: DeployResult): string {
+	const header = `cwd: ${r.cwd}\nexit ${r.exitCode}   (${r.durationMs} ms)`;
+	const parts = [header];
+	// Build progress (stderr) first — matches the order you'd see in a terminal.
+	const stderr = stripAnsi(r.stderr).trim();
+	if (stderr) parts.push(SEPARATOR, stderr);
+	// If no --json summary is available, fall back to raw stdout in the same slot.
+	if (!r.summary && r.stdout.trim()) {
+		parts.push(SEPARATOR, stripAnsi(r.stdout).trimEnd());
+	}
+	// Summary last — this is the "✔ Worker updated / webhook URLs" section.
+	if (r.summary) {
+		const s = r.summary;
+		const lines: string[] = [
+			s.is_update ? "✔ Worker updated" : "✔ Worker created",
+			`Worker ID:  ${s.worker_id}`,
+		];
+		if (s.capabilities.length) {
+			lines.push("", "Capabilities:");
+			for (const c of s.capabilities) lines.push(`  ${c._tag.padEnd(10)} ${c.key}`);
+		}
+		if (s.webhook_urls.length) {
+			lines.push("", "Webhook URLs:");
+			for (const w of s.webhook_urls) lines.push(`  ${w.key} → ${w.url}`);
+		}
+		if (s.database_links.length) {
+			lines.push("", `Database links: ${s.database_links.length}`);
+		}
+		parts.push(SEPARATOR, lines.join("\n"));
+	}
+	// Followup command (e.g. env pull after env push) at the very bottom.
+	if (r.followup) {
+		const f = r.followup;
+		const header = `${f.command}\nexit ${f.exitCode}   (${f.durationMs} ms)`;
+		parts.push(SEPARATOR, header);
+		const fStderr = stripAnsi(f.stderr).trim();
+		if (fStderr) parts.push(fStderr);
+		const fStdout = stripAnsi(f.stdout).trimEnd();
+		if (fStdout) parts.push(fStdout);
+	}
+	return parts.join("\n");
+}
+
 function formatWebhookResult(r: WebhookFireResult): string {
 	const header = `POST ${r.url}\nStatus: ${r.status} ${r.statusText}   (${r.durationMs} ms)`;
 	const body = r.body?.length ? r.body : "(empty body)";
 	return `${header}\n${"─".repeat(60)}\n${body}`;
+}
+
+// Rewrites the raw server error into a friendlier message when we recognise
+// the workerId-mismatch case. Any other error passes through unchanged.
+function friendlySetPathError(
+	err: Error | null,
+	workerName: string | null,
+): Error | null {
+	if (!err) return null;
+	if (err.message.startsWith("worker mismatch")) {
+		const name = workerName ?? "the selected worker";
+		return new Error(
+			`The folder you chose appears to be for a different worker than ${name}.`,
+		);
+	}
+	return err;
+}
+
+function FolderPickerModal({
+	workerName,
+	startPath,
+	submitting,
+	error,
+	onClose,
+	onSelect,
+}: {
+	workerName: string | null;
+	startPath: string | null;
+	submitting: boolean;
+	error: Error | null;
+	onClose: () => void;
+	onSelect: (path: string) => void;
+}) {
+	const [currentPath, setCurrentPath] = useState<string | null>(startPath);
+	const [pathInput, setPathInput] = useState<string>(startPath ?? "");
+
+	// Fetch the user's home dir if we weren't given a start path.
+	const homeQ = useQuery({
+		queryKey: ["fsHome"],
+		queryFn: api.getFsHome,
+		enabled: currentPath === null,
+		staleTime: Infinity,
+	});
+	useEffect(() => {
+		if (currentPath === null && homeQ.data?.path) {
+			setCurrentPath(homeQ.data.path);
+			setPathInput(homeQ.data.path);
+		}
+	}, [currentPath, homeQ.data]);
+
+	const listingQ = useQuery({
+		queryKey: ["fsListing", currentPath],
+		queryFn: () => api.getFsListing(currentPath!),
+		enabled: !!currentPath,
+	});
+
+	// Escape to close.
+	useEffect(() => {
+		const h = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", h);
+		return () => window.removeEventListener("keydown", h);
+	}, [onClose]);
+
+	function navigate(newPath: string) {
+		setCurrentPath(newPath);
+		setPathInput(newPath);
+	}
+
+	const canSelect = !!listingQ.data?.isWorkerProject;
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+			onClick={onClose}
+			role="presentation"
+		>
+			<div
+				className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-950"
+				onClick={(e) => e.stopPropagation()}
+				role="dialog"
+				aria-modal="true"
+				aria-label="Choose local worker folder"
+			>
+				<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+					<h2 className="text-sm font-semibold">
+						Choose a local worker folder{workerName ? ` for ${workerName}` : ""}
+					</h2>
+					<button
+						type="button"
+						onClick={onClose}
+						className="rounded px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+					>
+						✕
+					</button>
+				</div>
+
+				<form
+					className="flex gap-2 border-b border-neutral-200 p-2 dark:border-neutral-800"
+					onSubmit={(e) => {
+						e.preventDefault();
+						if (pathInput.trim()) navigate(pathInput.trim());
+					}}
+				>
+					<button
+						type="button"
+						title="Up one level"
+						disabled={!listingQ.data?.parent}
+						onClick={() => listingQ.data?.parent && navigate(listingQ.data.parent)}
+						className="rounded border border-neutral-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-neutral-700"
+					>
+						↑
+					</button>
+					<input
+						type="text"
+						value={pathInput}
+						onChange={(e) => setPathInput(e.target.value)}
+						placeholder="Type or paste an absolute path"
+						className="flex-1 rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900"
+					/>
+					<button
+						type="submit"
+						className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+					>
+						Go
+					</button>
+				</form>
+
+				<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+					{listingQ.isLoading ? (
+						<div className="p-4 text-sm text-neutral-500">Loading…</div>
+					) : listingQ.error ? (
+						<div className="p-4 text-sm text-red-600 dark:text-red-400">
+							{(listingQ.error as Error).message}
+						</div>
+					) : listingQ.data ? (
+						<div className="flex-1 overflow-auto">
+							{listingQ.data.entries.length === 0 ? (
+								<div className="p-4 text-sm text-neutral-500">
+									(no subdirectories here)
+								</div>
+							) : (
+								<ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
+									{listingQ.data.entries.map((entry) => (
+										<li key={entry.name}>
+											<button
+												type="button"
+												onClick={() =>
+													navigate(joinPath(listingQ.data!.path, entry.name))
+												}
+												className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
+											>
+												<span aria-hidden="true">📁</span>
+												<span className="flex-1 font-mono text-xs">{entry.name}</span>
+												{entry.isWorkerProject ? (
+													<span
+														className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+														title="Contains workers.json"
+													>
+														worker
+													</span>
+												) : null}
+											</button>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
+					) : null}
+				</div>
+
+				<div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
+					<div className="mb-2 text-xs">
+						{listingQ.data?.isWorkerProject ? (
+							<span className="text-emerald-700 dark:text-emerald-400">
+								✓ This folder contains workers.json — ready to select.
+							</span>
+						) : listingQ.data ? (
+							<span className="text-red-600 dark:text-red-400">
+								No workers.json here — navigate into a worker project directory.
+							</span>
+						) : null}
+					</div>
+					{error ? (
+						<div className="mb-2 text-xs text-red-600 dark:text-red-400">
+							{error.message}
+						</div>
+					) : null}
+					<div className="flex justify-end gap-2">
+						<button
+							type="button"
+							onClick={onClose}
+							disabled={submitting}
+							className="rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							disabled={!canSelect || !currentPath || submitting}
+							onClick={() => currentPath && onSelect(currentPath)}
+							title={
+								canSelect
+									? undefined
+									: "Selectable only when the current folder contains workers.json"
+							}
+							className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+						>
+							{submitting ? "Setting…" : "Select this folder"}
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+// Join a directory path and a name into an absolute path preserving the
+// separator style of `dir` (backslash on Windows-style paths, forward slash
+// otherwise). Node's path.join isn't available in the browser bundle.
+function joinPath(dir: string, name: string): string {
+	const sep = dir.includes("\\") && !dir.startsWith("/") ? "\\" : "/";
+	return dir.endsWith(sep) ? dir + name : dir + sep + name;
+}
+
+function FileList({
+	files,
+	workerPathRelToRoot,
+	selected,
+	onToggle,
+}: {
+	files: import("@ntn-ui/shared").GitStatusEntry[];
+	workerPathRelToRoot: string;
+	selected: Set<string>;
+	onToggle: (path: string, on: boolean) => void;
+}) {
+	// Standalone worker: no grouping, one flat list.
+	if (!workerPathRelToRoot) {
+		return (
+			<ul className="divide-y divide-neutral-100 text-sm dark:divide-neutral-900">
+				{files.map((f) => (
+					<FileRow key={f.path} entry={f} checked={selected.has(f.path)} onToggle={onToggle} />
+				))}
+			</ul>
+		);
+	}
+	// Monorepo: split into "this worker" and "elsewhere in repo".
+	const prefix = `${workerPathRelToRoot}/`;
+	const inside = files.filter((f) => f.path.startsWith(prefix));
+	const outside = files.filter((f) => !f.path.startsWith(prefix));
+	return (
+		<div className="text-sm">
+			<GroupHeader label={`This worker (${workerPathRelToRoot}/)`} count={inside.length} />
+			{inside.length === 0 ? (
+				<div className="px-3 py-1 text-xs text-neutral-500">No changes under this worker.</div>
+			) : (
+				<ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
+					{inside.map((f) => (
+						<FileRow
+							key={f.path}
+							entry={f}
+							checked={selected.has(f.path)}
+							onToggle={onToggle}
+							stripPrefix={prefix}
+						/>
+					))}
+				</ul>
+			)}
+			<GroupHeader label="Elsewhere in repo" count={outside.length} />
+			{outside.length === 0 ? (
+				<div className="px-3 py-1 text-xs text-neutral-500">
+					No other pending changes in the repo.
+				</div>
+			) : (
+				<ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
+					{outside.map((f) => (
+						<FileRow
+							key={f.path}
+							entry={f}
+							checked={selected.has(f.path)}
+							onToggle={onToggle}
+						/>
+					))}
+				</ul>
+			)}
+		</div>
+	);
+}
+
+function GroupHeader({ label, count }: { label: string; count: number }) {
+	return (
+		<div className="sticky top-0 z-10 border-b border-neutral-200 bg-neutral-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
+			{label} <span className="font-normal text-neutral-400">({count})</span>
+		</div>
+	);
+}
+
+function FileRow({
+	entry,
+	checked,
+	onToggle,
+	stripPrefix,
+}: {
+	entry: import("@ntn-ui/shared").GitStatusEntry;
+	checked: boolean;
+	onToggle: (path: string, on: boolean) => void;
+	stripPrefix?: string;
+}) {
+	const displayPath =
+		stripPrefix && entry.path.startsWith(stripPrefix)
+			? entry.path.slice(stripPrefix.length)
+			: entry.path;
+	return (
+		<li>
+			<label className="flex cursor-pointer items-center gap-3 px-3 py-1 hover:bg-neutral-50 dark:hover:bg-neutral-900">
+				<input
+					type="checkbox"
+					checked={checked}
+					onChange={(e) => onToggle(entry.path, e.target.checked)}
+				/>
+				<span className="w-8 font-mono text-xs text-neutral-500">{entry.statusCode}</span>
+				<span className="font-mono text-xs" title={entry.path}>
+					{displayPath}
+				</span>
+			</label>
+		</li>
+	);
+}
+
+function GitCheckinModal({
+	workerId,
+	localPath,
+	onClose,
+	onCommitted,
+}: {
+	workerId: string;
+	localPath: string;
+	onClose: () => void;
+	onCommitted: (result: DeployResult) => void;
+}) {
+	const statusQ = useQuery({
+		queryKey: ["gitStatus", workerId],
+		queryFn: () => api.getGitStatus(workerId),
+		retry: false,
+	});
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [message, setMessage] = useState("");
+
+	// Default: check files under the worker's own directory. In the standalone
+	// case (worker path == repo root) that's everything; in a monorepo it's
+	// only files inside the worker, so cross-worker changes aren't accidentally
+	// swept into this commit.
+	useEffect(() => {
+		const d = statusQ.data;
+		if (!d?.files) return;
+		if (!d.workerPathRelToRoot) {
+			setSelected(new Set(d.files.map((f) => f.path)));
+			return;
+		}
+		const prefix = `${d.workerPathRelToRoot}/`;
+		setSelected(new Set(d.files.filter((f) => f.path.startsWith(prefix)).map((f) => f.path)));
+	}, [statusQ.data]);
+
+	// Escape closes.
+	useEffect(() => {
+		const h = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", h);
+		return () => window.removeEventListener("keydown", h);
+	}, [onClose]);
+
+	const commit = useMutation({
+		mutationFn: () => api.gitCommit(workerId, [...selected], message),
+		onSuccess: onCommitted,
+	});
+
+	function toggle(path: string, on: boolean) {
+		const s = new Set(selected);
+		if (on) s.add(path);
+		else s.delete(path);
+		setSelected(s);
+	}
+
+	const canCommit =
+		selected.size > 0 && message.trim().length > 0 && !commit.isPending && statusQ.data?.isGitRepo;
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+			onClick={onClose}
+			onKeyDown={(e) => {
+				if (e.key === "Escape") onClose();
+			}}
+			role="presentation"
+		>
+			<div
+				className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-950"
+				onClick={(e) => e.stopPropagation()}
+				role="dialog"
+				aria-modal="true"
+				aria-label="Local check-in"
+			>
+				<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+					<div>
+						<h2 className="text-sm font-semibold">Local check-in</h2>
+						<div className="font-mono text-[10px] text-neutral-500">{localPath}</div>
+					</div>
+					<button
+						type="button"
+						onClick={onClose}
+						className="rounded px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900"
+					>
+						✕
+					</button>
+				</div>
+
+				{statusQ.isLoading ? (
+					<div className="p-6 text-sm text-neutral-500">Loading git status…</div>
+				) : statusQ.error ? (
+					<div className="p-6 text-sm text-red-600 dark:text-red-400">
+						{(statusQ.error as Error).message}
+					</div>
+				) : !statusQ.data?.isGitRepo ? (
+					<div className="p-6 text-sm text-red-600 dark:text-red-400">
+						Not a git repository at <span className="font-mono">{localPath}</span>.
+					</div>
+				) : statusQ.data.files.length === 0 ? (
+					<div className="p-6 text-sm text-neutral-500">
+						Nothing to commit — working tree clean.
+					</div>
+				) : (
+					<>
+						<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+							<div className="border-b border-neutral-200 dark:border-neutral-800">
+								<div className="max-h-48 overflow-auto">
+									<FileList
+										files={statusQ.data.files}
+										workerPathRelToRoot={statusQ.data.workerPathRelToRoot}
+										selected={selected}
+										onToggle={toggle}
+									/>
+								</div>
+							</div>
+							<pre className="flex-1 overflow-auto bg-neutral-950 p-3 font-mono text-xs text-neutral-100">
+								{statusQ.data.diff.trim() ||
+									"(no diff to show — only untracked files, or the repo has no commits yet)"}
+							</pre>
+						</div>
+
+						<div className="border-t border-neutral-200 p-3 dark:border-neutral-800">
+							<textarea
+								value={message}
+								onChange={(e) => setMessage(e.target.value)}
+								placeholder="Commit message"
+								className="h-20 w-full resize-none rounded border border-neutral-300 bg-white p-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+							/>
+							{commit.error ? (
+								<div className="mt-1 text-xs text-red-600 dark:text-red-400">
+									{(commit.error as Error).message}
+								</div>
+							) : null}
+							<div className="mt-2 flex items-center justify-between">
+								<div className="text-xs text-neutral-500">
+									{selected.size} of {statusQ.data.files.length} file
+									{statusQ.data.files.length === 1 ? "" : "s"} selected
+								</div>
+								<div className="flex gap-2">
+									<button
+										type="button"
+										onClick={onClose}
+										className="rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+									>
+										Cancel
+									</button>
+									<button
+										type="button"
+										disabled={!canCommit}
+										onClick={() => commit.mutate()}
+										className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+									>
+										{commit.isPending
+											? "Committing…"
+											: `Commit ${selected.size} file${selected.size === 1 ? "" : "s"}`}
+									</button>
+								</div>
+							</div>
+						</div>
+					</>
+				)}
+			</div>
+		</div>
+	);
 }
 
 function ExitCodeBadge({ code }: { code: number | null }) {

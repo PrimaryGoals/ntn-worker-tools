@@ -41,11 +41,19 @@ export interface RunOptions {
 }
 
 function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult> {
+	return runRawCommand("ntn", args, opts);
+}
+
+function runRawCommand(
+	cmd: string,
+	args: string[],
+	opts: RunOptions = {},
+): Promise<NtnCommandResult> {
 	return new Promise((resolve, reject) => {
 		const start = Date.now();
 		// eslint-disable-next-line no-console
-		console.log(`[ntn spawn] ntn ${args.join(" ")}`);
-		const child = spawn("ntn", args, {
+		console.log(`[${cmd} spawn] ${cmd} ${args.join(" ")}`);
+		const child = spawn(cmd, args, {
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
 			shell: process.platform === "win32",
 			windowsHide: true,
@@ -73,9 +81,11 @@ function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult
 			if (timer) clearTimeout(timer);
 			if ((err as NodeJS.ErrnoException).code === "ENOENT") {
 				reject(
-					new NtnError("The `ntn` CLI was not found on your PATH.", {
+					new NtnError(`The \`${cmd}\` command was not found on your PATH.`, {
 						detail:
-							"Install it (see https://developers.notion.com/workers/get-started/overview) and make sure `ntn --version` works from a terminal.",
+							cmd === "ntn"
+								? "Install it (see https://developers.notion.com/workers/get-started/overview) and make sure `ntn --version` works from a terminal."
+								: `Install ${cmd} and make sure \`${cmd} --version\` works from a terminal.`,
 					}),
 				);
 				return;
@@ -86,7 +96,7 @@ function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult
 		child.on("close", (code) => {
 			if (timer) clearTimeout(timer);
 			resolve({
-				command: "ntn",
+				command: cmd,
 				args,
 				exitCode: killed ? -1 : (code ?? 0),
 				stdout,
@@ -95,6 +105,23 @@ function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult
 			});
 		});
 	});
+}
+
+// Spawns any executable (e.g. pnpm), captures stdout+stderr, never throws on
+// non-zero exit — caller inspects exitCode and surfaces partial output.
+export async function runShellAllowingFailure(
+	cmd: string,
+	args: string[],
+	opts: RunOptions = {},
+): Promise<{ command: string; exitCode: number; stdout: string; stderr: string; durationMs: number }> {
+	const result = await runRawCommand(cmd, args, { timeoutMs: 5 * 60_000, ...opts });
+	return {
+		command: `${cmd} ${args.join(" ")}`,
+		exitCode: result.exitCode,
+		stdout: result.stdout,
+		stderr: result.stderr,
+		durationMs: result.durationMs,
+	};
 }
 
 export async function runNtnJson<T>(args: string[], opts: RunOptions = {}): Promise<T> {
@@ -158,4 +185,20 @@ export async function runNtnRawWithTrace(
 		});
 	}
 	return { stdout: result.stdout, stderr: result.stderr };
+}
+
+// Like runNtnRawWithTrace but never throws on non-zero exit; returns exit code so
+// the caller (e.g. deploy) can surface partial output when the command fails.
+export async function runNtnRawAllowingFailure(
+	args: string[],
+	opts: RunOptions = {},
+): Promise<{ exitCode: number; stdout: string; stderr: string; durationMs: number }> {
+	const start = Date.now();
+	const result = await runRaw(args, { timeoutMs: 5 * 60_000, ...opts });
+	return {
+		exitCode: result.exitCode,
+		stdout: result.stdout,
+		stderr: result.stderr,
+		durationMs: Date.now() - start,
+	};
 }

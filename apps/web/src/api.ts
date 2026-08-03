@@ -1,5 +1,10 @@
 import type {
 	AppConfig,
+	DeployResult,
+	EnvInfo,
+	FsListing,
+	GitStatus,
+	LocalInfo,
 	LogsPayload,
 	RunsPayload,
 	WebhookFireResult,
@@ -11,17 +16,26 @@ import type {
 } from "@ntn-ui/shared";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	// Only advertise JSON when we're actually sending a body — Fastify rejects
+	// content-type: application/json with an empty body.
+	const hasBody = init?.body != null;
 	const res = await fetch(path, {
 		...init,
-		headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+		headers: {
+			...(hasBody ? { "content-type": "application/json" } : {}),
+			...(init?.headers ?? {}),
+		},
 	});
 	if (!res.ok) {
-		let msg = "";
+		// Read the body once, then try to parse — otherwise the second read fails
+		// with "body stream already read" and hides the real error.
+		const text = await res.text();
+		let msg = text;
 		try {
-			const body = (await res.json()) as { error?: string; detail?: string };
-			msg = body.detail ? `${body.error}: ${body.detail}` : (body.error ?? "");
+			const body = JSON.parse(text) as { error?: string; detail?: string };
+			msg = body.detail ? `${body.error}: ${body.detail}` : (body.error ?? text);
 		} catch {
-			msg = await res.text();
+			/* keep raw text */
 		}
 		throw new Error(msg || `${res.status} ${res.statusText}`);
 	}
@@ -30,6 +44,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
 	getConfig: () => request<AppConfig>("/api/config"),
+	getEnvInfo: () => request<EnvInfo>("/api/env-info"),
+	getFsHome: () => request<{ path: string }>("/api/fs/home"),
+	getFsListing: (path: string) =>
+		request<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
 	getWhoami: (verbose = false) =>
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
@@ -54,5 +72,35 @@ export const api = {
 		request<WebhookFireResult>("/api/webhook/fire", {
 			method: "POST",
 			body: JSON.stringify({ url }),
+		}),
+	setWorkerLocalPath: (workerId: string, path: string) =>
+		request<AppConfig>(`/api/workers/${workerId}/local-path`, {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
+	clearWorkerLocalPath: (workerId: string) =>
+		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
+	getWorkerLocalInfo: (workerId: string) =>
+		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
+	revealWorker: (workerId: string) =>
+		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
+	deployWorker: (workerId: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/deploy${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST" },
+		),
+	pnpmDeployWorker: (workerId: string) =>
+		request<DeployResult>(`/api/workers/${workerId}/pnpm-deploy`, { method: "POST" }),
+	pushWorkerSecrets: (workerId: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST" },
+		),
+	getGitStatus: (workerId: string) =>
+		request<GitStatus>(`/api/workers/${workerId}/git-status`),
+	gitCommit: (workerId: string, files: string[], message: string) =>
+		request<DeployResult>(`/api/workers/${workerId}/git-commit`, {
+			method: "POST",
+			body: JSON.stringify({ files, message }),
 		}),
 };
