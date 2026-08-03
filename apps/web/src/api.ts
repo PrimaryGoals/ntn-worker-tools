@@ -44,6 +44,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
 	getConfig: () => request<AppConfig>("/api/config"),
+	updateUiConfig: (patch: Partial<AppConfig["ui"]>) =>
+		request<AppConfig>("/api/config/ui", {
+			method: "PATCH",
+			body: JSON.stringify(patch),
+		}),
 	getEnvInfo: () => request<EnvInfo>("/api/env-info"),
 	getFsHome: () => request<{ path: string }>("/api/fs/home"),
 	getFsListing: (path: string) =>

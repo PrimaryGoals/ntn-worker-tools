@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { DeployResult, WebhookFireResult } from "@ntn-ui/shared";
 import { api } from "./api";
 import { formatDateTime, formatDuration } from "./format";
@@ -77,6 +78,29 @@ export function App() {
 		retry: false,
 	});
 	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
+	const persistedPanelSizes = configQ.data?.ui?.panelSizes ?? {};
+	const savePanelSize = useMutation({
+		mutationFn: (patch: Record<string, number>) =>
+			api.updateUiConfig({ panelSizes: { ...persistedPanelSizes, ...patch } }),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
+	// Debounce onLayout — the library fires it many times per drag frame,
+	// and each fire round-trips through the config-file writer on the server.
+	const schedulePanelSave = useMemo(() => {
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		let pending: Record<string, number> = {};
+		return (patch: Record<string, number>) => {
+			pending = { ...pending, ...patch };
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(() => {
+				savePanelSize.mutate(pending);
+				pending = {};
+			}, 250);
+		};
+		// savePanelSize.mutate is a stable reference from useMutation, so we can
+		// safely close over the outer savePanelSize handle without a dep.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 	const envInfoQ = useQuery({ queryKey: ["envInfo"], queryFn: api.getEnvInfo, staleTime: Infinity });
 	const gitAvailable = envInfoQ.data?.gitAvailable ?? false;
 	const localPath = selectedWorkerId
@@ -201,40 +225,66 @@ export function App() {
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
 			/>
 
-			<div className="grid flex-1 grid-cols-[minmax(240px,1fr)_2fr] gap-2 overflow-hidden p-2">
-				<Panel title="Workers">
-					<WorkersList
-						loading={workersQ.isLoading}
-						error={workersQ.error as Error | null}
-						workers={workersQ.data ?? []}
-						selectedId={selectedWorkerId}
-						onSelect={(id) => {
-							setSelectedWorkerId(id);
-							setSelectedRunId(null);
-							clearTransientOutputs();
+			<PanelGroup
+				direction="vertical"
+				className="flex-1"
+				onLayout={(sizes) => {
+					if (sizes[0] !== undefined) schedulePanelSave({ topBottom: sizes[0] });
+				}}
+			>
+				<RPanel defaultSize={persistedPanelSizes.topBottom ?? 50} minSize={20}>
+					<PanelGroup
+						direction="horizontal"
+						onLayout={(sizes) => {
+							if (sizes[0] !== undefined) schedulePanelSave({ workersRuns: sizes[0] });
 						}}
-					/>
-				</Panel>
-
-				<Panel title="Runs">
-					{!selectedWorkerId ? (
-						<Empty>Select a worker to see its runs.</Empty>
-					) : (
-						<RunsList
-							loading={runsQ.isLoading}
-							error={runsQ.error as Error | null}
-							runs={runsQ.data?.runs ?? []}
-							selectedId={selectedRunId}
-							onSelect={(id) => {
-								setSelectedRunId(id);
-								clearTransientOutputs();
-							}}
-						/>
-					)}
-				</Panel>
-			</div>
-
-			<div className="flex gap-4 border-t border-neutral-200 bg-neutral-100 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+					>
+						<RPanel defaultSize={persistedPanelSizes.workersRuns ?? 30} minSize={15}>
+							<div className="h-full p-2">
+								<Panel title="Workers">
+									<WorkersList
+										loading={workersQ.isLoading}
+										error={workersQ.error as Error | null}
+										workers={workersQ.data ?? []}
+										selectedId={selectedWorkerId}
+										localPaths={configQ.data?.workerLocalPaths ?? {}}
+										onSelect={(id) => {
+											setSelectedWorkerId(id);
+											setSelectedRunId(null);
+											clearTransientOutputs();
+										}}
+										onRevealPath={(id) => revealWorker.mutate(id)}
+									/>
+								</Panel>
+							</div>
+						</RPanel>
+						<PanelResizeHandle className="w-1 cursor-col-resize bg-neutral-200 hover:bg-neutral-400 dark:bg-neutral-800 dark:hover:bg-neutral-600" />
+						<RPanel defaultSize={100 - (persistedPanelSizes.workersRuns ?? 30)} minSize={30}>
+							<div className="h-full p-2">
+								<Panel title="Runs">
+									{!selectedWorkerId ? (
+										<Empty>Select a worker to see its runs.</Empty>
+									) : (
+										<RunsList
+											loading={runsQ.isLoading}
+											error={runsQ.error as Error | null}
+											runs={runsQ.data?.runs ?? []}
+											selectedId={selectedRunId}
+											onSelect={(id) => {
+												setSelectedRunId(id);
+												clearTransientOutputs();
+											}}
+										/>
+									)}
+								</Panel>
+							</div>
+						</RPanel>
+					</PanelGroup>
+				</RPanel>
+				<PanelResizeHandle className="h-1 cursor-row-resize bg-neutral-200 hover:bg-neutral-400 dark:bg-neutral-800 dark:hover:bg-neutral-600" />
+				<RPanel defaultSize={100 - (persistedPanelSizes.topBottom ?? 50)} minSize={20}>
+					<div className="flex h-full flex-col">
+			<div className="flex gap-4 border-b border-neutral-200 bg-neutral-100 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
 				<div className="flex flex-1 flex-col gap-1">
 					{selectedWorkerId ? (
 						<WebhookLine
@@ -286,7 +336,7 @@ export function App() {
 				</label>
 			</div>
 
-			<div className="h-[38vh] border-t border-neutral-200 bg-neutral-950 p-0 dark:border-neutral-800">
+			<div className="min-h-0 flex-1 bg-neutral-950 p-0">
 				{runningCommand ? (
 					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
 				) : anyDeployError ? (
@@ -381,7 +431,6 @@ export function App() {
 								<WorkerDetailsBody
 									worker={workerQ.data}
 									usage={workerUsageQ.data}
-									localPath={localPath}
 									envText={envQ.data.text}
 								/>
 							}
@@ -401,6 +450,9 @@ export function App() {
 					<div className="p-3 text-sm text-neutral-400">Loading whoami…</div>
 				)}
 			</div>
+			</div>
+			</RPanel>
+		</PanelGroup>
 		</div>
 		{gitCheckinOpen && selectedWorkerId && localPath ? (
 			<GitCheckinModal
@@ -426,6 +478,7 @@ export function App() {
 						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
 					)}
 					onClose={() => setFolderPickerOpen(false)}
+					onResetError={() => setLocalPath.reset()}
 					onSelect={(path) => {
 						clearTransientOutputs();
 						setLocalPath.mutate({ workerId: selectedWorkerId, path });
@@ -665,34 +718,56 @@ function WorkersList({
 	error,
 	workers,
 	selectedId,
+	localPaths,
 	onSelect,
+	onRevealPath,
 }: {
 	loading: boolean;
 	error: Error | null;
 	workers: import("@ntn-ui/shared").Worker[];
 	selectedId: string | null;
+	localPaths: Record<string, string>;
 	onSelect: (id: string) => void;
+	onRevealPath: (id: string) => void;
 }) {
 	if (loading) return <Empty>Loading workers…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
 	if (workers.length === 0) return <Empty>No workers in this workspace.</Empty>;
 	return (
 		<ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
-			{workers.map((w) => (
-				<li key={w.workerId}>
-					<button
-						type="button"
-						onClick={() => onSelect(w.workerId)}
-						className={
-							"block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900 " +
-							(selectedId === w.workerId ? "bg-neutral-100 dark:bg-neutral-900" : "")
-						}
+			{workers.map((w) => {
+				const localPath = localPaths[w.workerId];
+				const isSelected = selectedId === w.workerId;
+				return (
+					<li
+						key={w.workerId}
+						className={isSelected ? "bg-neutral-100 dark:bg-neutral-900" : ""}
 					>
-						<div className="font-medium">{w.name}</div>
-						<div className="font-mono text-[10px] text-neutral-500">{w.workerId}</div>
-					</button>
-				</li>
-			))}
+						<button
+							type="button"
+							onClick={() => onSelect(w.workerId)}
+							className="block w-full px-3 pt-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
+						>
+							<div>
+								<span className="font-medium">{w.name}</span>
+								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
+							</div>
+						</button>
+						{localPath ? (
+							<button
+								type="button"
+								onClick={() => onRevealPath(w.workerId)}
+								title={`Reveal ${localPath} in file explorer`}
+								className="block w-full px-3 pb-2 text-left font-mono text-xs font-medium text-neutral-500 hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+							>
+								{localPath}
+							</button>
+						) : (
+							<div className="pb-2" />
+						)}
+					</li>
+				);
+			})}
 		</ul>
 	);
 }
@@ -827,22 +902,19 @@ function formatWhoami(w: import("@ntn-ui/shared").Whoami): string {
 function WorkerDetailsBody({
 	worker: w,
 	usage: u,
-	localPath,
 	envText,
 }: {
 	worker: import("@ntn-ui/shared").Worker;
 	usage: import("@ntn-ui/shared").WorkerUsage;
-	localPath: string | null;
 	envText: string;
 }) {
-	const rows: Array<[string, string, boolean?]> = [
+	const rows: Array<[string, string]> = [
 		["ID", w.workerId],
 		["Name", w.name],
 		["Space ID", w.spaceId],
 		["Created at", formatDateTime(w.createdAt)],
 		["Updated at", formatDateTime(w.updatedAt)],
 		["Updated by", w.updatedByName ?? ""],
-		["Local path", localPath ?? "(not set)", true],
 		["Usage window", `${u.days} day${u.days === 1 ? "" : "s"}`],
 		["Credits", u.usage.credits.toFixed(6)],
 		["Sandboxes", u.usage.sandboxCount.toLocaleString()],
@@ -855,16 +927,7 @@ function WorkerDetailsBody({
 	const env = envText.trim() || "(no environment variables)";
 	return (
 		<>
-			{rows.map(([label, value, highlight], i) => {
-				const line = `${label.padEnd(labelWidth)} ${value}\n`;
-				return highlight ? (
-					<span key={label} className="text-yellow-300">
-						{line}
-					</span>
-				) : (
-					<span key={label}>{line}</span>
-				);
-			})}
+			{rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}\n`).join("")}
 			{"\n"}
 			{env}
 		</>
@@ -1004,6 +1067,7 @@ function FolderPickerModal({
 	submitting,
 	error,
 	onClose,
+	onResetError,
 	onSelect,
 }: {
 	workerName: string | null;
@@ -1011,6 +1075,7 @@ function FolderPickerModal({
 	submitting: boolean;
 	error: Error | null;
 	onClose: () => void;
+	onResetError: () => void;
 	onSelect: (path: string) => void;
 }) {
 	const [currentPath, setCurrentPath] = useState<string | null>(startPath);
@@ -1048,6 +1113,9 @@ function FolderPickerModal({
 	function navigate(newPath: string) {
 		setCurrentPath(newPath);
 		setPathInput(newPath);
+		// Clear any prior submit error — the user has picked a different target,
+		// so keeping the old "wrong worker" message on screen is confusing.
+		onResetError();
 	}
 
 	const canSelect = !!listingQ.data?.isWorkerProject;
