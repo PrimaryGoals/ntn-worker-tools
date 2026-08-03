@@ -10,6 +10,7 @@
 		"check": "tsc --noEmit"
 	},
 	"dependencies": {
+		"@fastify/cookie": "^11.1.2",
 		"@fastify/cors": "^10.0.1",
 		"@ntn-ui/shared": "workspace:*",
 		"env-paths": "^3.0.0",

@@ -96,6 +96,10 @@ export interface WebhookFireResult {
 	statusText: string;
 	body: string;
 	durationMs: number;
+	// Names of any custom request headers the server added (values elided so
+	// the transcript doesn't leak secrets). E.g. ["X-Webhook-Secret"] when a
+	// WEBHOOK_SECRET was found in the worker's env.
+	sentHeaders?: string[];
 }
 
 export interface AppConfig {

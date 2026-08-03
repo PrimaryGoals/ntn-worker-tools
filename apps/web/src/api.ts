@@ -20,6 +20,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// content-type: application/json with an empty body.
 	const hasBody = init?.body != null;
 	const res = await fetch(path, {
+		// Send the session cookie on every API call; the guard rejects 401 without it.
+		credentials: "same-origin",
 		...init,
 		headers: {
 			...(hasBody ? { "content-type": "application/json" } : {}),
@@ -43,6 +45,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+	getSessionStatus: () => request<{ authenticated: boolean }>("/api/session/status"),
+	sessionLogin: (token: string) =>
+		request<{ ok: true }>("/api/session/login", {
+			method: "POST",
+			body: JSON.stringify({ token }),
+		}),
+	sessionLogout: () =>
+		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
 	updateUiConfig: (patch: Partial<AppConfig["ui"]>) =>
 		request<AppConfig>("/api/config/ui", {
@@ -73,10 +83,10 @@ export const api = {
 		request<WorkerEnvPayload>(
 			`/api/workers/${workerId}/env${verbose ? "?verbose=1" : ""}`,
 		),
-	fireWebhook: (url: string) =>
+	fireWebhook: (url: string, webhookSecret?: string) =>
 		request<WebhookFireResult>("/api/webhook/fire", {
 			method: "POST",
-			body: JSON.stringify({ url }),
+			body: JSON.stringify({ url, webhookSecret }),
 		}),
 	setWorkerLocalPath: (workerId: string, path: string) =>
 		request<AppConfig>(`/api/workers/${workerId}/local-path`, {

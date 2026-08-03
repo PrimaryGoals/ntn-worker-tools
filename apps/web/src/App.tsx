@@ -6,6 +6,119 @@ import { api } from "./api";
 import { formatDateTime, formatDuration } from "./format";
 
 export function App() {
+	return (
+		<SessionGate>
+			<AppContent />
+		</SessionGate>
+	);
+}
+
+function SessionGate({ children }: { children: React.ReactNode }) {
+	const qc = useQueryClient();
+	const [manualToken, setManualToken] = useState("");
+	// If the URL carries ?token=…, consume it once: log in, then clean the URL
+	// so bookmarks and Referer headers never expose the secret. The consumed
+	// flag prevents StrictMode's double-invoke from calling login twice.
+	const [urlHandled, setUrlHandled] = useState(false);
+	const urlToken = useMemo(() => {
+		if (typeof window === "undefined") return null;
+		const p = new URLSearchParams(window.location.search);
+		return p.get("token");
+	}, []);
+
+	const login = useMutation({
+		mutationFn: (token: string) => api.sessionLogin(token),
+		onSuccess: () => {
+			// Blow away any stale unauthenticated status result, then let the
+			// next status fetch re-run against the freshly-set cookie.
+			qc.invalidateQueries({ queryKey: ["sessionStatus"] });
+		},
+	});
+
+	useEffect(() => {
+		if (urlHandled) return;
+		if (!urlToken) {
+			setUrlHandled(true);
+			return;
+		}
+		login.mutate(urlToken, {
+			onSettled: () => {
+				const url = new URL(window.location.href);
+				url.searchParams.delete("token");
+				window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+				setUrlHandled(true);
+			},
+		});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [urlToken, urlHandled]);
+
+	const statusQ = useQuery({
+		queryKey: ["sessionStatus"],
+		queryFn: api.getSessionStatus,
+		enabled: urlHandled,
+		retry: false,
+	});
+
+	if (!urlHandled || statusQ.isLoading) {
+		return (
+			<div className="flex h-screen items-center justify-center text-sm text-neutral-500">
+				Checking session…
+			</div>
+		);
+	}
+
+	if (statusQ.data?.authenticated) return <>{children}</>;
+
+	const loginError =
+		(login.error as Error | null) ?? (statusQ.error as Error | null) ?? null;
+
+	return (
+		<div className="flex h-screen items-center justify-center p-4">
+			<div className="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-950">
+				<h1 className="text-lg font-semibold">Session required</h1>
+				<p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+					Open the sign-in URL printed by your <code>pnpm dev</code> (or
+					<code> pnpm dev:server</code>) terminal — it looks like{" "}
+					<code className="font-mono text-xs">http://localhost:5173/?token=…</code>. Once
+					you visit it, a cookie is set and this page will load normally. Bookmark
+					<code> http://localhost:5173/</code> afterward.
+				</p>
+				<form
+					className="mt-4 flex flex-col gap-2"
+					onSubmit={(e) => {
+						e.preventDefault();
+						if (manualToken.trim()) login.mutate(manualToken.trim());
+					}}
+				>
+					<label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+						Or paste the token directly:
+					</label>
+					<input
+						type="password"
+						value={manualToken}
+						onChange={(e) => setManualToken(e.target.value)}
+						placeholder="64-char hex token"
+						className="rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900"
+					/>
+					<button
+						type="submit"
+						disabled={!manualToken.trim() || login.isPending}
+						className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+					>
+						{login.isPending ? "Signing in…" : "Sign in"}
+					</button>
+				</form>
+				{loginError ? (
+					<p className="mt-3 text-xs text-red-600 dark:text-red-400">
+						{loginError.message}
+					</p>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+function AppContent() {
 	const qc = useQueryClient();
 	const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -16,7 +129,8 @@ export function App() {
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
 	const fireWebhook = useMutation({
-		mutationFn: api.fireWebhook,
+		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
+			api.fireWebhook(url, webhookSecret),
 		onSuccess: (data) => setWebhookResult(data),
 	});
 
@@ -293,9 +407,16 @@ export function App() {
 							webhooks={webhooksQ.data?.webhooks ?? []}
 							onFire={(url) => {
 								setWebhookResult(null);
-								fireWebhook.mutate(url);
+								fireWebhook.mutate({
+									url,
+									// Extract WEBHOOK_SECRET from the already-loaded env pull output,
+									// if present. Server will send it as an X-Webhook-Secret header.
+									webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
+								});
 							}}
-							firing={fireWebhook.isPending ? fireWebhook.variables ?? null : null}
+							firing={
+								fireWebhook.isPending ? fireWebhook.variables?.url ?? null : null
+							}
 						/>
 					) : null}
 					<div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
@@ -350,7 +471,7 @@ export function App() {
 					/>
 				) : fireWebhook.isPending ? (
 					<div className="p-3 text-sm text-neutral-400">
-						Firing POST to {fireWebhook.variables}…
+						Firing POST to {fireWebhook.variables?.url}…
 					</div>
 				) : fireWebhook.error ? (
 					<div className="p-3 text-sm text-red-400">
@@ -700,11 +821,11 @@ function MenuItem({
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
 	return (
-		<section className="flex min-h-0 flex-col rounded border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+		<section className="flex h-full min-h-0 flex-col rounded border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="border-b border-neutral-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
 				{title}
 			</div>
-			<div className="flex-1 overflow-auto">{children}</div>
+			<div className="min-h-0 flex-1 overflow-auto">{children}</div>
 		</section>
 	);
 }
@@ -1039,10 +1160,25 @@ function formatDeployResult(r: DeployResult): string {
 	return parts.join("\n");
 }
 
+// Read the WEBHOOK_SECRET value from a .env-style KEY=VALUE dump. Trims a
+// trailing carriage return so Windows-shaped lines don't leak into the header.
+function extractWebhookSecret(envText: string): string | undefined {
+	const m = envText.match(/^WEBHOOK_SECRET=(.*)$/m);
+	if (!m) return undefined;
+	const v = m[1]?.replace(/\r$/, "") ?? "";
+	return v || undefined;
+}
+
 function formatWebhookResult(r: WebhookFireResult): string {
-	const header = `POST ${r.url}\nStatus: ${r.status} ${r.statusText}   (${r.durationMs} ms)`;
+	const lines = [
+		`POST ${r.url}`,
+		`Status: ${r.status} ${r.statusText}   (${r.durationMs} ms)`,
+	];
+	if (r.sentHeaders?.length) {
+		for (const h of r.sentHeaders) lines.push(`Header sent: ${h}: (present)`);
+	}
 	const body = r.body?.length ? r.body : "(empty body)";
-	return `${header}\n${"─".repeat(60)}\n${body}`;
+	return `${lines.join("\n")}\n${"─".repeat(60)}\n${body}`;
 }
 
 // Rewrites the raw server error into a friendlier message when we recognise

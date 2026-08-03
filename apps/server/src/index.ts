@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
+import cookiePlugin from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type {
@@ -31,6 +32,7 @@ import {
 	runNtnRawWithTrace,
 	runShellAllowingFailure,
 } from "./ntn.js";
+import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
 
 const NOTION_WEBHOOK_PREFIX = "https://www.notion.so/webhooks/worker/";
 
@@ -46,8 +48,40 @@ import { fetchWhoami } from "./whoami.js";
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
-const app = Fastify({ logger: { level: "info" } });
-await app.register(cors, { origin: true });
+const app = Fastify({
+	logger: { level: "info" },
+	// Fastify's per-request info logs (one for incoming, one for completed)
+	// bury the startup banner within seconds. Errors still surface via the
+	// error handler; hooks and app.log calls still work normally.
+	// Note: this top-level option is soft-deprecated in Fastify 5 (a class-
+	// based `logController` is the replacement) but still works. Prints one
+	// deprecation warning at boot; that's fine.
+	disableRequestLogging: true,
+});
+// Load or create the session token before anything else so we can surface
+// the sign-in URL alongside the "server listening" log line.
+const { token: sessionToken, created: tokenCreated } = await loadOrCreateToken();
+await app.register(cors, { origin: true, credentials: true });
+await app.register(cookiePlugin);
+
+// Auth hook: reject any /api/* request without a valid session cookie, except
+// endpoints explicitly needed to establish or check a session, and the health
+// probe. Loopback-only binding is not enough — any browser tab on this
+// machine could otherwise scrape our endpoints.
+const OPEN_PATHS = new Set([
+	"/api/health",
+	"/api/session/login",
+	"/api/session/logout",
+	"/api/session/status",
+]);
+app.addHook("preHandler", async (req, reply) => {
+	if (!req.url.startsWith("/api/")) return;
+	// req.url includes the query string; compare only the path.
+	const path = req.url.split("?", 1)[0] ?? "";
+	if (OPEN_PATHS.has(path)) return;
+	if (tokenMatches(req.cookies[SESSION_COOKIE_NAME], sessionToken)) return;
+	return reply.code(401).send({ error: "session required" });
+});
 
 let config: AppConfig = await loadConfig();
 app.log.info({ configPath: getConfigPath() }, "config loaded");
@@ -102,6 +136,34 @@ app.setErrorHandler((err, _req, reply) => {
 });
 
 app.get("/api/health", async () => ({ ok: true }));
+
+app.get("/api/session/status", async (req) => ({
+	authenticated: tokenMatches(req.cookies[SESSION_COOKIE_NAME], sessionToken),
+}));
+
+app.post<{ Body: { token?: string } }>(
+	"/api/session/login",
+	async (req, reply): Promise<{ ok: true }> => {
+		if (!tokenMatches(req.body?.token, sessionToken)) {
+			return reply.code(401).send({ error: "invalid token" }) as unknown as { ok: true };
+		}
+		reply.setCookie(SESSION_COOKIE_NAME, sessionToken, {
+			path: "/",
+			httpOnly: true,
+			sameSite: "lax",
+			// One-year cookie; the token is stable across server restarts so
+			// bookmarks stay valid indefinitely unless the user clears cookies
+			// or rotates the token by deleting the session-token file.
+			maxAge: 60 * 60 * 24 * 365,
+		});
+		return { ok: true };
+	},
+);
+
+app.post("/api/session/logout", async (_req, reply) => {
+	reply.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
+	return { ok: true };
+});
 
 app.get("/api/config", async () => config);
 
@@ -580,7 +642,7 @@ app.post<{ Params: { id: string } }>(
 	},
 );
 
-app.post<{ Body: { url: string } }>(
+app.post<{ Body: { url: string; webhookSecret?: string } }>(
 	"/api/webhook/fire",
 	async (req, reply): Promise<WebhookFireResult> => {
 		const url = req.body?.url;
@@ -590,8 +652,14 @@ app.post<{ Body: { url: string } }>(
 				detail: `url must start with ${NOTION_WEBHOOK_PREFIX}`,
 			}) as unknown as WebhookFireResult;
 		}
+		const headers: Record<string, string> = {};
+		const sentHeaders: string[] = [];
+		if (typeof req.body?.webhookSecret === "string" && req.body.webhookSecret) {
+			headers["X-Webhook-Secret"] = req.body.webhookSecret;
+			sentHeaders.push("X-Webhook-Secret");
+		}
 		const start = Date.now();
-		const res = await fetch(url, { method: "POST" });
+		const res = await fetch(url, { method: "POST", headers });
 		const body = await res.text();
 		return {
 			url,
@@ -599,6 +667,7 @@ app.post<{ Body: { url: string } }>(
 			statusText: res.statusText,
 			body,
 			durationMs: Date.now() - start,
+			sentHeaders: sentHeaders.length ? sentHeaders : undefined,
 		};
 	},
 );
@@ -627,6 +696,32 @@ app.get<{ Params: { id: string; runId: string }; Querystring: { verbose?: string
 try {
 	await app.listen({ port: PORT, host: HOST });
 	app.log.info(`ntn-ui server listening on http://${HOST}:${PORT}`);
+	// Surface the sign-in URL prominently. The client at :5173 accepts the
+	// token from the ?token= query param, POSTs it to /api/session/login,
+	// and then clears the URL bar so bookmarks stay clean.
+	const webBase = process.env.WEB_URL ?? "http://localhost:5173";
+	const signInUrl = `${webBase}/?token=${sessionToken}`;
+	const banner = tokenCreated
+		? "New session token generated"
+		: "Session token loaded from disk";
+	const rule = "═".repeat(72);
+	// eslint-disable-next-line no-console
+	console.log(
+		[
+			"",
+			rule,
+			`  ${banner} at ${getTokenFilePath()}`,
+			"",
+			"  Open this URL once to establish a session (cookie set, URL cleaned):",
+			"",
+			`    ${signInUrl}`,
+			"",
+			"  Then bookmark http://localhost:5173/ — the token is not needed again",
+			"  unless you clear cookies or delete the session-token file.",
+			rule,
+			"",
+		].join("\n"),
+	);
 } catch (err) {
 	app.log.error(err);
 	process.exit(1);
