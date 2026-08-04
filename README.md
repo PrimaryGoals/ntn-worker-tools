@@ -2,7 +2,7 @@
 
 Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
-Status: **early scaffolding.** Nothing is stable yet.
+Status: **feature-complete** on current mental model. Session-token authentication, worker inspection, deployment, env management, webhook firing, and local git integration working end-to-end.
 
 ## Prerequisites
 
@@ -58,8 +58,8 @@ Should print `11.18.0`.
 ### 3. Clone and install dependencies
 
 ```bash
-git clone https://github.com/PrimaryGoals/WIT4N.git
-cd WIT4N
+git clone https://github.com/PrimaryGoals/ntn-worker-tools.git
+cd ntn-worker-tools
 pnpm install
 ```
 
@@ -74,10 +74,10 @@ The web app runs at `http://localhost:5173`, the API server at `http://localhost
 ## Layout
 
 ```
-wit4n/
+ntn-worker-tools/
 ├── apps/
 │   ├── web/       Vite + React + TS + Tailwind + shadcn/ui
-│   └── server/    Fastify server that shells out to ntn
+│   └── server/    Fastify server that shells out to ntn CLI
 └── packages/
     └── shared/    Types shared between web and server
 ```
@@ -97,4 +97,4 @@ Later:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache 2.0 with trademark clause. See [LICENSE](LICENSE) for details. Allows commercial use and derivatives with attribution required; Primary Goals branding is protected.
