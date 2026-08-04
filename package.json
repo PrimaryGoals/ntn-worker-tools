@@ -1,5 +1,5 @@
 {
-	"name": "ntn-ui",
+	"name": "wit4n",
 	"version": "0.0.1",
 	"private": true,
 	"description": "Local web UI for the Notion Workers (ntn) CLI",

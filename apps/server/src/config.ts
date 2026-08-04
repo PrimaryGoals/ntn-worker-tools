@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import envPaths from "env-paths";
-import type { AppConfig } from "@ntn-ui/shared";
+import type { AppConfig } from "@wit4n/shared";
 
-const paths = envPaths("ntn-ui", { suffix: "" });
+const paths = envPaths("wit4n", { suffix: "" });
 const configFile = join(paths.config, "config.json");
 
 const defaultConfig: AppConfig = {

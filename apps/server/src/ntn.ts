@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 // Any ntn command that writes files (e.g. `workers new`, `workers deploy`)
 // will land here by default instead of the user's home directory root.
-export const DEFAULT_WORK_DIR = join(homedir(), "ntn-ui");
+export const DEFAULT_WORK_DIR = join(homedir(), "wit4n");
 try {
 	mkdirSync(DEFAULT_WORK_DIR, { recursive: true });
 } catch {

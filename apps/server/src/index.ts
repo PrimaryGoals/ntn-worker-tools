@@ -22,7 +22,7 @@ import type {
 	Worker,
 	WorkerEnvPayload,
 	WorkerUsage,
-} from "@ntn-ui/shared";
+} from "@wit4n/shared";
 import { getConfigPath, loadConfig, saveConfig } from "./config.js";
 import {
 	NtnError,
@@ -172,7 +172,7 @@ app.get("/api/env-info", async (): Promise<EnvInfo> => envInfo);
 // Filesystem browsing endpoints — power the folder picker in the UI.
 // Path is user-supplied; the browser can access anything the server user can.
 // This is fine for a personal, localhost-bound tool but should be gated behind
-// the session-token guard before ntn-ui is ever shipped to run remotely.
+// the session-token guard before WIT4N is ever shipped to run remotely.
 
 app.get("/api/fs/home", async (): Promise<{ path: string }> => ({ path: homedir() }));
 
@@ -741,7 +741,7 @@ app.get<{ Params: { id: string; runId: string }; Querystring: { verbose?: string
 
 try {
 	await app.listen({ port: PORT, host: HOST });
-	app.log.info(`ntn-ui server listening on http://${HOST}:${PORT}`);
+	app.log.info(`WIT4N server listening on http://${HOST}:${PORT}`);
 	// Surface the sign-in URL prominently. The client at :5173 accepts the
 	// token from the ?token= query param, POSTs it to /api/session/login,
 	// and then clears the URL bar so bookmarks stay clean.

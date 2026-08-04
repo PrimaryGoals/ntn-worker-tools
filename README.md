@@ -1,4 +1,4 @@
-# ntn-ui
+# WIT for Notion
 
 Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
@@ -58,8 +58,8 @@ Should print `11.18.0`.
 ### 3. Clone and install dependencies
 
 ```bash
-git clone https://github.com/PrimaryGoals/ntn-worker-tools.git
-cd ntn-worker-tools
+git clone https://github.com/PrimaryGoals/WIT4N.git
+cd WIT4N
 pnpm install
 ```
 
@@ -74,7 +74,7 @@ The web app runs at `http://localhost:5173`, the API server at `http://localhost
 ## Layout
 
 ```
-ntn-ui/
+wit4n/
 ├── apps/
 │   ├── web/       Vite + React + TS + Tailwind + shadcn/ui
 │   └── server/    Fastify server that shells out to ntn
@@ -93,7 +93,7 @@ MVP:
 Later:
 
 - [ ] Deploy + env push
-- [ ] Global `ntn-ui` CLI wrapper
+- [ ] Global `wit4n` CLI wrapper
 
 ## License
 

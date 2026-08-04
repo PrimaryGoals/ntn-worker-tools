@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import type { DeployResult, WebhookFireResult } from "@ntn-ui/shared";
+import type { DeployResult, WebhookFireResult } from "@wit4n/shared";
 import { api } from "./api";
 import { formatDateTime, formatDuration } from "./format";
 
@@ -712,7 +712,7 @@ function MenuBar({
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">ntn-ui</h1>
+				<h1 className="text-sm font-semibold">WIT for Notion</h1>
 				<span
 					className={
 						"text-xs " +
@@ -956,7 +956,7 @@ function WorkersList({
 }: {
 	loading: boolean;
 	error: Error | null;
-	workers: import("@ntn-ui/shared").Worker[];
+	workers: import("@wit4n/shared").Worker[];
 	selectedId: string | null;
 	localPaths: Record<string, string>;
 	onSelect: (id: string) => void;
@@ -1013,7 +1013,7 @@ function RunsList({
 }: {
 	loading: boolean;
 	error: Error | null;
-	runs: import("@ntn-ui/shared").Run[];
+	runs: import("@wit4n/shared").Run[];
 	selectedId: string | null;
 	onSelect: (id: string) => void;
 }) {
@@ -1115,7 +1115,7 @@ function formatMs(ms: number): string {
 	return `${m}m ${rs}s (${ms.toLocaleString()} ms)`;
 }
 
-function formatWhoami(w: import("@ntn-ui/shared").Whoami): string {
+function formatWhoami(w: import("@wit4n/shared").Whoami): string {
 	const rows: Array<[string, string]> = [
 		["User", w.userName],
 		["User ID", w.userId],
@@ -1136,8 +1136,8 @@ function WorkerDetailsBody({
 	usage: u,
 	envText,
 }: {
-	worker: import("@ntn-ui/shared").Worker;
-	usage: import("@ntn-ui/shared").WorkerUsage;
+	worker: import("@wit4n/shared").Worker;
+	usage: import("@wit4n/shared").WorkerUsage;
 	envText: string;
 }) {
 	const rows: Array<[string, string]> = [
@@ -1175,7 +1175,7 @@ function WebhookLine({
 }: {
 	loading: boolean;
 	error: Error | null;
-	webhooks: import("@ntn-ui/shared").WebhookEntry[];
+	webhooks: import("@wit4n/shared").WebhookEntry[];
 	onFire: (url: string) => void;
 	firing: string | null;
 }) {
@@ -1622,7 +1622,7 @@ function FileList({
 	selected,
 	onToggle,
 }: {
-	files: import("@ntn-ui/shared").GitStatusEntry[];
+	files: import("@wit4n/shared").GitStatusEntry[];
 	workerPathRelToRoot: string;
 	selected: Set<string>;
 	onToggle: (path: string, on: boolean) => void;
@@ -1694,7 +1694,7 @@ function FileRow({
 	onToggle,
 	stripPrefix,
 }: {
-	entry: import("@ntn-ui/shared").GitStatusEntry;
+	entry: import("@wit4n/shared").GitStatusEntry;
 	checked: boolean;
 	onToggle: (path: string, on: boolean) => void;
 	stripPrefix?: string;
