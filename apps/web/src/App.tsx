@@ -569,11 +569,7 @@ function AppContent() {
 								{
 									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
 									output: (
-										<WorkerDetailsBody
-											worker={workerQ.data}
-											usage={workerUsageQ.data}
-											envText={envQ.data.text}
-										/>
+										<WorkerDetailsBody worker={workerQ.data} />
 									),
 									trace: workerQ.data._trace,
 								},
@@ -582,17 +578,21 @@ function AppContent() {
 									output: formatWorkerUsage(workerUsageQ.data),
 									trace: workerUsageQ.data._trace,
 								},
-								{
-									command: ntnCmd([
-										"workers",
-										"webhooks",
-										"list",
-										selectedWorkerId,
-										...(verboseLogs ? ["-v"] : []),
-									]),
-									output: JSON.stringify(webhooksQ.data?.webhooks, null, 2),
-									trace: webhooksQ.data?._trace,
-								},
+								...((webhooksQ.data?.webhooks?.length ?? 0) > 0
+									? [
+											{
+												command: ntnCmd([
+													"workers",
+													"webhooks",
+													"list",
+													selectedWorkerId,
+													...(verboseLogs ? ["-v"] : []),
+												]),
+												output: formatWebhookUrls(webhooksQ.data!.webhooks),
+												trace: webhooksQ.data?._trace,
+											},
+										]
+									: []),
 								{
 									command: ntnCmd([
 										"workers",
@@ -601,7 +601,7 @@ function AppContent() {
 										selectedWorkerId,
 										...(verboseLogs ? ["-v"] : []),
 									]),
-									output: JSON.stringify(capabilitiesQ.data.capabilities, null, 2),
+									output: formatCapabilities(capabilitiesQ.data.capabilities),
 									trace: capabilitiesQ.data._trace,
 								},
 								{
@@ -1200,15 +1200,10 @@ function formatWorkerUsage(u: import("@ntn-worker-tools/shared").WorkerUsage): s
 	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
 }
 
-// Local-path row is highlighted; the rest is plain text.
 function WorkerDetailsBody({
 	worker: w,
-	usage: u,
-	envText,
 }: {
 	worker: import("@ntn-worker-tools/shared").Worker;
-	usage: import("@ntn-worker-tools/shared").WorkerUsage;
-	envText: string;
 }) {
 	const rows: Array<[string, string]> = [
 		["ID", w.workerId],
@@ -1217,23 +1212,20 @@ function WorkerDetailsBody({
 		["Created at", formatDateTime(w.createdAt)],
 		["Updated at", formatDateTime(w.updatedAt)],
 		["Updated by", w.updatedByName ?? ""],
-		["Usage window", `${u.days} day${u.days === 1 ? "" : "s"}`],
-		["Credits", u.usage.credits.toFixed(6)],
-		["Sandboxes", u.usage.sandboxCount.toLocaleString()],
-		["Active CPU", formatMs(u.usage.activeCpuDurationMs)],
-		["Total time", formatMs(u.usage.durationMs)],
-		["Ingress", formatBytes(u.usage.networkIngressBytes)],
-		["Egress", formatBytes(u.usage.networkEgressBytes)],
 	];
 	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
-	const env = envText.trim() || "(no environment variables)";
-	return (
-		<>
-			{rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}\n`).join("")}
-			{"\n"}
-			{env}
-		</>
-	);
+	return <>{rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}\n`).join("")}</>;
+}
+
+function formatCapabilities(caps: unknown): string {
+	if (!Array.isArray(caps) || caps.length === 0) return "(none)";
+	return caps
+		.map((c: { _tag?: string; key?: string }) => `${c._tag ?? "unknown"}: ${c.key ?? "?"}`)
+		.join("\n");
+}
+
+function formatWebhookUrls(webhooks: import("@ntn-worker-tools/shared").WebhookEntry[]): string {
+	return webhooks.map((w) => w.url).join("\n");
 }
 
 function WebhookLine({
