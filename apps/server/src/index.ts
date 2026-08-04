@@ -49,14 +49,19 @@ const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
 const app = Fastify({
-	logger: { level: "info" },
-	// Fastify's per-request info logs (one for incoming, one for completed)
-	// bury the startup banner within seconds. Errors still surface via the
-	// error handler; hooks and app.log calls still work normally.
-	// Note: this top-level option is soft-deprecated in Fastify 5 (a class-
-	// based `logController` is the replacement) but still works. Prints one
-	// deprecation warning at boot; that's fine.
-	disableRequestLogging: true,
+	logger: {
+		level: "info",
+		transport: {
+			// Custom transport that logs everything except HTTP requests to keep
+			// the startup banner visible. Errors/warnings still get logged.
+			target: "pino/file",
+			options: { destination: 1 }, // stdout
+		},
+		hooks: {
+			// Skip request/response logs at the pino level
+			logHttp: () => false,
+		},
+	},
 });
 // Load or create the session token before anything else so we can surface
 // the sign-in URL alongside the "server listening" log line.

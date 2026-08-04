@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -57,9 +57,8 @@ function runRawCommand(
 		const start = Date.now();
 		// eslint-disable-next-line no-console
 		console.log(`[${cmd} spawn] ${cmd} ${(opts.logAs ?? args).join(" ")}`);
-		const child = spawn(cmd, args, {
+		const child = execFile(cmd, args, {
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
-			shell: process.platform === "win32",
 			windowsHide: true,
 		});
 
