@@ -278,6 +278,89 @@ app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 );
 
 app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	"/api/workers/:id/sync/status",
+	async (req) => {
+		const args = ["workers", "sync", "status", "--worker-id", req.params.id, "--no-watch"];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<unknown[]>(args);
+		return verbose && stderr ? { statuses: data, _trace: stderr } : { statuses: data };
+	},
+);
+
+app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
+	"/api/workers/:id/sync/trigger",
+	async (req) => {
+		const args = ["workers", "sync", "trigger", "--worker-id", req.params.id, req.body.syncKey];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const result = await runNtnRawAllowingFailure(args);
+		return {
+			command: `ntn ${args.join(" ")}`,
+			cwd: "",
+			exitCode: result.exitCode,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			durationMs: result.durationMs,
+		} satisfies DeployResult;
+	},
+);
+
+app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
+	"/api/workers/:id/sync/pause",
+	async (req) => {
+		const args = ["workers", "sync", "pause", "--worker-id", req.params.id, req.body.syncKey];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const result = await runNtnRawAllowingFailure(args);
+		return {
+			command: `ntn ${args.join(" ")}`,
+			cwd: "",
+			exitCode: result.exitCode,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			durationMs: result.durationMs,
+		} satisfies DeployResult;
+	},
+);
+
+app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
+	"/api/workers/:id/sync/resume",
+	async (req) => {
+		const args = ["workers", "sync", "resume", "--worker-id", req.params.id, req.body.syncKey];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const result = await runNtnRawAllowingFailure(args);
+		return {
+			command: `ntn ${args.join(" ")}`,
+			cwd: "",
+			exitCode: result.exitCode,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			durationMs: result.durationMs,
+		} satisfies DeployResult;
+	},
+);
+
+app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
+	"/api/workers/:id/sync/state-reset",
+	async (req) => {
+		const args = ["workers", "sync", "state", "reset", "--worker-id", req.params.id, req.body.syncKey];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const result = await runNtnRawAllowingFailure(args);
+		return {
+			command: `ntn ${args.join(" ")}`,
+			cwd: "",
+			exitCode: result.exitCode,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			durationMs: result.durationMs,
+		} satisfies DeployResult;
+	},
+);
+
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/usage",
 	async (req): Promise<WorkerUsage> => {
 		const args = ["workers", "usage", req.params.id];
