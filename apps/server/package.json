@@ -14,7 +14,8 @@
 		"@fastify/cors": "^10.0.1",
 		"@ntn-worker-tools/shared": "workspace:*",
 		"env-paths": "^3.0.0",
-		"fastify": "^5.1.0"
+		"fastify": "^5.11.0",
+		"fast-uri": "^4.1.2"
 	},
 	"devDependencies": {
 		"@types/node": "^22.9.0",
