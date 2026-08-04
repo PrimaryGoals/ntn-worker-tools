@@ -282,6 +282,11 @@ function AppContent() {
 		queryFn: () => api.getWorkerWebhooks(selectedWorkerId!, verboseLogs),
 		enabled: !!selectedWorkerId,
 	});
+	const capabilitiesQ = useQuery({
+		queryKey: ["capabilities", selectedWorkerId, verboseLogs],
+		queryFn: () => api.getWorkerCapabilities(selectedWorkerId!, verboseLogs),
+		enabled: !!selectedWorkerId,
+	});
 	const envQ = useQuery({
 		queryKey: ["env", selectedWorkerId, verboseLogs],
 		queryFn: () => api.getWorkerEnv(selectedWorkerId!, verboseLogs),
@@ -540,9 +545,9 @@ function AppContent() {
 						/>
 					)
 				) : selectedWorkerId ? (
-					workerQ.isLoading || workerUsageQ.isLoading || envQ.isLoading ? (
+					workerQ.isLoading || workerUsageQ.isLoading || capabilitiesQ.isLoading || envQ.isLoading ? (
 						<div className="p-3 text-sm text-neutral-400">
-							Running ntn workers get / usage / env pull…
+							Running ntn workers get / usage / capabilities / env pull…
 						</div>
 					) : workerQ.error ? (
 						<div className="p-3 text-sm text-red-400">{(workerQ.error as Error).message}</div>
@@ -550,47 +555,69 @@ function AppContent() {
 						<div className="p-3 text-sm text-red-400">
 							{(workerUsageQ.error as Error).message}
 						</div>
+					) : capabilitiesQ.error ? (
+						<div className="p-3 text-sm text-red-400">
+							{(capabilitiesQ.error as Error).message}
+						</div>
 					) : envQ.error ? (
 						<div className="p-3 text-sm text-red-400">
 							env pull failed: {(envQ.error as Error).message}
 						</div>
-					) : workerQ.data && workerUsageQ.data && envQ.data ? (
-						<OutputWithCommands
-							commands={[
-								ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
-								ntnCmd(["workers", "usage", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
-								ntnCmd([
-									"workers",
-									"webhooks",
-									"list",
-									selectedWorkerId,
-									...(verboseLogs ? ["-v"] : []),
-								]),
-								ntnCmd([
-									"workers",
-									"env",
-									"pull",
-									selectedWorkerId,
-									"--no-file",
-									"--yes",
-									...(verboseLogs ? ["-v"] : []),
-								]),
+					) : workerQ.data && workerUsageQ.data && capabilitiesQ.data && envQ.data ? (
+						<CommandOutputList
+							items={[
+								{
+									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
+									output: (
+										<WorkerDetailsBody
+											worker={workerQ.data}
+											usage={workerUsageQ.data}
+											envText={envQ.data.text}
+										/>
+									),
+									trace: workerQ.data._trace,
+								},
+								{
+									command: ntnCmd(["workers", "usage", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
+									output: formatWorkerUsage(workerUsageQ.data),
+									trace: workerUsageQ.data._trace,
+								},
+								{
+									command: ntnCmd([
+										"workers",
+										"webhooks",
+										"list",
+										selectedWorkerId,
+										...(verboseLogs ? ["-v"] : []),
+									]),
+									output: JSON.stringify(webhooksQ.data?.webhooks, null, 2),
+									trace: webhooksQ.data?._trace,
+								},
+								{
+									command: ntnCmd([
+										"workers",
+										"capabilities",
+										"list",
+										selectedWorkerId,
+										...(verboseLogs ? ["-v"] : []),
+									]),
+									output: JSON.stringify(capabilitiesQ.data.capabilities, null, 2),
+									trace: capabilitiesQ.data._trace,
+								},
+								{
+									command: ntnCmd([
+										"workers",
+										"env",
+										"pull",
+										selectedWorkerId,
+										"--no-file",
+										"--yes",
+										...(verboseLogs ? ["-v"] : []),
+									]),
+									output: envQ.data.text,
+									trace: envQ.data._trace,
+								},
 							]}
-							trace={[
-								workerQ.data?._trace,
-								workerUsageQ.data?._trace,
-								webhooksQ.data?._trace,
-								envQ.data?._trace,
-							]
-								.filter(Boolean)
-								.join("\n")}
-							body={
-								<WorkerDetailsBody
-									worker={workerQ.data}
-									usage={workerUsageQ.data}
-									envText={envQ.data.text}
-								/>
-							}
 						/>
 					) : (
 						<div className="p-3 text-sm text-neutral-400">(no output)</div>
@@ -1092,6 +1119,35 @@ function OutputWithCommands({
 	);
 }
 
+function CommandOutputList({
+	items,
+}: {
+	items: Array<{ command: string; output: React.ReactNode; trace?: string }>;
+}) {
+	return (
+		<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
+			{items.map((item, idx) => (
+				<div key={idx}>
+					<span className="text-red-400">{item.command}</span>
+					{"\n"}
+					<span className="text-neutral-500">{SEPARATOR}</span>
+					{"\n"}
+					{item.output}
+					{item.trace ? (
+						<>
+							{"\n"}
+							<span className="text-neutral-500">{SEPARATOR}</span>
+							{"\n"}
+							<span className="text-neutral-500">{item.trace.trim()}</span>
+						</>
+					) : null}
+					{"\n\n"}
+				</div>
+			))}
+		</pre>
+	);
+}
+
 function formatBytes(n: number): string {
 	if (!Number.isFinite(n)) return String(n);
 	if (n < 1024) return `${n} B`;
@@ -1126,6 +1182,20 @@ function formatWhoami(w: import("@ntn-worker-tools/shared").Whoami): string {
 	if (w.ownerName) rows.push(["Owner", w.ownerName]);
 	if (w.ownerId) rows.push(["Owner ID", w.ownerId]);
 	if (w.ownerType) rows.push(["Owner type", w.ownerType]);
+	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
+	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
+}
+
+function formatWorkerUsage(u: import("@ntn-worker-tools/shared").WorkerUsage): string {
+	const rows: Array<[string, string]> = [
+		["Usage window", `${u.days} day${u.days === 1 ? "" : "s"}`],
+		["Credits", u.usage.credits.toFixed(6)],
+		["Sandboxes", u.usage.sandboxCount.toLocaleString()],
+		["Active CPU", formatMs(u.usage.activeCpuDurationMs)],
+		["Total time", formatMs(u.usage.durationMs)],
+		["Ingress", formatBytes(u.usage.networkIngressBytes)],
+		["Egress", formatBytes(u.usage.networkEgressBytes)],
+	];
 	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
 	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
 }

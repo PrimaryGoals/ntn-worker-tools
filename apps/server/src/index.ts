@@ -267,6 +267,17 @@ app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 );
 
 app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	"/api/workers/:id/capabilities",
+	async (req) => {
+		const args = ["workers", "capabilities", "list", req.params.id];
+		const verbose = isVerbose(req.query.verbose);
+		if (verbose) args.push("-v");
+		const { data, stderr } = await runNtnJsonWithTrace<unknown>(args);
+		return verbose && stderr ? { capabilities: data, _trace: stderr } : { capabilities: data };
+	},
+);
+
+app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/usage",
 	async (req): Promise<WorkerUsage> => {
 		const args = ["workers", "usage", req.params.id];

@@ -79,6 +79,10 @@ export const api = {
 		request<WebhooksPayload>(
 			`/api/workers/${workerId}/webhooks${verbose ? "?verbose=1" : ""}`,
 		),
+	getWorkerCapabilities: (workerId: string, verbose = false) =>
+		request<{ capabilities: unknown; _trace?: string }>(
+			`/api/workers/${workerId}/capabilities${verbose ? "?verbose=1" : ""}`,
+		),
 	getWorkerEnv: (workerId: string, verbose = false) =>
 		request<WorkerEnvPayload>(
 			`/api/workers/${workerId}/env${verbose ? "?verbose=1" : ""}`,
