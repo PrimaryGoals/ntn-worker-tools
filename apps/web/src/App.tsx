@@ -1083,18 +1083,14 @@ function BrandingSplash() {
 					src="/images/primarygoals-logo.gif"
 					alt="Primary Goals Marketing Automation"
 				/>
-				<span className="text-sm font-medium text-blue-600 group-hover:underline dark:text-blue-400">
-					https://PrimaryGoals.com
-				</span>
+
 			</a>
 
 			<div className="max-w-md">
 				<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-					Worker Integration Testing
+					NTN Worker Tools for Notion
 				</h2>
-				<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-					for Notion
-				</h2>
+
 			</div>
 
 			<div className="flex flex-wrap items-center justify-center gap-4">
