@@ -48,17 +48,17 @@ import { fetchWhoami } from "./whoami.js";
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
 
+// Log level: default warn (quiet), verbose with DEBUG=1 or LOG_LEVEL=info
+// Usage: LOG_LEVEL=info pnpm dev:server  (or DEBUG=1 pnpm dev:server)
+const logLevel = process.env.LOG_LEVEL || (process.env.DEBUG ? "info" : "warn");
 const app = Fastify({
 	logger: {
-		level: "info",
+		level: logLevel,
 		transport: {
-			// Custom transport that logs everything except HTTP requests to keep
-			// the startup banner visible. Errors/warnings still get logged.
 			target: "pino/file",
 			options: { destination: 1 }, // stdout
 		},
 		hooks: {
-			// Skip request/response logs at the pino level
 			logHttp: () => false,
 		},
 	},
