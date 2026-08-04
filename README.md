@@ -1,4 +1,4 @@
-# WIT for Notion
+# NTN Worker Tools
 
 Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
