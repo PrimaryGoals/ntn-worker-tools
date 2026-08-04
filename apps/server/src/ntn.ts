@@ -38,6 +38,10 @@ export class NtnError extends Error {
 export interface RunOptions {
 	timeoutMs?: number;
 	cwd?: string;
+	// If set, these strings are used in the `[<cmd> spawn]` log line INSTEAD
+	// of the real args. Use when args contain secrets so they don't get
+	// written to any log surface. The real args still get passed to spawn().
+	logAs?: string[];
 }
 
 function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult> {
@@ -52,7 +56,7 @@ function runRawCommand(
 	return new Promise((resolve, reject) => {
 		const start = Date.now();
 		// eslint-disable-next-line no-console
-		console.log(`[${cmd} spawn] ${cmd} ${args.join(" ")}`);
+		console.log(`[${cmd} spawn] ${cmd} ${(opts.logAs ?? args).join(" ")}`);
 		const child = spawn(cmd, args, {
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
 			shell: process.platform === "win32",
@@ -116,7 +120,7 @@ export async function runShellAllowingFailure(
 ): Promise<{ command: string; exitCode: number; stdout: string; stderr: string; durationMs: number }> {
 	const result = await runRawCommand(cmd, args, { timeoutMs: 5 * 60_000, ...opts });
 	return {
-		command: `${cmd} ${args.join(" ")}`,
+		command: `${cmd} ${(opts.logAs ?? args).join(" ")}`,
 		exitCode: result.exitCode,
 		stdout: result.stdout,
 		stderr: result.stderr,

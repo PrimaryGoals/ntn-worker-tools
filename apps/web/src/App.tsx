@@ -127,11 +127,24 @@ function AppContent() {
 	const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
 	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 
 	const fireWebhook = useMutation({
 		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
 			api.fireWebhook(url, webhookSecret),
-		onSuccess: (data) => setWebhookResult(data),
+		onSuccess: (data) => {
+			setWebhookResult(data);
+			// The webhook we just fired triggers a worker run. Refresh the runs
+			// query so the new entry shows up in panel_runs. Notion sometimes
+			// hasn't recorded the run yet at the moment the fire returns, so we
+			// also re-invalidate after a short delay to catch that late-arriving
+			// entry (and its updated status once it finishes).
+			if (selectedWorkerId) {
+				const workerId = selectedWorkerId;
+				qc.invalidateQueries({ queryKey: ["runs", workerId] });
+				setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", workerId] }), 2000);
+			}
+		},
 	});
 
 	const setLocalPath = useMutation({
@@ -165,17 +178,28 @@ function AppContent() {
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
 		onSuccess: (data) => setDeployResult(data),
 	});
+	const setEnvVar = useMutation({
+		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>
+			api.setWorkerEnvVar(workerId, key, value, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			setTokenPushOpen(false);
+		},
+	});
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
 		: pnpmDeployWorker.isPending
 			? "pnpm run deploy"
 			: pushSecrets.isPending
 				? "ntn workers env push"
-				: null;
+				: setEnvVar.isPending
+					? "ntn workers env set"
+					: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
-		(pushSecrets.error as Error | null);
+		(pushSecrets.error as Error | null) ??
+		(setEnvVar.error as Error | null);
 
 	function clearTransientOutputs() {
 		setWebhookResult(null);
@@ -184,6 +208,7 @@ function AppContent() {
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
 		pushSecrets.reset();
+		setEnvVar.reset();
 	}
 
 	const whoamiQ = useQuery({
@@ -267,6 +292,13 @@ function AppContent() {
 		() => runsQ.data?.runs.find((r) => r.runId === selectedRunId) ?? null,
 		[runsQ.data, selectedRunId],
 	);
+	const sortedWorkers = useMemo(
+		() =>
+			[...(workersQ.data ?? [])].sort((a, b) =>
+				a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+			),
+		[workersQ.data],
+	);
 
 	return (
 		<>
@@ -337,6 +369,10 @@ function AppContent() {
 					}
 				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
+				onOpenTokenPush={() => {
+					setEnvVar.reset();
+					setTokenPushOpen(true);
+				}}
 			/>
 
 			<PanelGroup
@@ -359,7 +395,7 @@ function AppContent() {
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
-										workers={workersQ.data ?? []}
+										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
 										onSelect={(id) => {
@@ -587,6 +623,24 @@ function AppContent() {
 				}}
 			/>
 		) : null}
+			{tokenPushOpen && selectedWorkerId ? (
+				<TokenPushModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					submitting={setEnvVar.isPending}
+					error={setEnvVar.error as Error | null}
+					onClose={() => setTokenPushOpen(false)}
+					onSubmit={(token) => {
+						clearTransientOutputs();
+						setEnvVar.mutate({
+							workerId: selectedWorkerId,
+							key: "NOTION_API_TOKEN",
+							value: token,
+						});
+					}}
+				/>
+			) : null}
 			{folderPickerOpen && selectedWorkerId ? (
 				<FolderPickerModal
 					workerName={
@@ -629,6 +683,7 @@ function MenuBar({
 	onPnpmDeploy,
 	onPushSecrets,
 	onOpenGitCheckin,
+	onOpenTokenPush,
 	setLocalPathError,
 }: {
 	workspaceName?: string;
@@ -649,6 +704,7 @@ function MenuBar({
 	onPnpmDeploy: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
+	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
@@ -743,6 +799,15 @@ function MenuBar({
 							onClick={() => {
 								setOpen(false);
 								onPushSecrets();
+							}}
+						/>
+						<MenuItem
+							label="push NOTION_API_TOKEN"
+							disabled={!!localPath}
+							disabledReason="You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file."
+							onClick={() => {
+								setOpen(false);
+								onOpenTokenPush();
 							}}
 						/>
 						<MenuItem
@@ -1195,6 +1260,101 @@ function friendlySetPathError(
 		);
 	}
 	return err;
+}
+
+function TokenPushModal({
+	workerName,
+	submitting,
+	error,
+	onClose,
+	onSubmit,
+}: {
+	workerName: string;
+	submitting: boolean;
+	error: Error | null;
+	onClose: () => void;
+	onSubmit: (token: string) => void;
+}) {
+	const [token, setToken] = useState("");
+	useEffect(() => {
+		const h = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", h);
+		return () => window.removeEventListener("keydown", h);
+	}, [onClose]);
+	const canSubmit = token.trim().length > 0 && !submitting;
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+			onClick={onClose}
+			role="presentation"
+		>
+			<div
+				className="flex w-full max-w-lg flex-col overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-950"
+				onClick={(e) => e.stopPropagation()}
+				role="dialog"
+				aria-modal="true"
+				aria-label={`Push NOTION_API_TOKEN to ${workerName}`}
+			>
+				<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+					<h2 className="text-sm font-semibold">Push NOTION_API_TOKEN</h2>
+					<button
+						type="button"
+						onClick={onClose}
+						disabled={submitting}
+						className="rounded px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-900"
+					>
+						✕
+					</button>
+				</div>
+				<form
+					className="flex flex-col gap-3 p-4"
+					onSubmit={(e) => {
+						e.preventDefault();
+						if (canSubmit) onSubmit(token.trim());
+					}}
+				>
+					<label className="text-sm">
+						What NOTION_API_TOKEN should be pushed to{" "}
+						<span className="font-medium">{workerName}</span>?
+					</label>
+					<input
+						type="password"
+						value={token}
+						onChange={(e) => setToken(e.target.value)}
+						placeholder="ntn_…"
+						autoFocus
+						autoComplete="off"
+						spellCheck={false}
+						className="rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900"
+					/>
+					{error ? (
+						<div className="text-xs text-red-600 dark:text-red-400">
+							{error.message}
+						</div>
+					) : null}
+					<div className="flex justify-end gap-2">
+						<button
+							type="button"
+							onClick={onClose}
+							disabled={submitting}
+							className="rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+						>
+							Cancel
+						</button>
+						<button
+							type="submit"
+							disabled={!canSubmit}
+							className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
+						>
+							{submitting ? "Pushing…" : "Push"}
+						</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	);
 }
 
 function FolderPickerModal({

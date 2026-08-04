@@ -583,6 +583,52 @@ app.post<{ Params: { id: string }; Body: { files: string[]; message: string } }>
 	},
 );
 
+app.post<{
+	Params: { id: string };
+	Querystring: { verbose?: string };
+	Body: { key?: string; value?: string };
+}>(
+	"/api/workers/:id/env/set",
+	async (req, reply): Promise<DeployResult> => {
+		const key = req.body?.key?.trim();
+		const value = req.body?.value;
+		if (!key) return reply.code(400).send({ error: "key required" }) as unknown as DeployResult;
+		if (typeof value !== "string" || !value) {
+			return reply.code(400).send({ error: "value required" }) as unknown as DeployResult;
+		}
+		const verbose = isVerbose(req.query.verbose);
+		const args = [
+			"workers",
+			"env",
+			"set",
+			"--worker-id",
+			req.params.id,
+			`${key}=${value}`,
+			...(verbose ? ["-v"] : []),
+		];
+		// Redacted display args — used both for the [ntn spawn] log line and
+		// for the DeployResult.command echoed back to the client.
+		const logAs = [
+			"workers",
+			"env",
+			"set",
+			"--worker-id",
+			req.params.id,
+			`${key}=<redacted>`,
+			...(verbose ? ["-v"] : []),
+		];
+		const result = await runShellAllowingFailure("ntn", args, { logAs });
+		return {
+			command: `ntn ${logAs.join(" ")}`,
+			cwd: "",
+			exitCode: result.exitCode,
+			stdout: result.stdout,
+			stderr: result.stderr,
+			durationMs: result.durationMs,
+		};
+	},
+);
+
 app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/env/push",
 	async (req, reply): Promise<DeployResult> => {

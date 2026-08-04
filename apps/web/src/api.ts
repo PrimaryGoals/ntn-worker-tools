@@ -111,6 +111,11 @@ export const api = {
 			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST" },
 		),
+	setWorkerEnvVar: (workerId: string, key: string, value: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/set${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify({ key, value }) },
+		),
 	getGitStatus: (workerId: string) =>
 		request<GitStatus>(`/api/workers/${workerId}/git-status`),
 	gitCommit: (workerId: string, files: string[], message: string) =>
