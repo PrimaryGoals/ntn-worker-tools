@@ -2,7 +2,7 @@
 
 Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
-Status: **Core worker management ready for testing.** Sync commands and capabilities inspection in development.
+Status: **Feature Complete.** Ready for external testing.
 
 ## Prerequisites
 
@@ -86,14 +86,14 @@ ntn-worker-tools/
 
 MVP:
 
-- [ ] Sync status (live), preview, trigger, state reset
-- [ ] Runs list + logs viewer
-- [ ] Capabilities list + enable/disable
+- [X] Sync status (live), preview, trigger, state reset
+- [X] Runs list + logs viewer
+- [X] Capabilities list + enable/disable
 
 Later:
 
-- [ ] Deploy + env push
-- [ ] Global `ntn-worker-tools` CLI wrapper
+- [ ] Fetch code from deployed agents that Notion wrote
+
 
 ## License
 
