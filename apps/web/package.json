@@ -1,5 +1,5 @@
 {
-	"name": "@wit4n/web",
+	"name": "@ntn-worker-tools/web",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -10,7 +10,7 @@
 		"check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@wit4n/shared": "workspace:*",
+		"@ntn-worker-tools/shared": "workspace:*",
 		"@tanstack/react-query": "^5.62.0",
 		"clsx": "^2.1.1",
 		"react": "^18.3.1",

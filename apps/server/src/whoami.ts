@@ -1,4 +1,4 @@
-import type { Whoami } from "@wit4n/shared";
+import type { Whoami } from "@ntn-worker-tools/shared";
 import { runNtnPlainWithTrace } from "./ntn.js";
 
 // `ntn whoami --plain` returns a single tab-separated line:

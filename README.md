@@ -93,7 +93,7 @@ MVP:
 Later:
 
 - [ ] Deploy + env push
-- [ ] Global `wit4n` CLI wrapper
+- [ ] Global `ntn-worker-tools` CLI wrapper
 
 ## License
 

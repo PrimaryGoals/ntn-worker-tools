@@ -1,5 +1,5 @@
 {
-	"name": "@wit4n/shared",
+	"name": "@ntn-worker-tools/shared",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

@@ -13,7 +13,7 @@ import type {
 	Worker,
 	WorkerEnvPayload,
 	WorkerUsage,
-} from "@wit4n/shared";
+} from "@ntn-worker-tools/shared";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// Only advertise JSON when we're actually sending a body — Fastify rejects

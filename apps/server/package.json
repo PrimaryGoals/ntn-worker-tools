@@ -1,5 +1,5 @@
 {
-	"name": "@wit4n/server",
+	"name": "@ntn-worker-tools/server",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -12,7 +12,7 @@
 	"dependencies": {
 		"@fastify/cookie": "^11.1.2",
 		"@fastify/cors": "^10.0.1",
-		"@wit4n/shared": "workspace:*",
+		"@ntn-worker-tools/shared": "workspace:*",
 		"env-paths": "^3.0.0",
 		"fastify": "^5.1.0"
 	},

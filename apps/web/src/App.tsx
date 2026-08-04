@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import type { DeployResult, WebhookFireResult } from "@wit4n/shared";
+import type { DeployResult, WebhookFireResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
 import { formatDateTime, formatDuration } from "./format";
 
@@ -956,7 +956,7 @@ function WorkersList({
 }: {
 	loading: boolean;
 	error: Error | null;
-	workers: import("@wit4n/shared").Worker[];
+	workers: import("@ntn-worker-tools/shared").Worker[];
 	selectedId: string | null;
 	localPaths: Record<string, string>;
 	onSelect: (id: string) => void;
@@ -1013,7 +1013,7 @@ function RunsList({
 }: {
 	loading: boolean;
 	error: Error | null;
-	runs: import("@wit4n/shared").Run[];
+	runs: import("@ntn-worker-tools/shared").Run[];
 	selectedId: string | null;
 	onSelect: (id: string) => void;
 }) {
@@ -1115,7 +1115,7 @@ function formatMs(ms: number): string {
 	return `${m}m ${rs}s (${ms.toLocaleString()} ms)`;
 }
 
-function formatWhoami(w: import("@wit4n/shared").Whoami): string {
+function formatWhoami(w: import("@ntn-worker-tools/shared").Whoami): string {
 	const rows: Array<[string, string]> = [
 		["User", w.userName],
 		["User ID", w.userId],
@@ -1136,8 +1136,8 @@ function WorkerDetailsBody({
 	usage: u,
 	envText,
 }: {
-	worker: import("@wit4n/shared").Worker;
-	usage: import("@wit4n/shared").WorkerUsage;
+	worker: import("@ntn-worker-tools/shared").Worker;
+	usage: import("@ntn-worker-tools/shared").WorkerUsage;
 	envText: string;
 }) {
 	const rows: Array<[string, string]> = [
@@ -1175,7 +1175,7 @@ function WebhookLine({
 }: {
 	loading: boolean;
 	error: Error | null;
-	webhooks: import("@wit4n/shared").WebhookEntry[];
+	webhooks: import("@ntn-worker-tools/shared").WebhookEntry[];
 	onFire: (url: string) => void;
 	firing: string | null;
 }) {
@@ -1622,7 +1622,7 @@ function FileList({
 	selected,
 	onToggle,
 }: {
-	files: import("@wit4n/shared").GitStatusEntry[];
+	files: import("@ntn-worker-tools/shared").GitStatusEntry[];
 	workerPathRelToRoot: string;
 	selected: Set<string>;
 	onToggle: (path: string, on: boolean) => void;
@@ -1694,7 +1694,7 @@ function FileRow({
 	onToggle,
 	stripPrefix,
 }: {
-	entry: import("@wit4n/shared").GitStatusEntry;
+	entry: import("@ntn-worker-tools/shared").GitStatusEntry;
 	checked: boolean;
 	onToggle: (path: string, on: boolean) => void;
 	stripPrefix?: string;

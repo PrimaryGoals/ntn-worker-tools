@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import envPaths from "env-paths";
 
-const paths = envPaths("wit4n", { suffix: "" });
+const paths = envPaths("ntn-worker-tools", { suffix: "" });
 const tokenFile = join(paths.config, "session-token");
 
 export const SESSION_COOKIE_NAME = "ntn_ui_session";
