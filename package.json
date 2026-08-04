@@ -1,0 +1,27 @@
+{
+	"name": "ntn-worker-tools",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Local web UI for the Notion Workers (ntn) CLI",
+	"license": "MIT",
+	"author": "Ashley Guberman",
+	"engines": {
+		"node": ">=22",
+		"pnpm": ">=11"
+	},
+	"packageManager": "pnpm@11.18.0",
+	"scripts": {
+		"dev": "concurrently -n server,web -c blue,magenta --kill-others-on-fail \"pnpm dev:server\" \"pnpm dev:web\"",
+		"dev:server": "node --watch --import tsx apps/server/src/index.ts",
+		"dev:web": "vite apps/web",
+		"build": "pnpm -r build",
+		"check": "pnpm -r check",
+		"clean": "pnpm -r exec rm -rf dist node_modules/.cache"
+	},
+	"devDependencies": {
+		"concurrently": "^9.1.0",
+		"tsx": "^4.19.2",
+		"typescript": "^5.6.3",
+		"vite": "^6.4.3"
+	}
+}

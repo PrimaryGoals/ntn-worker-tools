@@ -1,0 +1,25 @@
+{
+	"name": "@ntn-worker-tools/server",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "node --import tsx dist/index.js",
+		"build": "tsc",
+		"check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@fastify/cookie": "^11.1.2",
+		"@fastify/cors": "^10.0.1",
+		"@ntn-worker-tools/shared": "workspace:*",
+		"env-paths": "^3.0.0",
+		"fastify": "^5.11.0",
+		"fast-uri": "^4.1.2"
+	},
+	"devDependencies": {
+		"@types/node": "^22.9.0",
+		"tsx": "^4.19.2",
+		"typescript": "^5.6.3"
+	}
+}
