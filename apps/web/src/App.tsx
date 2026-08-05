@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { DeployResult, WebhookFireResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
+import { useUIState } from "./hooks/useUIState";
 import {
 	extractWebhookSecret,
 	formatCapabilities,
@@ -134,14 +135,22 @@ function SessionGate({ children }: { children: React.ReactNode }) {
 
 function AppContent() {
 	const qc = useQueryClient();
-	const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
-	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-	const [verboseLogs, setVerboseLogs] = useState(false);
+	const {
+		selectedWorkerId,
+		setSelectedWorkerId,
+		selectedRunId,
+		setSelectedRunId,
+		verboseLogs,
+		setVerboseLogs,
+		gitCheckinOpen,
+		setGitCheckinOpen,
+		folderPickerOpen,
+		setFolderPickerOpen,
+		tokenPushOpen,
+		setTokenPushOpen,
+	} = useUIState();
 	const [webhookResult, setWebhookResult] = useState<WebhookFireResult | null>(null);
 	const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
-	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
-	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
-	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 
 	const fireWebhook = useMutation({
 		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
