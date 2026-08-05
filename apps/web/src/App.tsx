@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
+import { BrandingSplash } from "./components/ui/BrandingSplash";
+import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
+import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
+import { MenuItem } from "./components/ui/MenuItem";
+import { Empty, Panel } from "./components/ui/Panel";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useConfigMutations } from "./hooks/useConfigMutations";
 import { useUIState } from "./hooks/useUIState";
@@ -21,7 +26,6 @@ import {
 	formatWorkerUsage,
 	friendlySetPathError,
 	ntnCmd,
-	SEPARATOR,
 } from "./format";
 
 export function App() {
@@ -853,89 +857,6 @@ function MenuBar({
 	);
 }
 
-function MenuItem({
-	label,
-	onClick,
-	disabled,
-	disabledReason,
-}: {
-	label: string;
-	onClick: () => void;
-	disabled?: boolean;
-	disabledReason?: string;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			title={disabled ? disabledReason : undefined}
-			className={
-				"block w-full px-3 py-1.5 text-left text-sm " +
-				(disabled
-					? "cursor-not-allowed text-neutral-400 dark:text-neutral-600"
-					: "hover:bg-neutral-100 dark:hover:bg-neutral-900")
-			}
-		>
-			{label}
-		</button>
-	);
-}
-
-function Panel({ title, children }: { title: string; children: React.ReactNode }) {
-	return (
-		<section className="flex h-full min-h-0 flex-col rounded border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-			<div className="border-b border-neutral-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
-				{title}
-			</div>
-			<div className="min-h-0 flex-1 overflow-auto">{children}</div>
-		</section>
-	);
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-	return <div className="p-3 text-sm text-neutral-500">{children}</div>;
-}
-
-function BrandingSplash() {
-	return (
-		<div className="flex h-full min-h-0 flex-col items-center justify-center gap-6 overflow-auto p-6 text-center">
-			<a
-				href="https://PrimaryGoals.com"
-				target="_blank"
-				rel="noopener noreferrer"
-				className="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80"
-				title="PrimaryGoals.com"
-			>
-				<img
-					src="/images/primarygoals-logo.gif"
-					alt="Primary Goals Marketing Automation"
-				/>
-			</a>
-
-			<div className="max-w-md">
-				<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-					NTN Worker Tools for Notion
-				</h2>
-
-			</div>
-
-			<div className="flex flex-wrap items-center justify-center gap-4">
-				<img
-					src="/images/Consulting%20Partner%20Badge.png"
-					alt="Notion Consulting Partner"
-					className="dark:rounded dark:bg-neutral-100 dark:p-1"
-				/>
-				<img
-					src="/images/notion-certified-admin-204.png"
-					alt="Notion Certified Admin"
-					className="dark:rounded dark:bg-neutral-100 dark:p-1"
-				/>
-			</div>
-		</div>
-	);
-}
-
 function WorkersList({
 	loading,
 	error,
@@ -1045,64 +966,6 @@ function RunsList({
 				))}
 			</tbody>
 		</table>
-	);
-}
-
-function OutputWithCommands({
-	commands,
-	trace,
-	body,
-}: {
-	commands: string[];
-	trace?: string;
-	body: React.ReactNode;
-}) {
-	const traceText = trace?.trim() ?? "";
-	return (
-		<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
-			<span className="text-red-400">{commands.join("\n")}</span>
-			{"\n"}
-			<span className="text-neutral-500">{SEPARATOR}</span>
-			{"\n"}
-			{body}
-			{traceText ? (
-				<>
-					{"\n"}
-					<span className="text-neutral-500">{SEPARATOR}</span>
-					{"\n"}
-					<span className="text-neutral-500">{traceText}</span>
-				</>
-			) : null}
-		</pre>
-	);
-}
-
-function CommandOutputList({
-	items,
-}: {
-	items: Array<{ command: string; output: React.ReactNode; trace?: string }>;
-}) {
-	return (
-		<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
-			{items.map((item, idx) => (
-				<div key={idx}>
-					<span className="text-red-400">{item.command}</span>
-					{"\n"}
-					<span className="text-neutral-500">{SEPARATOR}</span>
-					{"\n"}
-					{item.output}
-					{item.trace ? (
-						<>
-							{"\n"}
-							<span className="text-neutral-500">{SEPARATOR}</span>
-							{"\n"}
-							<span className="text-neutral-500">{item.trace.trim()}</span>
-						</>
-					) : null}
-					{"\n\n"}
-				</div>
-			))}
-		</pre>
 	);
 }
 
@@ -1785,25 +1648,3 @@ function GitCheckinModal({
 	);
 }
 
-function ExitCodeBadge({ code }: { code: number | null }) {
-	if (code == null) {
-		return (
-			<span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-				running
-			</span>
-		);
-	}
-	const ok = code === 0;
-	return (
-		<span
-			className={
-				"inline-block rounded px-1.5 py-0.5 font-mono text-xs " +
-				(ok
-					? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-					: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200")
-			}
-		>
-			{code}
-		</span>
-	);
-}
