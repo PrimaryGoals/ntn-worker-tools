@@ -104,7 +104,7 @@ MVP:
 
 Later:
 
-- [ ] Fetch code from deployed agents that Notion wrote
+- [ ] Fetch code from deployed agents that you did not write yourself
 
 
 ## License
