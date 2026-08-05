@@ -8,6 +8,8 @@ import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOu
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { MenuItem } from "./components/ui/MenuItem";
 import { Empty, Panel } from "./components/ui/Panel";
+import { RunsList } from "./components/RunsList";
+import { WorkersList } from "./components/WorkersList";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useConfigMutations } from "./hooks/useConfigMutations";
 import { useUIState } from "./hooks/useUIState";
@@ -854,118 +856,6 @@ function MenuBar({
 				) : null}
 			</div>
 		</header>
-	);
-}
-
-function WorkersList({
-	loading,
-	error,
-	workers,
-	selectedId,
-	localPaths,
-	onSelect,
-	onRevealPath,
-}: {
-	loading: boolean;
-	error: Error | null;
-	workers: import("@ntn-worker-tools/shared").Worker[];
-	selectedId: string | null;
-	localPaths: Record<string, string>;
-	onSelect: (id: string) => void;
-	onRevealPath: (id: string) => void;
-}) {
-	if (loading) return <Empty>Loading workers…</Empty>;
-	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (workers.length === 0) return <Empty>No workers in this workspace.</Empty>;
-	return (
-		<ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
-			{workers.map((w) => {
-				const localPath = localPaths[w.workerId];
-				const isSelected = selectedId === w.workerId;
-				return (
-					<li
-						key={w.workerId}
-						className={isSelected ? "bg-neutral-100 dark:bg-neutral-900" : ""}
-					>
-						<button
-							type="button"
-							onClick={() => onSelect(w.workerId)}
-							className="block w-full px-3 pt-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
-						>
-							<div>
-								<span className="font-medium">{w.name}</span>
-								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
-							</div>
-						</button>
-						{localPath ? (
-							<button
-								type="button"
-								onClick={() => onRevealPath(w.workerId)}
-								title={`Reveal ${localPath} in file explorer`}
-								className="block w-full px-3 pb-2 text-left font-mono text-xs font-medium text-neutral-500 hover:text-blue-600 hover:underline dark:hover:text-blue-400"
-							>
-								{localPath}
-							</button>
-						) : (
-							<div className="pb-2" />
-						)}
-					</li>
-				);
-			})}
-		</ul>
-	);
-}
-
-function RunsList({
-	loading,
-	error,
-	runs,
-	selectedId,
-	onSelect,
-}: {
-	loading: boolean;
-	error: Error | null;
-	runs: import("@ntn-worker-tools/shared").Run[];
-	selectedId: string | null;
-	onSelect: (id: string) => void;
-}) {
-	if (loading) return <Empty>Loading runs…</Empty>;
-	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (runs.length === 0) return <Empty>No runs for this worker yet.</Empty>;
-	return (
-		<table className="w-full text-sm">
-			<thead className="sticky top-0 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500 dark:bg-neutral-900">
-				<tr>
-					<th className="px-3 py-2 text-left">Name</th>
-					<th className="px-3 py-2 text-left">Actor</th>
-					<th className="px-3 py-2 text-left">Exit</th>
-					<th className="px-3 py-2 text-left">Duration</th>
-					<th className="px-3 py-2 text-left">Started</th>
-				</tr>
-			</thead>
-			<tbody>
-				{runs.map((r) => (
-					<tr
-						key={r.runId}
-						onClick={() => onSelect(r.runId)}
-						className={
-							"cursor-pointer border-t border-neutral-100 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900 " +
-							(selectedId === r.runId ? "bg-neutral-100 dark:bg-neutral-900" : "")
-						}
-					>
-						<td className="px-3 py-1.5 font-medium">{r.name}</td>
-						<td className="px-3 py-1.5">{r.actorName}</td>
-						<td className="px-3 py-1.5">
-							<ExitCodeBadge code={r.exitCode} />
-						</td>
-						<td className="px-3 py-1.5 font-mono text-xs">
-							{formatDuration(r.startedAt, r.endedAt)}
-						</td>
-						<td className="px-3 py-1.5 text-xs text-neutral-500">{formatDateTime(r.startedAt)}</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
 	);
 }
 
