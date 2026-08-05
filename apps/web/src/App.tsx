@@ -4,6 +4,7 @@ import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-
 import type { DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
 import { useCommandMutations } from "./hooks/useCommandMutations";
+import { useConfigMutations } from "./hooks/useConfigMutations";
 import { useUIState } from "./hooks/useUIState";
 import { useWebhookMutations } from "./hooks/useWebhookMutations";
 import { useWorkerData } from "./hooks/useWorkerData";
@@ -137,7 +138,6 @@ function SessionGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
-	const qc = useQueryClient();
 	const {
 		selectedWorkerId,
 		setSelectedWorkerId,
@@ -170,26 +170,6 @@ function AppContent() {
 	const { fireWebhook, webhookResult, setWebhookResult, resetWebhookResult } =
 		useWebhookMutations(selectedWorkerId);
 
-	const setLocalPath = useMutation({
-		mutationFn: ({ workerId, path }: { workerId: string; path: string }) =>
-			api.setWorkerLocalPath(workerId, path),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["config"] });
-			// Only close the folder picker after the workerId-match check server-side
-			// has accepted the path. On failure (e.g. worker mismatch) it stays open
-			// so the user sees the inline error and can navigate somewhere else.
-			setFolderPickerOpen(false);
-		},
-	});
-	const clearLocalPath = useMutation({
-		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
-	});
-	const revealWorker = useMutation({
-		mutationFn: api.revealWorker,
-		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
-	});
-
 	function clearTransientOutputs() {
 		resetWebhookResult();
 		resetCommandMutations();
@@ -219,28 +199,8 @@ function AppContent() {
 		isSyncWorker,
 		syncStatusQ,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
-	const savePanelSize = useMutation({
-		mutationFn: (patch: Record<string, number>) =>
-			api.updateUiConfig({ panelSizes: { ...persistedPanelSizes, ...patch } }),
-		onSuccess: (config) => qc.setQueryData(["config"], config),
-	});
-	// Debounce onLayout — the library fires it many times per drag frame,
-	// and each fire round-trips through the config-file writer on the server.
-	const schedulePanelSave = useMemo(() => {
-		let timer: ReturnType<typeof setTimeout> | null = null;
-		let pending: Record<string, number> = {};
-		return (patch: Record<string, number>) => {
-			pending = { ...pending, ...patch };
-			if (timer) clearTimeout(timer);
-			timer = setTimeout(() => {
-				savePanelSize.mutate(pending);
-				pending = {};
-			}, 250);
-		};
-		// savePanelSize.mutate is a stable reference from useMutation, so we can
-		// safely close over the outer savePanelSize handle without a dep.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, []);
+	const { setLocalPath, clearLocalPath, revealWorker, savePanelSize, schedulePanelSave } =
+		useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
 	return (
 		<>
