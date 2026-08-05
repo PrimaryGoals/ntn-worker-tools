@@ -49,7 +49,7 @@ import { fetchWhoami } from "./whoami.js";
 // the earliest point our own code runs after a restart (imports are hoisted
 // ahead of it regardless of source order), so it prints right after that line.
 // eslint-disable-next-line no-console
-console.log(`[${new Date().toISOString()}] Server (re)starting...`);
+console.log(`[${new Date().toLocaleString()}] Server (re)starting...`);
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
