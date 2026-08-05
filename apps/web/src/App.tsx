@@ -32,6 +32,7 @@ import {
 	formatWorkerUsage,
 	friendlySetPathError,
 	ntnCmd,
+	SEPARATOR,
 } from "./format";
 
 export function App() {
@@ -178,8 +179,8 @@ function AppContent() {
 		anyDeployError,
 		resetAll: resetCommandMutations,
 	} = useCommandMutations(verboseLogs, selectedWorkerId, setTokenPushOpen);
-	const { fireWebhook, webhookResult, setWebhookResult, resetWebhookResult } =
-		useWebhookMutations(selectedWorkerId);
+	const { fireWebhook, webhookResult, setWebhookResult, runLogsFollowup, resetWebhookResult } =
+		useWebhookMutations(selectedWorkerId, verboseLogs);
 
 	function clearTransientOutputs() {
 		resetWebhookResult();
@@ -467,6 +468,28 @@ function AppContent() {
 				) : webhookResult ? (
 					<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
 						{formatWebhookResult(webhookResult)}
+						{runLogsFollowup?.state === "polling" ? (
+							"\n\nstand by, waiting for run to complete..."
+						) : runLogsFollowup?.state === "timeout" ? (
+							"\n\nGave up waiting for the run to complete after 5 minutes."
+						) : runLogsFollowup?.state === "done" ? (
+							<>
+								{"\n\n"}
+								<span className="text-red-400">{runLogsFollowup.command}</span>
+								{"\n"}
+								<span className="text-neutral-500">{SEPARATOR}</span>
+								{"\n"}
+								{runLogsFollowup.output}
+								{runLogsFollowup.trace ? (
+									<>
+										{"\n"}
+										<span className="text-neutral-500">{SEPARATOR}</span>
+										{"\n"}
+										<span className="text-neutral-500">{runLogsFollowup.trace.trim()}</span>
+									</>
+								) : null}
+							</>
+						) : null}
 					</pre>
 				) : selectedRunId ? (
 					logsQ.isLoading ? (
