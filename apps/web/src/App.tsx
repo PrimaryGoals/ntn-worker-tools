@@ -1083,7 +1083,6 @@ function BrandingSplash() {
 					src="/images/primarygoals-logo.gif"
 					alt="Primary Goals Marketing Automation"
 				/>
-
 			</a>
 
 			<div className="max-w-md">
@@ -1105,8 +1104,6 @@ function BrandingSplash() {
 					className="dark:rounded dark:bg-neutral-100 dark:p-1"
 				/>
 			</div>
-
-			<p className="text-xs text-neutral-500">Select a worker to see its runs.</p>
 		</div>
 	);
 }
