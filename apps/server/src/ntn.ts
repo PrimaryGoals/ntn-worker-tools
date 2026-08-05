@@ -42,6 +42,13 @@ export interface RunOptions {
 	// of the real args. Use when args contain secrets so they don't get
 	// written to any log surface. The real args still get passed to spawn().
 	logAs?: string[];
+	// Needed for npm-installed CLI shims (e.g. pnpm) — on Windows these are
+	// .CMD files, and execFile without a shell only resolves literal
+	// extension-less filenames, not PATHEXT-based lookups. Only set this for
+	// commands with fixed, non-secret args: with shell:true, args are passed
+	// through cmd.exe's parsing, which is unsafe for user-supplied values
+	// (see the `ntn workers env set` call, which must never set this).
+	shell?: boolean;
 }
 
 function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult> {
@@ -60,6 +67,7 @@ function runRawCommand(
 		const child = execFile(cmd, args, {
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
 			windowsHide: true,
+			shell: opts.shell,
 		});
 
 		let stdout = "";

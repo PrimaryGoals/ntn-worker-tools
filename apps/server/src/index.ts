@@ -775,7 +775,10 @@ app.post<{ Params: { id: string } }>(
 				.code(400)
 				.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 		}
-		const result = await runShellAllowingFailure("pnpm", ["run", "deploy"], { cwd: path });
+		const result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+			cwd: path,
+			shell: true,
+		});
 		return {
 			command: result.command,
 			cwd: path,
