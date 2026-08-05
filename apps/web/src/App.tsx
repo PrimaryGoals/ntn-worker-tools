@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import type { DeployResult, WebhookFireResult } from "@ntn-worker-tools/shared";
+import type { DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useUIState } from "./hooks/useUIState";
+import { useWebhookMutations } from "./hooks/useWebhookMutations";
 import { useWorkerData } from "./hooks/useWorkerData";
 import {
 	extractWebhookSecret,
@@ -151,7 +152,6 @@ function AppContent() {
 		tokenPushOpen,
 		setTokenPushOpen,
 	} = useUIState();
-	const [webhookResult, setWebhookResult] = useState<WebhookFireResult | null>(null);
 	const {
 		deployWorker,
 		pnpmDeployWorker,
@@ -167,24 +167,8 @@ function AppContent() {
 		anyDeployError,
 		resetAll: resetCommandMutations,
 	} = useCommandMutations(verboseLogs, selectedWorkerId, setTokenPushOpen);
-
-	const fireWebhook = useMutation({
-		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
-			api.fireWebhook(url, webhookSecret),
-		onSuccess: (data) => {
-			setWebhookResult(data);
-			// The webhook we just fired triggers a worker run. Refresh the runs
-			// query so the new entry shows up in panel_runs. Notion sometimes
-			// hasn't recorded the run yet at the moment the fire returns, so we
-			// also re-invalidate after a short delay to catch that late-arriving
-			// entry (and its updated status once it finishes).
-			if (selectedWorkerId) {
-				const workerId = selectedWorkerId;
-				qc.invalidateQueries({ queryKey: ["runs", workerId] });
-				setTimeout(() => qc.invalidateQueries({ queryKey: ["runs", workerId] }), 2000);
-			}
-		},
-	});
+	const { fireWebhook, webhookResult, setWebhookResult, resetWebhookResult } =
+		useWebhookMutations(selectedWorkerId);
 
 	const setLocalPath = useMutation({
 		mutationFn: ({ workerId, path }: { workerId: string; path: string }) =>
@@ -207,8 +191,7 @@ function AppContent() {
 	});
 
 	function clearTransientOutputs() {
-		setWebhookResult(null);
-		fireWebhook.reset();
+		resetWebhookResult();
 		resetCommandMutations();
 	}
 
