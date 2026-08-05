@@ -76,11 +76,23 @@ The web app runs at `http://localhost:5173`, the API server at `http://localhost
 ```
 ntn-worker-tools/
 ├── apps/
-│   ├── web/       Vite + React + TS + Tailwind + shadcn/ui
-│   └── server/    Fastify server that shells out to ntn CLI
+│   ├── web/                Vite + React + TS + Tailwind
+│   │   └── src/
+│   │       ├── App.tsx             Top-level layout and routing between panels
+│   │       ├── api.ts               Typed client for the server's /api/* endpoints
+│   │       ├── format.ts            Pure formatters (bytes, durations, sync status, etc.)
+│   │       ├── hooks/                One hook per concern: UI state, worker data (queries),
+│   │       │                         deploy/sync mutations, webhook mutations, config mutations
+│   │       └── components/
+│   │           ├── ui/              Presentational primitives (Panel, MenuItem, ExitCodeBadge, ...)
+│   │           ├── modals/          TokenPushModal, FolderPickerModal, GitCheckinModal, ...
+│   │           └── *.tsx            Feature components (MenuBar, WorkersList, RunsList, ...)
+│   └── server/              Fastify server that shells out to ntn CLI
 └── packages/
-    └── shared/    Types shared between web and server
+    └── shared/               Types shared between web and server
 ```
+
+Start in `App.tsx` to see how a screen is assembled, then follow the hook/component names — each hook or component file is scoped to one concern, so the file name tells you what you'll find inside.
 
 ## Roadmap
 
