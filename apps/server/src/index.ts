@@ -800,7 +800,10 @@ app.post<{ Body: { url: string; webhookSecret?: string } }>(
 				detail: `url must start with ${NOTION_WEBHOOK_PREFIX}`,
 			}) as unknown as WebhookFireResult;
 		}
-		const headers: Record<string, string> = {};
+		// Node's fetch() sends "User-Agent: node" by default, which Cloudflare's
+		// bot management blocks with a 403 on notion.so. A descriptive UA avoids
+		// that false positive without misrepresenting the client.
+		const headers: Record<string, string> = { "User-Agent": "ntn-worker-tools" };
 		const sentHeaders: string[] = [];
 		if (typeof req.body?.webhookSecret === "string" && req.body.webhookSecret) {
 			headers["X-Webhook-Secret"] = req.body.webhookSecret;
