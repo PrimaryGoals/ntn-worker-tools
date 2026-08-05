@@ -173,6 +173,7 @@ function AppContent() {
 		syncStateReset,
 		deployResult,
 		setDeployResult,
+		syncStatusFollowup,
 		runningCommand,
 		anyDeployError,
 		resetAll: resetCommandMutations,
@@ -435,10 +436,25 @@ function AppContent() {
 					<div className="p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
 					</div>
+				) : deployResult && syncStatusFollowup?.state === "done" ? (
+					<CommandOutputList
+						items={[
+							{ command: deployResult.command, output: formatDeployResult(deployResult) },
+							{
+								command: syncStatusFollowup.command,
+								output: syncStatusFollowup.output,
+								trace: syncStatusFollowup.trace,
+							},
+						]}
+					/>
 				) : deployResult ? (
 					<OutputWithCommands
 						commands={[deployResult.command]}
-						body={formatDeployResult(deployResult)}
+						body={
+							syncStatusFollowup?.state === "pending"
+								? `${formatDeployResult(deployResult)}\n\nstand by to check worker status...`
+								: formatDeployResult(deployResult)
+						}
 					/>
 				) : fireWebhook.isPending ? (
 					<div className="p-3 text-sm text-neutral-400">
