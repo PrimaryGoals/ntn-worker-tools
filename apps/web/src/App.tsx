@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import type { DeployResult, WebhookFireResult } from "@ntn-worker-tools/shared";
 import { api } from "./api";
+import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useUIState } from "./hooks/useUIState";
 import { useWorkerData } from "./hooks/useWorkerData";
 import {
@@ -151,7 +152,21 @@ function AppContent() {
 		setTokenPushOpen,
 	} = useUIState();
 	const [webhookResult, setWebhookResult] = useState<WebhookFireResult | null>(null);
-	const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
+	const {
+		deployWorker,
+		pnpmDeployWorker,
+		pushSecrets,
+		setEnvVar,
+		syncTrigger,
+		syncPause,
+		syncResume,
+		syncStateReset,
+		deployResult,
+		setDeployResult,
+		runningCommand,
+		anyDeployError,
+		resetAll: resetCommandMutations,
+	} = useCommandMutations(verboseLogs, selectedWorkerId, setTokenPushOpen);
 
 	const fireWebhook = useMutation({
 		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
@@ -190,105 +205,11 @@ function AppContent() {
 		mutationFn: api.revealWorker,
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
 	});
-	const deployWorker = useMutation({
-		mutationFn: (workerId: string) => api.deployWorker(workerId, verboseLogs),
-		onSuccess: (data) => setDeployResult(data),
-	});
-	const pnpmDeployWorker = useMutation({
-		mutationFn: api.pnpmDeployWorker,
-		onSuccess: (data) => setDeployResult(data),
-	});
-	const pushSecrets = useMutation({
-		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
-		onSuccess: (data) => setDeployResult(data),
-	});
-	const setEnvVar = useMutation({
-		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>
-			api.setWorkerEnvVar(workerId, key, value, verboseLogs),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			setTokenPushOpen(false);
-		},
-	});
-	const syncTrigger = useMutation({
-		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
-			api.syncTrigger(workerId, syncKey, verboseLogs),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			if (selectedWorkerId) {
-				const workerId = selectedWorkerId;
-				qc.invalidateQueries({ queryKey: ["runs", workerId] });
-				qc.invalidateQueries({ queryKey: ["syncStatus", workerId] });
-				setTimeout(() => {
-					qc.invalidateQueries({ queryKey: ["runs", workerId] });
-					qc.invalidateQueries({ queryKey: ["syncStatus", workerId] });
-				}, 2000);
-			}
-		},
-	});
-	const syncPause = useMutation({
-		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
-			api.syncPause(workerId, syncKey, verboseLogs),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
-		},
-	});
-	const syncResume = useMutation({
-		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
-			api.syncResume(workerId, syncKey, verboseLogs),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
-		},
-	});
-	const syncStateReset = useMutation({
-		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
-			api.syncStateReset(workerId, syncKey, verboseLogs),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
-		},
-	});
-	const runningCommand = deployWorker.isPending
-		? "ntn workers deploy"
-		: pnpmDeployWorker.isPending
-			? "pnpm run deploy"
-			: pushSecrets.isPending
-				? "ntn workers env push"
-				: setEnvVar.isPending
-					? "ntn workers env set"
-					: syncTrigger.isPending
-						? "ntn workers sync trigger"
-						: syncPause.isPending
-							? "ntn workers sync pause"
-							: syncResume.isPending
-								? "ntn workers sync resume"
-								: syncStateReset.isPending
-									? "ntn workers sync state reset"
-									: null;
-	const anyDeployError =
-		(deployWorker.error as Error | null) ??
-		(pnpmDeployWorker.error as Error | null) ??
-		(pushSecrets.error as Error | null) ??
-		(setEnvVar.error as Error | null) ??
-		(syncTrigger.error as Error | null) ??
-		(syncPause.error as Error | null) ??
-		(syncResume.error as Error | null) ??
-		(syncStateReset.error as Error | null);
 
 	function clearTransientOutputs() {
 		setWebhookResult(null);
 		fireWebhook.reset();
-		setDeployResult(null);
-		deployWorker.reset();
-		pnpmDeployWorker.reset();
-		pushSecrets.reset();
-		setEnvVar.reset();
-		syncTrigger.reset();
-		syncPause.reset();
-		syncResume.reset();
-		syncStateReset.reset();
+		resetCommandMutations();
 	}
 
 	const {
