@@ -7,6 +7,7 @@ import type {
 	LocalInfo,
 	LogsPayload,
 	RunsPayload,
+	SyncStatus,
 	WebhookFireResult,
 	WebhooksPayload,
 	Whoami,
@@ -79,9 +80,37 @@ export const api = {
 		request<WebhooksPayload>(
 			`/api/workers/${workerId}/webhooks${verbose ? "?verbose=1" : ""}`,
 		),
+	getWorkerCapabilities: (workerId: string, verbose = false) =>
+		request<{ capabilities: unknown; _trace?: string }>(
+			`/api/workers/${workerId}/capabilities${verbose ? "?verbose=1" : ""}`,
+		),
 	getWorkerEnv: (workerId: string, verbose = false) =>
 		request<WorkerEnvPayload>(
 			`/api/workers/${workerId}/env${verbose ? "?verbose=1" : ""}`,
+		),
+	getSyncStatus: (workerId: string, verbose = false) =>
+		request<{ statuses: SyncStatus[]; _trace?: string }>(
+			`/api/workers/${workerId}/sync/status${verbose ? "?verbose=1" : ""}`,
+		),
+	syncTrigger: (workerId: string, syncKey: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/sync/trigger${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify({ syncKey }) },
+		),
+	syncPause: (workerId: string, syncKey: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/sync/pause${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify({ syncKey }) },
+		),
+	syncResume: (workerId: string, syncKey: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/sync/resume${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify({ syncKey }) },
+		),
+	syncStateReset: (workerId: string, syncKey: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/sync/state-reset${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify({ syncKey }) },
 		),
 	fireWebhook: (url: string, webhookSecret?: string) =>
 		request<WebhookFireResult>("/api/webhook/fire", {

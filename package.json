@@ -1,9 +1,9 @@
 {
 	"name": "ntn-worker-tools",
-	"version": "0.0.1",
+	"version": "0.5.1",
 	"private": true,
 	"description": "Local web UI for the Notion Workers (ntn) CLI",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"author": "Ashley Guberman",
 	"engines": {
 		"node": ">=22",

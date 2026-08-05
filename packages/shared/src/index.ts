@@ -83,6 +83,35 @@ export interface WebhooksPayload {
 	_trace?: string;
 }
 
+export interface SyncStatusCheck {
+	slug: string;
+	status: string;
+	description: string;
+	error: string | null;
+}
+
+export interface SyncStatus {
+	_tag: string;
+	capabilityKey: string;
+	status: string;
+	executing: boolean;
+	checks: SyncStatusCheck[];
+	disabled: boolean;
+	schedule: { intervalMs: number; type: string };
+	stats: {
+		lastSucceededAt: number | null;
+		lastCompletedAt: number | null;
+		lastFailedAt: number | null;
+		recentRunDurationsMs: number[];
+		totalUpsertsProcessed: number;
+		totalDeletesProcessed: number;
+		cycleUpsertsProcessed: number;
+		cycleDeletesProcessed: number;
+	};
+	nextRunAt: number | null;
+	collectionId: string;
+}
+
 export interface WorkerEnvPayload {
 	// raw .env-style KEY=VALUE lines from `ntn workers env pull --no-file --yes`
 	text: string;

@@ -186,6 +186,46 @@ function AppContent() {
 			setTokenPushOpen(false);
 		},
 	});
+	const syncTrigger = useMutation({
+		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
+			api.syncTrigger(workerId, syncKey, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			if (selectedWorkerId) {
+				const workerId = selectedWorkerId;
+				qc.invalidateQueries({ queryKey: ["runs", workerId] });
+				qc.invalidateQueries({ queryKey: ["syncStatus", workerId] });
+				setTimeout(() => {
+					qc.invalidateQueries({ queryKey: ["runs", workerId] });
+					qc.invalidateQueries({ queryKey: ["syncStatus", workerId] });
+				}, 2000);
+			}
+		},
+	});
+	const syncPause = useMutation({
+		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
+			api.syncPause(workerId, syncKey, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
+		},
+	});
+	const syncResume = useMutation({
+		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
+			api.syncResume(workerId, syncKey, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
+		},
+	});
+	const syncStateReset = useMutation({
+		mutationFn: ({ workerId, syncKey }: { workerId: string; syncKey: string }) =>
+			api.syncStateReset(workerId, syncKey, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
+		},
+	});
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
 		: pnpmDeployWorker.isPending
@@ -194,12 +234,24 @@ function AppContent() {
 				? "ntn workers env push"
 				: setEnvVar.isPending
 					? "ntn workers env set"
-					: null;
+					: syncTrigger.isPending
+						? "ntn workers sync trigger"
+						: syncPause.isPending
+							? "ntn workers sync pause"
+							: syncResume.isPending
+								? "ntn workers sync resume"
+								: syncStateReset.isPending
+									? "ntn workers sync state reset"
+									: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
-		(setEnvVar.error as Error | null);
+		(setEnvVar.error as Error | null) ??
+		(syncTrigger.error as Error | null) ??
+		(syncPause.error as Error | null) ??
+		(syncResume.error as Error | null) ??
+		(syncStateReset.error as Error | null);
 
 	function clearTransientOutputs() {
 		setWebhookResult(null);
@@ -209,6 +261,10 @@ function AppContent() {
 		pnpmDeployWorker.reset();
 		pushSecrets.reset();
 		setEnvVar.reset();
+		syncTrigger.reset();
+		syncPause.reset();
+		syncResume.reset();
+		syncStateReset.reset();
 	}
 
 	const whoamiQ = useQuery({
@@ -282,6 +338,11 @@ function AppContent() {
 		queryFn: () => api.getWorkerWebhooks(selectedWorkerId!, verboseLogs),
 		enabled: !!selectedWorkerId,
 	});
+	const capabilitiesQ = useQuery({
+		queryKey: ["capabilities", selectedWorkerId, verboseLogs],
+		queryFn: () => api.getWorkerCapabilities(selectedWorkerId!, verboseLogs),
+		enabled: !!selectedWorkerId,
+	});
 	const envQ = useQuery({
 		queryKey: ["env", selectedWorkerId, verboseLogs],
 		queryFn: () => api.getWorkerEnv(selectedWorkerId!, verboseLogs),
@@ -299,6 +360,19 @@ function AppContent() {
 			),
 		[workersQ.data],
 	);
+
+	const capabilities = capabilitiesQ.data?.capabilities;
+	const syncCapabilities = useMemo(() => {
+		if (!Array.isArray(capabilities)) return [];
+		return capabilities.filter((c: { _tag?: string }) => c._tag === "sync") as Array<{ _tag: string; key: string }>;
+	}, [capabilities]);
+	const isSyncWorker = syncCapabilities.length > 0;
+
+	const syncStatusQ = useQuery({
+		queryKey: ["syncStatus", selectedWorkerId, verboseLogs],
+		queryFn: () => api.getSyncStatus(selectedWorkerId!, verboseLogs),
+		enabled: !!(selectedWorkerId && isSyncWorker),
+	});
 
 	return (
 		<>
@@ -373,6 +447,26 @@ function AppContent() {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
 				}}
+				isSyncWorker={isSyncWorker}
+				onSyncPause={() => {
+					if (!selectedWorkerId || !syncCapabilities[0]) return;
+					if (window.confirm("Pause sync for this worker?")) {
+						clearTransientOutputs();
+						syncPause.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+					}
+				}}
+				onSyncResume={() => {
+					if (!selectedWorkerId || !syncCapabilities[0]) return;
+					clearTransientOutputs();
+					syncResume.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+				}}
+				onSyncStateReset={() => {
+					if (!selectedWorkerId || !syncCapabilities[0]) return;
+					if (window.confirm("Reset sync state for this worker?\nThis clears the sync cursor so the next run processes from scratch.")) {
+						clearTransientOutputs();
+						syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+					}
+				}}
 			/>
 
 			<PanelGroup
@@ -445,14 +539,17 @@ function AppContent() {
 								setWebhookResult(null);
 								fireWebhook.mutate({
 									url,
-									// Extract WEBHOOK_SECRET from the already-loaded env pull output,
-									// if present. Server will send it as an X-Webhook-Secret header.
 									webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
 								});
 							}}
 							firing={
 								fireWebhook.isPending ? fireWebhook.variables?.url ?? null : null
 							}
+							syncCapabilities={syncCapabilities}
+							onSyncTrigger={(syncKey: string) => {
+								if (selectedWorkerId) syncTrigger.mutate({ workerId: selectedWorkerId, syncKey });
+							}}
+							syncTriggering={syncTrigger.isPending}
 						/>
 					) : null}
 					<div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
@@ -540,9 +637,9 @@ function AppContent() {
 						/>
 					)
 				) : selectedWorkerId ? (
-					workerQ.isLoading || workerUsageQ.isLoading || envQ.isLoading ? (
+					workerQ.isLoading || workerUsageQ.isLoading || capabilitiesQ.isLoading || envQ.isLoading ? (
 						<div className="p-3 text-sm text-neutral-400">
-							Running ntn workers get / usage / env pull…
+							Running ntn workers get / usage / capabilities / env pull…
 						</div>
 					) : workerQ.error ? (
 						<div className="p-3 text-sm text-red-400">{(workerQ.error as Error).message}</div>
@@ -550,47 +647,86 @@ function AppContent() {
 						<div className="p-3 text-sm text-red-400">
 							{(workerUsageQ.error as Error).message}
 						</div>
+					) : capabilitiesQ.error ? (
+						<div className="p-3 text-sm text-red-400">
+							{(capabilitiesQ.error as Error).message}
+						</div>
 					) : envQ.error ? (
 						<div className="p-3 text-sm text-red-400">
 							env pull failed: {(envQ.error as Error).message}
 						</div>
-					) : workerQ.data && workerUsageQ.data && envQ.data ? (
-						<OutputWithCommands
-							commands={[
-								ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
-								ntnCmd(["workers", "usage", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
-								ntnCmd([
-									"workers",
-									"webhooks",
-									"list",
-									selectedWorkerId,
-									...(verboseLogs ? ["-v"] : []),
-								]),
-								ntnCmd([
-									"workers",
-									"env",
-									"pull",
-									selectedWorkerId,
-									"--no-file",
-									"--yes",
-									...(verboseLogs ? ["-v"] : []),
-								]),
+					) : workerQ.data && workerUsageQ.data && capabilitiesQ.data && envQ.data ? (
+						<CommandOutputList
+							items={[
+								{
+									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
+									output: (
+										<WorkerDetailsBody worker={workerQ.data} />
+									),
+									trace: workerQ.data._trace,
+								},
+								{
+									command: ntnCmd(["workers", "usage", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
+									output: formatWorkerUsage(workerUsageQ.data),
+									trace: workerUsageQ.data._trace,
+								},
+								{
+									command: ntnCmd([
+										"workers",
+										"capabilities",
+										"list",
+										selectedWorkerId,
+										...(verboseLogs ? ["-v"] : []),
+									]),
+									output: formatCapabilities(capabilitiesQ.data.capabilities),
+									trace: capabilitiesQ.data._trace,
+								},
+								...((webhooksQ.data?.webhooks?.length ?? 0) > 0
+									? [
+											{
+												command: ntnCmd([
+													"workers",
+													"webhooks",
+													"list",
+													selectedWorkerId,
+													...(verboseLogs ? ["-v"] : []),
+												]),
+												output: formatWebhookUrls(webhooksQ.data!.webhooks),
+												trace: webhooksQ.data?._trace,
+											},
+										]
+									: []),
+								...(isSyncWorker && syncStatusQ.data
+									? [
+											{
+												command: ntnCmd([
+													"workers",
+													"sync",
+													"status",
+													"--worker-id",
+													selectedWorkerId,
+													"--no-watch",
+													...(verboseLogs ? ["-v"] : []),
+												]),
+												output: formatSyncStatuses(syncStatusQ.data.statuses),
+												trace: syncStatusQ.data._trace,
+											},
+										]
+									: []),
+								{
+									command: ntnCmd([
+										"workers",
+										"env",
+										"pull",
+										selectedWorkerId,
+										"--no-file",
+										"--yes",
+										...(verboseLogs ? ["-v"] : []),
+									]),
+									output: envQ.data.text,
+									trace: envQ.data._trace,
+								},
 							]}
-							trace={[
-								workerQ.data?._trace,
-								workerUsageQ.data?._trace,
-								webhooksQ.data?._trace,
-								envQ.data?._trace,
-							]
-								.filter(Boolean)
-								.join("\n")}
-							body={
-								<WorkerDetailsBody
-									worker={workerQ.data}
-									usage={workerUsageQ.data}
-									envText={envQ.data.text}
-								/>
-							}
 						/>
 					) : (
 						<div className="p-3 text-sm text-neutral-400">(no output)</div>
@@ -685,6 +821,10 @@ function MenuBar({
 	onOpenGitCheckin,
 	onOpenTokenPush,
 	setLocalPathError,
+	isSyncWorker,
+	onSyncPause,
+	onSyncResume,
+	onSyncStateReset,
 }: {
 	workspaceName?: string;
 	userName?: string;
@@ -706,13 +846,17 @@ function MenuBar({
 	onOpenGitCheckin: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
+	isSyncWorker: boolean;
+	onSyncPause: () => void;
+	onSyncResume: () => void;
+	onSyncStateReset: () => void;
 }) {
 	const [open, setOpen] = useState(false);
 	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">WIT for Notion</h1>
+				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
 				<span
 					className={
 						"text-xs " +
@@ -825,6 +969,32 @@ function MenuBar({
 								onOpenGitCheckin();
 							}}
 						/>
+						{isSyncWorker ? (
+							<>
+								<div className="border-t border-neutral-200 dark:border-neutral-800" />
+								<MenuItem
+									label="sync pause"
+									onClick={() => {
+										setOpen(false);
+										onSyncPause();
+									}}
+								/>
+								<MenuItem
+									label="sync resume"
+									onClick={() => {
+										setOpen(false);
+										onSyncResume();
+									}}
+								/>
+								<MenuItem
+									label="sync reset"
+									onClick={() => {
+										setOpen(false);
+										onSyncStateReset();
+									}}
+								/>
+							</>
+						) : null}
 						{localPath ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />
@@ -913,18 +1083,13 @@ function BrandingSplash() {
 					src="/images/primarygoals-logo.gif"
 					alt="Primary Goals Marketing Automation"
 				/>
-				<span className="text-sm font-medium text-blue-600 group-hover:underline dark:text-blue-400">
-					https://PrimaryGoals.com
-				</span>
 			</a>
 
 			<div className="max-w-md">
 				<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-					Worker Integration Testing
+					NTN Worker Tools for Notion
 				</h2>
-				<h2 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-					for Notion
-				</h2>
+
 			</div>
 
 			<div className="flex flex-wrap items-center justify-center gap-4">
@@ -939,8 +1104,6 @@ function BrandingSplash() {
 					className="dark:rounded dark:bg-neutral-100 dark:p-1"
 				/>
 			</div>
-
-			<p className="text-xs text-neutral-500">Select a worker to see its runs.</p>
 		</div>
 	);
 }
@@ -1092,6 +1255,35 @@ function OutputWithCommands({
 	);
 }
 
+function CommandOutputList({
+	items,
+}: {
+	items: Array<{ command: string; output: React.ReactNode; trace?: string }>;
+}) {
+	return (
+		<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
+			{items.map((item, idx) => (
+				<div key={idx}>
+					<span className="text-red-400">{item.command}</span>
+					{"\n"}
+					<span className="text-neutral-500">{SEPARATOR}</span>
+					{"\n"}
+					{item.output}
+					{item.trace ? (
+						<>
+							{"\n"}
+							<span className="text-neutral-500">{SEPARATOR}</span>
+							{"\n"}
+							<span className="text-neutral-500">{item.trace.trim()}</span>
+						</>
+					) : null}
+					{"\n\n"}
+				</div>
+			))}
+		</pre>
+	);
+}
+
 function formatBytes(n: number): string {
 	if (!Number.isFinite(n)) return String(n);
 	if (n < 1024) return `${n} B`;
@@ -1130,23 +1322,8 @@ function formatWhoami(w: import("@ntn-worker-tools/shared").Whoami): string {
 	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
 }
 
-// Local-path row is highlighted; the rest is plain text.
-function WorkerDetailsBody({
-	worker: w,
-	usage: u,
-	envText,
-}: {
-	worker: import("@ntn-worker-tools/shared").Worker;
-	usage: import("@ntn-worker-tools/shared").WorkerUsage;
-	envText: string;
-}) {
+function formatWorkerUsage(u: import("@ntn-worker-tools/shared").WorkerUsage): string {
 	const rows: Array<[string, string]> = [
-		["ID", w.workerId],
-		["Name", w.name],
-		["Space ID", w.spaceId],
-		["Created at", formatDateTime(w.createdAt)],
-		["Updated at", formatDateTime(w.updatedAt)],
-		["Updated by", w.updatedByName ?? ""],
 		["Usage window", `${u.days} day${u.days === 1 ? "" : "s"}`],
 		["Credits", u.usage.credits.toFixed(6)],
 		["Sandboxes", u.usage.sandboxCount.toLocaleString()],
@@ -1156,14 +1333,100 @@ function WorkerDetailsBody({
 		["Egress", formatBytes(u.usage.networkEgressBytes)],
 	];
 	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
-	const env = envText.trim() || "(no environment variables)";
-	return (
-		<>
-			{rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}\n`).join("")}
-			{"\n"}
-			{env}
-		</>
-	);
+	return rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}`).join("\n");
+}
+
+function WorkerDetailsBody({
+	worker: w,
+}: {
+	worker: import("@ntn-worker-tools/shared").Worker;
+}) {
+	const rows: Array<[string, string]> = [
+		["ID", w.workerId],
+		["Name", w.name],
+		["Space ID", w.spaceId],
+		["Created at", formatDateTime(w.createdAt)],
+		["Updated at", formatDateTime(w.updatedAt)],
+		["Updated by", w.updatedByName ?? ""],
+	];
+	const labelWidth = rows.reduce((m, [l]) => Math.max(m, l.length), 0);
+	return <>{rows.map(([label, value]) => `${label.padEnd(labelWidth)} ${value}\n`).join("")}</>;
+}
+
+function formatCapabilities(caps: unknown): string {
+	if (!Array.isArray(caps) || caps.length === 0) return "(none)";
+	return caps
+		.map((c: { _tag?: string; key?: string }) => `${c._tag ?? "unknown"}: ${c.key ?? "?"}`)
+		.join("\n");
+}
+
+function formatWebhookUrls(webhooks: import("@ntn-worker-tools/shared").WebhookEntry[]): string {
+	return webhooks.map((w) => w.url).join("\n");
+}
+
+function formatTimeAgo(ms: number | null): string {
+	if (ms == null) return "never";
+	const diff = Date.now() - ms;
+	if (diff < 0) return `in ${formatTimeDelta(-diff)}`;
+	return `${formatTimeDelta(diff)} ago`;
+}
+
+function formatTimeUntil(ms: number | null): string {
+	if (ms == null) return "unknown";
+	const diff = ms - Date.now();
+	if (diff < 0) return `${formatTimeDelta(-diff)} ago`;
+	return `in ${formatTimeDelta(diff)}`;
+}
+
+function formatTimeDelta(ms: number): string {
+	const s = Math.floor(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	const rm = m % 60;
+	if (h < 24) return rm ? `${h}h ${rm}m` : `${h}h`;
+	const d = Math.floor(h / 24);
+	const rh = h % 24;
+	return rh ? `${d}d ${rh}h` : `${d}d`;
+}
+
+function formatInterval(ms: number): string {
+	const s = ms / 1000;
+	if (s < 60) return `every ${s}s`;
+	const m = s / 60;
+	if (m < 60) return `every ${m}m`;
+	const h = m / 60;
+	if (h < 24) return `every ${h}h`;
+	const d = h / 24;
+	return `every ${d}d`;
+}
+
+function formatAvgRun(durations: number[]): string {
+	if (durations.length === 0) return "n/a";
+	const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+	return `${(avg / 1000).toFixed(1)}s`;
+}
+
+function formatSyncStatuses(statuses: import("@ntn-worker-tools/shared").SyncStatus[]): string {
+	return statuses.map((s) => {
+		const lines: string[] = [];
+		lines.push(`${s.capabilityKey}  ${s.status.toUpperCase()}`);
+		lines.push(`  Database:        https://www.notion.so/ds/${s.collectionId}`);
+		lines.push(`  Schedule:        ${formatInterval(s.schedule.intervalMs)}`);
+		lines.push("  Health");
+		for (const c of s.checks) {
+			lines.push(`    ${c.slug.padEnd(14)} ${c.description}`);
+		}
+		lines.push("  Stats");
+		lines.push(`    Last succeeded:  ${formatTimeAgo(s.stats.lastSucceededAt)}`);
+		lines.push(`    Last completed:  ${formatTimeAgo(s.stats.lastCompletedAt)}`);
+		lines.push(`    Next run:        ${formatTimeUntil(s.nextRunAt)}`);
+		lines.push(`    Cycle:           ${s.stats.cycleUpsertsProcessed} upserts, ${s.stats.cycleDeletesProcessed} deletes`);
+		lines.push(`    Total:           ${s.stats.totalUpsertsProcessed} upserts, ${s.stats.totalDeletesProcessed} deletes`);
+		lines.push(`    Avg run:         ${formatAvgRun(s.stats.recentRunDurationsMs)}`);
+		return lines.join("\n");
+	}).join("\n\n");
 }
 
 function WebhookLine({
@@ -1172,12 +1435,18 @@ function WebhookLine({
 	webhooks,
 	onFire,
 	firing,
+	syncCapabilities,
+	onSyncTrigger,
+	syncTriggering,
 }: {
 	loading: boolean;
 	error: Error | null;
 	webhooks: import("@ntn-worker-tools/shared").WebhookEntry[];
 	onFire: (url: string) => void;
 	firing: string | null;
+	syncCapabilities: Array<{ _tag: string; key: string }>;
+	onSyncTrigger: (syncKey: string) => void;
+	syncTriggering: boolean;
 }) {
 	if (loading) {
 		return <div className="text-xs text-neutral-500">Loading webhooks…</div>;
@@ -1186,6 +1455,31 @@ function WebhookLine({
 		return <div className="text-xs text-red-600">Webhooks: {error.message}</div>;
 	}
 	if (webhooks.length === 0) {
+		if (syncCapabilities.length > 0) {
+			return (
+				<div className="flex flex-col gap-0.5 text-xs">
+					{syncCapabilities.map((c) => (
+						<div key={c.key} className="flex items-baseline gap-2">
+							<span className="text-neutral-500">Trigger:</span>
+							<button
+								type="button"
+								disabled={syncTriggering}
+								onClick={() => onSyncTrigger(c.key)}
+								className={
+									"hover:underline " +
+									(syncTriggering
+										? "text-neutral-400 dark:text-neutral-500"
+										: "text-blue-600 dark:text-blue-400")
+								}
+							>
+								{c.key}
+							</button>
+							{syncTriggering ? <span className="text-neutral-500">triggering…</span> : null}
+						</div>
+					))}
+				</div>
+			);
+		}
 		return <div className="text-xs text-neutral-500">No webhooks for this worker.</div>;
 	}
 	return (
