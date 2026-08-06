@@ -81,6 +81,8 @@ pnpm dev
 
 The web app runs at `http://localhost:5173`, the API server at `http://localhost:5174`.
 
+If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/.env` and set `PORT` to something else. (Port 5173 is set in `apps/web/vite.config.ts` — if you change it there too, also set `WEB_URL` in `.env` so the printed sign-in link stays correct.)
+
 ## Layout
 
 ```

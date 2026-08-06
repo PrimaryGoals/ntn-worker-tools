@@ -45,6 +45,16 @@ function attachTrace<T extends object>(data: T, stderr: string): T {
 }
 import { fetchWhoami } from "./whoami.js";
 
+// Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
+// one unambiguous place to be set, rather than shell-specific environment
+// variable syntax (differs between PowerShell, cmd, and bash). Optional: all
+// of these vars have defaults, so a missing .env is not an error.
+try {
+	process.loadEnvFile(join(import.meta.dirname, "..", ".env"));
+} catch {
+	/* no apps/server/.env — fine, everything below has a default */
+}
+
 // node --watch's own "Restarting '<file>'" message has no timestamp. This is
 // the earliest point our own code runs after a restart (imports are hoisted
 // ahead of it regardless of source order), so it prints right after that line.
@@ -888,8 +898,9 @@ try {
 				`Port ${PORT} is already in use.`,
 				"",
 				"Check for another running copy of this server (e.g. a `pnpm dev`",
-				"that didn't shut down) and stop it, then try again. Or set",
-				`PORT=<a different port> to use something else.`,
+				"that didn't shut down) and stop it, then try again. Or use a",
+				"different port: create apps/server/.env (copy",
+				"apps/server/.env.example) and set PORT=<a different port> in it.",
 				"",
 			].join("\n"),
 		);
