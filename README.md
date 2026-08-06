@@ -1,15 +1,25 @@
 # NTN Worker Tools
 
-Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
+Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any registered worker and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
 Status: **Feature Complete.** Ready for external testing.
+
+## Screenshots
+![Screenshot](images/01-Registered-Workers.png)
+![Screenshot](images/02-Worker-Inspection.png)
+![Screenshot](images/03-03-Worker-Runs.png)
+![Screenshot](images/04-Run-Logss.png)
+![Screenshot](images/05-POST-Results.png)
+![Screenshot](images/06-Quick-Actions.png)
+
+
 
 ## Prerequisites
 
 - Node.js >= 22
 - pnpm >= 11 (repo pins `pnpm@11.18.0` via `packageManager`)
 - The `ntn` CLI installed and on your `PATH` (`ntn --version` should work from a terminal)
-- At least one Notion Workers project on disk to point the UI at
+- At least one Notion Workers on your Notion workspace
 
 ## First-time setup
 
