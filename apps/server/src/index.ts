@@ -880,6 +880,21 @@ try {
 		].join("\n"),
 	);
 } catch (err) {
+	if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+		// eslint-disable-next-line no-console
+		console.error(
+			[
+				"",
+				`Port ${PORT} is already in use.`,
+				"",
+				"Check for another running copy of this server (e.g. a `pnpm dev`",
+				"that didn't shut down) and stop it, then try again. Or set",
+				`PORT=<a different port> to use something else.`,
+				"",
+			].join("\n"),
+		);
+		process.exit(1);
+	}
 	app.log.error(err);
 	process.exit(1);
 }
