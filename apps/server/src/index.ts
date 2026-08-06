@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import cookiePlugin from "@fastify/cookie";
@@ -63,6 +64,37 @@ console.log(`[${new Date().toLocaleString()}] Server (re)starting...`);
 
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
+
+function printPortInUseMessageAndExit(): never {
+	// eslint-disable-next-line no-console
+	console.error(
+		[
+			"",
+			`Port ${PORT} is already in use.`,
+			"",
+			"Check for another running copy of this server (e.g. a `pnpm dev`",
+			"that didn't shut down) and stop it, then try again. Or use a",
+			"different port: create apps/server/.env (copy",
+			"apps/server/.env.example) and set PORT=<a different port> in it.",
+			"",
+		].join("\n"),
+	);
+	process.exit(1);
+}
+
+// Probe the port before any of the slower startup work below (session token
+// I/O, git version check, config load) — otherwise `pnpm dev`'s
+// --kill-others-on-fail can SIGTERM this process, because the web dev server
+// fails near-instantly on its own port conflict, before we'd ever reach the
+// real app.listen() and report *our* port conflict.
+await new Promise<void>((resolveProbe, rejectProbe) => {
+	const probe = createNetServer();
+	probe.once("error", (err: NodeJS.ErrnoException) => {
+		if (err.code === "EADDRINUSE") printPortInUseMessageAndExit();
+		rejectProbe(err);
+	});
+	probe.listen(PORT, HOST, () => probe.close(() => resolveProbe()));
+});
 
 // Log level: default warn (quiet), verbose with DEBUG=1 or LOG_LEVEL=info
 // Usage: LOG_LEVEL=info pnpm dev:server  (or DEBUG=1 pnpm dev:server)
@@ -890,22 +922,10 @@ try {
 		].join("\n"),
 	);
 } catch (err) {
-	if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") {
-		// eslint-disable-next-line no-console
-		console.error(
-			[
-				"",
-				`Port ${PORT} is already in use.`,
-				"",
-				"Check for another running copy of this server (e.g. a `pnpm dev`",
-				"that didn't shut down) and stop it, then try again. Or use a",
-				"different port: create apps/server/.env (copy",
-				"apps/server/.env.example) and set PORT=<a different port> in it.",
-				"",
-			].join("\n"),
-		);
-		process.exit(1);
-	}
+	// The probe above catches this in the overwhelming majority of cases —
+	// this remains only as a fallback for the now-tiny window between the
+	// probe releasing the port and this real listen() re-acquiring it.
+	if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") printPortInUseMessageAndExit();
 	app.log.error(err);
 	process.exit(1);
 }
