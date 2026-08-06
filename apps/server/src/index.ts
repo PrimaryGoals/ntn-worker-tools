@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { createServer as createNetServer } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import cookiePlugin from "@fastify/cookie";
@@ -45,8 +46,55 @@ function attachTrace<T extends object>(data: T, stderr: string): T {
 }
 import { fetchWhoami } from "./whoami.js";
 
+// Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
+// one unambiguous place to be set, rather than shell-specific environment
+// variable syntax (differs between PowerShell, cmd, and bash). Optional: all
+// of these vars have defaults, so a missing .env is not an error.
+try {
+	process.loadEnvFile(join(import.meta.dirname, "..", ".env"));
+} catch {
+	/* no apps/server/.env — fine, everything below has a default */
+}
+
+// node --watch's own "Restarting '<file>'" message has no timestamp. This is
+// the earliest point our own code runs after a restart (imports are hoisted
+// ahead of it regardless of source order), so it prints right after that line.
+// eslint-disable-next-line no-console
+console.log(`[${new Date().toLocaleString()}] Server (re)starting...`);
+
 const PORT = Number(process.env.PORT ?? 5174);
 const HOST = process.env.HOST ?? "127.0.0.1";
+
+function printPortInUseMessageAndExit(): never {
+	// eslint-disable-next-line no-console
+	console.error(
+		[
+			"",
+			`Port ${PORT} is already in use.`,
+			"",
+			"Check for another running copy of this server (e.g. a `pnpm dev`",
+			"that didn't shut down) and stop it, then try again. Or use a",
+			"different port: create apps/server/.env (copy",
+			"apps/server/.env.example) and set PORT=<a different port> in it.",
+			"",
+		].join("\n"),
+	);
+	process.exit(1);
+}
+
+// Probe the port before any of the slower startup work below (session token
+// I/O, git version check, config load) — otherwise `pnpm dev`'s
+// --kill-others-on-fail can SIGTERM this process, because the web dev server
+// fails near-instantly on its own port conflict, before we'd ever reach the
+// real app.listen() and report *our* port conflict.
+await new Promise<void>((resolveProbe, rejectProbe) => {
+	const probe = createNetServer();
+	probe.once("error", (err: NodeJS.ErrnoException) => {
+		if (err.code === "EADDRINUSE") printPortInUseMessageAndExit();
+		rejectProbe(err);
+	});
+	probe.listen(PORT, HOST, () => probe.close(() => resolveProbe()));
+});
 
 // Log level: default warn (quiet), verbose with DEBUG=1 or LOG_LEVEL=info
 // Usage: LOG_LEVEL=info pnpm dev:server  (or DEBUG=1 pnpm dev:server)
@@ -775,7 +823,10 @@ app.post<{ Params: { id: string } }>(
 				.code(400)
 				.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 		}
-		const result = await runShellAllowingFailure("pnpm", ["run", "deploy"], { cwd: path });
+		const result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+			cwd: path,
+			shell: true,
+		});
 		return {
 			command: result.command,
 			cwd: path,
@@ -797,7 +848,10 @@ app.post<{ Body: { url: string; webhookSecret?: string } }>(
 				detail: `url must start with ${NOTION_WEBHOOK_PREFIX}`,
 			}) as unknown as WebhookFireResult;
 		}
-		const headers: Record<string, string> = {};
+		// Node's fetch() sends "User-Agent: node" by default, which Cloudflare's
+		// bot management blocks with a 403 on notion.so. A descriptive UA avoids
+		// that false positive without misrepresenting the client.
+		const headers: Record<string, string> = { "User-Agent": "ntn-worker-tools" };
 		const sentHeaders: string[] = [];
 		if (typeof req.body?.webhookSecret === "string" && req.body.webhookSecret) {
 			headers["X-Webhook-Secret"] = req.body.webhookSecret;
@@ -868,6 +922,10 @@ try {
 		].join("\n"),
 	);
 } catch (err) {
+	// The probe above catches this in the overwhelming majority of cases —
+	// this remains only as a fallback for the now-tiny window between the
+	// probe releasing the port and this real listen() re-acquiring it.
+	if ((err as NodeJS.ErrnoException).code === "EADDRINUSE") printPortInUseMessageAndExit();
 	app.log.error(err);
 	process.exit(1);
 }

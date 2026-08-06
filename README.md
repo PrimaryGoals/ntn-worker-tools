@@ -1,15 +1,25 @@
 # NTN Worker Tools
 
-Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any worker project on disk and get a graphical view of syncs, runs, and capabilities without leaving your browser.
+Local web UI for the [Notion Workers](https://developers.notion.com/workers/get-started/overview) (`ntn`) CLI. Point it at any registered worker and get a graphical view of syncs, runs, and capabilities without leaving your browser.
 
 Status: **Feature Complete.** Ready for external testing.
+
+## Screenshots
+![Screenshot](images/01-Registered-Workers.png)
+![Screenshot](images/02-Worker-Inspection.png)
+![Screenshot](images/03-03-Worker-Runs.png)
+![Screenshot](images/04-Run-Logss.png)
+![Screenshot](images/05-POST-Results.png)
+![Screenshot](images/06-Quick-Actions.png)
+
+
 
 ## Prerequisites
 
 - Node.js >= 22
 - pnpm >= 11 (repo pins `pnpm@11.18.0` via `packageManager`)
 - The `ntn` CLI installed and on your `PATH` (`ntn --version` should work from a terminal)
-- At least one Notion Workers project on disk to point the UI at
+- At least one Notion Workers on your Notion workspace
 
 ## First-time setup
 
@@ -71,16 +81,30 @@ pnpm dev
 
 The web app runs at `http://localhost:5173`, the API server at `http://localhost:5174`.
 
+If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/.env` and set `PORT` to something else. (Port 5173 is set in `apps/web/vite.config.ts` — if you change it there too, also set `WEB_URL` in `.env` so the printed sign-in link stays correct.)
+
 ## Layout
 
 ```
 ntn-worker-tools/
 ├── apps/
-│   ├── web/       Vite + React + TS + Tailwind + shadcn/ui
-│   └── server/    Fastify server that shells out to ntn CLI
+│   ├── web/                Vite + React + TS + Tailwind
+│   │   └── src/
+│   │       ├── App.tsx             Top-level layout and routing between panels
+│   │       ├── api.ts               Typed client for the server's /api/* endpoints
+│   │       ├── format.ts            Pure formatters (bytes, durations, sync status, etc.)
+│   │       ├── hooks/                One hook per concern: UI state, worker data (queries),
+│   │       │                         deploy/sync mutations, webhook mutations, config mutations
+│   │       └── components/
+│   │           ├── ui/              Presentational primitives (Panel, MenuItem, ExitCodeBadge, ...)
+│   │           ├── modals/          TokenPushModal, FolderPickerModal, GitCheckinModal, ...
+│   │           └── *.tsx            Feature components (MenuBar, WorkersList, RunsList, ...)
+│   └── server/              Fastify server that shells out to ntn CLI
 └── packages/
-    └── shared/    Types shared between web and server
+    └── shared/               Types shared between web and server
 ```
+
+Start in `App.tsx` to see how a screen is assembled, then follow the hook/component names — each hook or component file is scoped to one concern, so the file name tells you what you'll find inside.
 
 ## Roadmap
 
@@ -92,7 +116,7 @@ MVP:
 
 Later:
 
-- [ ] Fetch code from deployed agents that Notion wrote
+- [ ] Fetch code from deployed agents that you did not write yourself
 
 
 ## License

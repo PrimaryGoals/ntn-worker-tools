@@ -16,23 +16,42 @@ import type {
 	WorkerUsage,
 } from "@ntn-worker-tools/shared";
 
+const SERVER_UNREACHABLE_MESSAGE =
+	"Confirm that your local server is running, or restart it with: pnpm dev";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// Only advertise JSON when we're actually sending a body — Fastify rejects
 	// content-type: application/json with an empty body.
 	const hasBody = init?.body != null;
-	const res = await fetch(path, {
-		// Send the session cookie on every API call; the guard rejects 401 without it.
-		credentials: "same-origin",
-		...init,
-		headers: {
-			...(hasBody ? { "content-type": "application/json" } : {}),
-			...(init?.headers ?? {}),
-		},
-	});
+	let res: Response;
+	try {
+		res = await fetch(path, {
+			// Send the session cookie on every API call; the guard rejects 401 without it.
+			credentials: "same-origin",
+			...init,
+			headers: {
+				...(hasBody ? { "content-type": "application/json" } : {}),
+				...(init?.headers ?? {}),
+			},
+		});
+	} catch {
+		// fetch() itself only throws for network-level failures (can't reach
+		// the server at all) — HTTP error responses resolve normally below
+		// and are handled by the !res.ok branch instead.
+		throw new Error(SERVER_UNREACHABLE_MESSAGE);
+	}
 	if (!res.ok) {
 		// Read the body once, then try to parse — otherwise the second read fails
 		// with "body stream already read" and hides the real error.
 		const text = await res.text();
+		// Our own server sends a JSON body on every error path (see
+		// setErrorHandler and every reply.code(...).send(...) call). An empty
+		// body means this response never reached our app code at all — Vite's
+		// dev proxy sends exactly this (empty body, 500) when it can't reach
+		// the API server, e.g. because it isn't running.
+		if (!text.trim()) {
+			throw new Error(SERVER_UNREACHABLE_MESSAGE);
+		}
 		let msg = text;
 		try {
 			const body = JSON.parse(text) as { error?: string; detail?: string };

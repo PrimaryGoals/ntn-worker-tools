@@ -11,6 +11,9 @@ export default defineConfig({
 	},
 	server: {
 		port: 5173,
+		// Fail instead of silently moving to another port — the server prints
+		// a sign-in URL hardcoded to :5173, which would be wrong if Vite drifted.
+		strictPort: true,
 		proxy: {
 			"/api": "http://127.0.0.1:5174",
 		},
