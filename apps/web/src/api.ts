@@ -20,15 +20,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// Only advertise JSON when we're actually sending a body — Fastify rejects
 	// content-type: application/json with an empty body.
 	const hasBody = init?.body != null;
-	const res = await fetch(path, {
-		// Send the session cookie on every API call; the guard rejects 401 without it.
-		credentials: "same-origin",
-		...init,
-		headers: {
-			...(hasBody ? { "content-type": "application/json" } : {}),
-			...(init?.headers ?? {}),
-		},
-	});
+	let res: Response;
+	try {
+		res = await fetch(path, {
+			// Send the session cookie on every API call; the guard rejects 401 without it.
+			credentials: "same-origin",
+			...init,
+			headers: {
+				...(hasBody ? { "content-type": "application/json" } : {}),
+				...(init?.headers ?? {}),
+			},
+		});
+	} catch {
+		// fetch() itself only throws for network-level failures (can't reach
+		// the server at all) — HTTP error responses resolve normally below
+		// and are handled by the !res.ok branch instead.
+		throw new Error(
+			"Confirm that your local server is running, or restart it with: pnpm dev",
+		);
+	}
 	if (!res.ok) {
 		// Read the body once, then try to parse — otherwise the second read fails
 		// with "body stream already read" and hides the real error.
