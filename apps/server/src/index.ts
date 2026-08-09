@@ -11,8 +11,6 @@ import type {
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
-	LogsPayload,
-	RunsPayload,
 	WebhookEntry,
 	WebhookFireResult,
 	WebhooksPayload,
@@ -32,20 +30,14 @@ import {
 } from "./ntn.js";
 import configRoutes from "./routes/config.js";
 import fsRoutes from "./routes/fs.js";
+import { attachTrace, isVerbose } from "./route-helpers.js";
+import runsRoutes from "./routes/runs.js";
 import sessionRoutes from "./routes/session.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
 import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "./state.js";
+import { fetchWhoami } from "./whoami.js";
 
 const NOTION_WEBHOOK_PREFIX = "https://www.notion.so/webhooks/worker/";
-
-function isVerbose(v?: string): boolean {
-	return v === "1" || v === "true";
-}
-
-function attachTrace<T extends object>(data: T, stderr: string): T {
-	return stderr ? ({ ...data, _trace: stderr } as T) : data;
-}
-import { fetchWhoami } from "./whoami.js";
 
 // Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
 // one unambiguous place to be set, rather than shell-specific environment
@@ -785,26 +777,7 @@ app.post<{ Body: { url: string; webhookSecret?: string }; Querystring: { verbose
 	},
 );
 
-app.get<{ Params: { id: string }; Querystring: { cursor?: string; pageSize?: string } }>(
-	"/api/workers/:id/runs",
-	async (req): Promise<RunsPayload> => {
-		const args = ["workers", "runs", "list", req.params.id];
-		if (req.query.cursor) args.push("--cursor", req.query.cursor);
-		if (req.query.pageSize) args.push("--page-size", req.query.pageSize);
-		return runNtnJson<RunsPayload>(args);
-	},
-);
-
-app.get<{ Params: { id: string; runId: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/runs/:runId/logs",
-	async (req): Promise<LogsPayload> => {
-		const args = ["workers", "runs", "logs", req.params.runId, "--worker-id", req.params.id];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<LogsPayload>(args);
-		return verbose ? attachTrace(data, stderr) : data;
-	},
-);
+await app.register(runsRoutes);
 
 try {
 	await app.listen({ port: PORT, host: HOST });
