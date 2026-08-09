@@ -234,10 +234,8 @@ export function extractWebhookSecret(envText: string): string | undefined {
 }
 
 export function formatWebhookResult(r: WebhookFireResult): string {
-	const lines = [
-		`POST ${r.url}`,
-		`Status: ${r.status} ${r.statusText}   (${r.durationMs} ms)`,
-	];
+	const status = r.statusText ? `${r.status} ${r.statusText}` : `${r.status}`;
+	const lines = [`Status: ${status}   (${r.durationMs} ms)`];
 	if (r.sentHeaders?.length) {
 		for (const h of r.sentHeaders) lines.push(`Header sent: ${h}: (present)`);
 	}

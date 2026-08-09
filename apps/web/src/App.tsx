@@ -466,31 +466,37 @@ function AppContent() {
 						Webhook failed: {(fireWebhook.error as Error).message}
 					</div>
 				) : webhookResult ? (
-					<pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-neutral-100">
-						{formatWebhookResult(webhookResult)}
-						{runLogsFollowup?.state === "polling" ? (
-							"\n\nstand by, waiting for run to complete..."
-						) : runLogsFollowup?.state === "timeout" ? (
-							"\n\nGave up waiting for the run to complete after 5 minutes."
-						) : runLogsFollowup?.state === "done" ? (
+					<OutputWithCommands
+						commands={[webhookResult.command]}
+						trace={webhookResult._trace}
+						body={
 							<>
-								{"\n\n"}
-								<span className="text-red-400">{runLogsFollowup.command}</span>
-								{"\n"}
-								<span className="text-neutral-500">{SEPARATOR}</span>
-								{"\n"}
-								{runLogsFollowup.output}
-								{runLogsFollowup.trace ? (
+								{formatWebhookResult(webhookResult)}
+								{runLogsFollowup?.state === "polling" ? (
+									"\n\nstand by, waiting for run to complete..."
+								) : runLogsFollowup?.state === "timeout" ? (
+									"\n\nGave up waiting for the run to complete after 5 minutes."
+								) : runLogsFollowup?.state === "done" ? (
 									<>
+										{"\n\n"}
+										<span className="text-red-400">{runLogsFollowup.command}</span>
 										{"\n"}
 										<span className="text-neutral-500">{SEPARATOR}</span>
 										{"\n"}
-										<span className="text-neutral-500">{runLogsFollowup.trace.trim()}</span>
+										{runLogsFollowup.output}
+										{runLogsFollowup.trace ? (
+											<>
+												{"\n"}
+												<span className="text-neutral-500">{SEPARATOR}</span>
+												{"\n"}
+												<span className="text-neutral-500">{runLogsFollowup.trace.trim()}</span>
+											</>
+										) : null}
 									</>
 								) : null}
 							</>
-						) : null}
-					</pre>
+						}
+					/>
 				) : selectedRunId ? (
 					logsQ.isLoading ? (
 						<div className="p-3 text-sm text-neutral-400">Fetching logs…</div>

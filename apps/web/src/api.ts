@@ -131,8 +131,8 @@ export const api = {
 			`/api/workers/${workerId}/sync/state-reset${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ syncKey }) },
 		),
-	fireWebhook: (url: string, webhookSecret?: string) =>
-		request<WebhookFireResult>("/api/webhook/fire", {
+	fireWebhook: (url: string, webhookSecret?: string, verbose = false) =>
+		request<WebhookFireResult>(`/api/webhook/fire${verbose ? "?verbose=1" : ""}`, {
 			method: "POST",
 			body: JSON.stringify({ url, webhookSecret }),
 		}),

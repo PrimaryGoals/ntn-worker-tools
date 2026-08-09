@@ -120,6 +120,7 @@ export interface WorkerEnvPayload {
 }
 
 export interface WebhookFireResult {
+	command: string;
 	url: string;
 	status: number;
 	statusText: string;
@@ -129,6 +130,9 @@ export interface WebhookFireResult {
 	// the transcript doesn't leak secrets). E.g. ["X-Webhook-Secret"] when a
 	// WEBHOOK_SECRET was found in the worker's env.
 	sentHeaders?: string[];
+	// Raw response headers from curl -i. Only requested (and only present)
+	// when the request set ?verbose=1 — otherwise curl runs without -i.
+	_trace?: string;
 }
 
 export interface AppConfig {
