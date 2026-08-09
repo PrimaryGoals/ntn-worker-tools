@@ -1,8 +1,7 @@
 import { spawn } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
-import { homedir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import cookiePlugin from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
@@ -10,7 +9,6 @@ import type {
 	AppConfig,
 	DeployResult,
 	EnvInfo,
-	FsListing,
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
@@ -33,6 +31,7 @@ import {
 	runNtnRawWithTrace,
 	runShellAllowingFailure,
 } from "./ntn.js";
+import fsRoutes from "./routes/fs.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
 import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "./state.js";
 
@@ -180,62 +179,7 @@ app.get("/api/config", async () => getConfig());
 
 app.get("/api/env-info", async (): Promise<EnvInfo> => envInfo);
 
-// Filesystem browsing endpoints — power the folder picker in the UI.
-// Path is user-supplied; the browser can access anything the server user can.
-// This is fine for a personal, localhost-bound tool but should be gated behind
-// the session-token guard before ntn-worker-tools is ever shipped to run remotely.
-
-app.get("/api/fs/home", async (): Promise<{ path: string }> => ({ path: homedir() }));
-
-app.get<{ Querystring: { path?: string } }>(
-	"/api/fs/list",
-	async (req, reply): Promise<FsListing> => {
-		const raw = req.query.path;
-		if (typeof raw !== "string" || !raw) {
-			return reply.code(400).send({ error: "path required" }) as unknown as FsListing;
-		}
-		const abs = resolve(raw);
-		let dirents;
-		try {
-			dirents = await readdir(abs, { withFileTypes: true });
-		} catch (err) {
-			return reply.code(400).send({
-				error: "cannot read directory",
-				detail: (err as Error).message,
-			}) as unknown as FsListing;
-		}
-		let isWorkerProject = false;
-		try {
-			const s = await stat(join(abs, "workers.json"));
-			isWorkerProject = s.isFile();
-		} catch {
-			/* no workers.json here — leave false */
-		}
-		// Only directories, sorted case-insensitively.
-		const entries = await Promise.all(
-			dirents
-				.filter((d) => d.isDirectory())
-				.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
-				.map(async (d) => {
-					let hasWorkers = false;
-					try {
-						const s = await stat(join(abs, d.name, "workers.json"));
-						hasWorkers = s.isFile();
-					} catch {
-						/* not a worker project — leave false */
-					}
-					return { name: d.name, isDirectory: true, isWorkerProject: hasWorkers };
-				}),
-		);
-		const parent = dirname(abs);
-		return {
-			path: abs,
-			parent: parent === abs ? null : parent,
-			isWorkerProject,
-			entries,
-		};
-	},
-);
+await app.register(fsRoutes);
 
 app.patch<{ Body: Partial<AppConfig["ui"]> }>("/api/config/ui", async (req) => {
 	return updateConfig({ ui: { ...getConfig().ui, ...(req.body ?? {}) } });
