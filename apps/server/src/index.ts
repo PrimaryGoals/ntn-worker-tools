@@ -24,7 +24,7 @@ import type {
 	WorkerEnvPayload,
 	WorkerUsage,
 } from "@ntn-worker-tools/shared";
-import { getConfigPath, loadConfig, saveConfig } from "./config.js";
+import { getConfigPath } from "./config.js";
 import {
 	NtnError,
 	runNtnJson,
@@ -34,6 +34,7 @@ import {
 	runShellAllowingFailure,
 } from "./ntn.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
+import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "./state.js";
 
 const NOTION_WEBHOOK_PREFIX = "https://www.notion.so/webhooks/worker/";
 
@@ -133,48 +134,8 @@ app.addHook("preHandler", async (req, reply) => {
 	return reply.code(401).send({ error: "session required" });
 });
 
-let config: AppConfig = await loadConfig();
 app.log.info({ configPath: getConfigPath() }, "config loaded");
-
-// One-shot check for git on PATH. Never repeated during the process's life.
-const gitCheck = await runShellAllowingFailure("git", ["--version"]).catch(() => null);
-const envInfo: EnvInfo =
-	gitCheck && gitCheck.exitCode === 0
-		? { gitAvailable: true, gitVersion: gitCheck.stdout.trim() }
-		: { gitAvailable: false, gitVersion: null };
 app.log.info(envInfo, "env info");
-
-async function detectGitRoot(cwd: string): Promise<string | null> {
-	if (!envInfo.gitAvailable) return null;
-	const r = await runShellAllowingFailure("git", ["rev-parse", "--show-toplevel"], { cwd });
-	if (r.exitCode !== 0) return null;
-	const root = r.stdout.trim();
-	return root || null;
-}
-
-// Only positive results are cached: repos don't un-init, so a cached `true`
-// stays authoritative forever. `false` is not persisted — a `git init` after
-// registration should be picked up on the next request.
-async function resolveGitRoot(workerId: string, cwd: string): Promise<string | null> {
-	const cachedRoot = config.workerGitRoot?.[workerId];
-	if (cachedRoot) return cachedRoot;
-	// Legacy cache from before workerGitRoot existed: we know it's a repo but
-	// not where the root is. Detect the root and upgrade the cache.
-	const root = await detectGitRoot(cwd);
-	if (root) {
-		config = {
-			...config,
-			workerIsGitRepo: { ...(config.workerIsGitRepo ?? {}), [workerId]: true },
-			workerGitRoot: { ...(config.workerGitRoot ?? {}), [workerId]: root },
-		};
-		await saveConfig(config);
-	}
-	return root;
-}
-
-async function resolveIsGitRepo(workerId: string, cwd: string): Promise<boolean> {
-	return (await resolveGitRoot(workerId, cwd)) !== null;
-}
 
 app.setErrorHandler((err, _req, reply) => {
 	if (err instanceof NtnError) {
@@ -215,7 +176,7 @@ app.post("/api/session/logout", async (_req, reply) => {
 	return { ok: true };
 });
 
-app.get("/api/config", async () => config);
+app.get("/api/config", async () => getConfig());
 
 app.get("/api/env-info", async (): Promise<EnvInfo> => envInfo);
 
@@ -277,9 +238,7 @@ app.get<{ Querystring: { path?: string } }>(
 );
 
 app.patch<{ Body: Partial<AppConfig["ui"]> }>("/api/config/ui", async (req) => {
-	config = { ...config, ui: { ...config.ui, ...(req.body ?? {}) } };
-	await saveConfig(config);
-	return config;
+	return updateConfig({ ui: { ...getConfig().ui, ...(req.body ?? {}) } });
 });
 
 app.get<{ Querystring: { verbose?: string } }>(
@@ -477,20 +436,18 @@ app.post<{ Params: { id: string }; Body: { path: string } }>(
 			}) as unknown as AppConfig;
 		}
 		// Register the path first, then let resolveIsGitRepo cache positive detections.
-		config = {
-			...config,
-			workerLocalPaths: { ...(config.workerLocalPaths ?? {}), [req.params.id]: abs },
-		};
-		await saveConfig(config);
+		const updated = await updateConfig({
+			workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
+		});
 		await resolveIsGitRepo(req.params.id, abs);
-		return config;
+		return updated;
 	},
 );
 
 app.get<{ Params: { id: string } }>(
 	"/api/workers/:id/local-info",
 	async (req, reply): Promise<LocalInfo> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(404)
@@ -529,27 +486,24 @@ app.get<{ Params: { id: string } }>(
 app.delete<{ Params: { id: string } }>(
 	"/api/workers/:id/local-path",
 	async (req): Promise<AppConfig> => {
-		const nextPaths = { ...(config.workerLocalPaths ?? {}) };
+		const nextPaths = { ...(getConfig().workerLocalPaths ?? {}) };
 		delete nextPaths[req.params.id];
-		const nextRepo = { ...(config.workerIsGitRepo ?? {}) };
+		const nextRepo = { ...(getConfig().workerIsGitRepo ?? {}) };
 		delete nextRepo[req.params.id];
-		const nextRoot = { ...(config.workerGitRoot ?? {}) };
+		const nextRoot = { ...(getConfig().workerGitRoot ?? {}) };
 		delete nextRoot[req.params.id];
-		config = {
-			...config,
+		return updateConfig({
 			workerLocalPaths: nextPaths,
 			workerIsGitRepo: nextRepo,
 			workerGitRoot: nextRoot,
-		};
-		await saveConfig(config);
-		return config;
+		});
 	},
 );
 
 app.post<{ Params: { id: string } }>(
 	"/api/workers/:id/reveal",
 	async (req, reply): Promise<{ ok: true; path: string }> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
@@ -580,7 +534,7 @@ app.post<{ Params: { id: string } }>(
 app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/deploy",
 	async (req, reply): Promise<DeployResult> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
@@ -615,7 +569,7 @@ app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 app.get<{ Params: { id: string } }>(
 	"/api/workers/:id/git-status",
 	async (req, reply): Promise<GitStatus> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
@@ -665,7 +619,7 @@ app.get<{ Params: { id: string } }>(
 app.post<{ Params: { id: string }; Body: { files: string[]; message: string } }>(
 	"/api/workers/:id/git-commit",
 	async (req, reply): Promise<DeployResult> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
@@ -776,7 +730,7 @@ app.post<{
 app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/env/push",
 	async (req, reply): Promise<DeployResult> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
@@ -814,7 +768,7 @@ app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 app.post<{ Params: { id: string } }>(
 	"/api/workers/:id/pnpm-deploy",
 	async (req, reply): Promise<DeployResult> => {
-		const path = config.workerLocalPaths?.[req.params.id];
+		const path = getConfig().workerLocalPaths?.[req.params.id];
 		if (!path) {
 			return reply
 				.code(400)
