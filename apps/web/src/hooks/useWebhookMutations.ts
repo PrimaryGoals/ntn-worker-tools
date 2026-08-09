@@ -85,7 +85,7 @@ export function useWebhookMutations(selectedWorkerId: string | null, verboseLogs
 
 	const fireWebhook = useMutation({
 		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
-			api.fireWebhook(url, webhookSecret),
+			api.fireWebhook(url, webhookSecret, verboseLogs),
 		onMutate: () => {
 			fireStartRef.current = Date.now();
 		},
