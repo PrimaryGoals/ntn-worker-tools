@@ -8,7 +8,6 @@ import Fastify from "fastify";
 import type {
 	AppConfig,
 	DeployResult,
-	EnvInfo,
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
@@ -31,6 +30,7 @@ import {
 	runNtnRawWithTrace,
 	runShellAllowingFailure,
 } from "./ntn.js";
+import configRoutes from "./routes/config.js";
 import fsRoutes from "./routes/fs.js";
 import sessionRoutes from "./routes/session.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
@@ -147,16 +147,8 @@ app.setErrorHandler((err, _req, reply) => {
 });
 
 await app.register(sessionRoutes, { sessionToken });
-
-app.get("/api/config", async () => getConfig());
-
-app.get("/api/env-info", async (): Promise<EnvInfo> => envInfo);
-
+await app.register(configRoutes);
 await app.register(fsRoutes);
-
-app.patch<{ Body: Partial<AppConfig["ui"]> }>("/api/config/ui", async (req) => {
-	return updateConfig({ ui: { ...getConfig().ui, ...(req.body ?? {}) } });
-});
 
 app.get<{ Querystring: { verbose?: string } }>(
 	"/api/whoami",
