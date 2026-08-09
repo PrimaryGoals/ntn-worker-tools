@@ -7,12 +7,13 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import type { AppConfig, DeployResult, GitStatus, GitStatusEntry, LocalInfo } from "@ntn-worker-tools/shared";
 import { getConfigPath } from "./config.js";
-import { NtnError, runNtnJsonWithTrace, runNtnRawAllowingFailure, runShellAllowingFailure } from "./ntn.js";
+import { NtnError, runNtnRawAllowingFailure, runShellAllowingFailure } from "./ntn.js";
 import configRoutes from "./routes/config.js";
 import fsRoutes from "./routes/fs.js";
 import { isVerbose } from "./route-helpers.js";
 import runsRoutes from "./routes/runs.js";
 import sessionRoutes from "./routes/session.js";
+import syncRoutes from "./routes/sync.js";
 import webhookRoutes from "./routes/webhook.js";
 import workersRoutes from "./routes/workers.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
@@ -123,88 +124,7 @@ await app.register(fsRoutes);
 
 await app.register(workersRoutes);
 
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/sync/status",
-	async (req) => {
-		const args = ["workers", "sync", "status", "--worker-id", req.params.id, "--no-watch"];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<unknown[]>(args);
-		return verbose && stderr ? { statuses: data, _trace: stderr } : { statuses: data };
-	},
-);
-
-app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
-	"/api/workers/:id/sync/trigger",
-	async (req) => {
-		const args = ["workers", "sync", "trigger", "--worker-id", req.params.id, req.body.syncKey];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const result = await runNtnRawAllowingFailure(args);
-		return {
-			command: `ntn ${args.join(" ")}`,
-			cwd: "",
-			exitCode: result.exitCode,
-			stdout: result.stdout,
-			stderr: result.stderr,
-			durationMs: result.durationMs,
-		} satisfies DeployResult;
-	},
-);
-
-app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
-	"/api/workers/:id/sync/pause",
-	async (req) => {
-		const args = ["workers", "sync", "pause", "--worker-id", req.params.id, req.body.syncKey];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const result = await runNtnRawAllowingFailure(args);
-		return {
-			command: `ntn ${args.join(" ")}`,
-			cwd: "",
-			exitCode: result.exitCode,
-			stdout: result.stdout,
-			stderr: result.stderr,
-			durationMs: result.durationMs,
-		} satisfies DeployResult;
-	},
-);
-
-app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
-	"/api/workers/:id/sync/resume",
-	async (req) => {
-		const args = ["workers", "sync", "resume", "--worker-id", req.params.id, req.body.syncKey];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const result = await runNtnRawAllowingFailure(args);
-		return {
-			command: `ntn ${args.join(" ")}`,
-			cwd: "",
-			exitCode: result.exitCode,
-			stdout: result.stdout,
-			stderr: result.stderr,
-			durationMs: result.durationMs,
-		} satisfies DeployResult;
-	},
-);
-
-app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
-	"/api/workers/:id/sync/state-reset",
-	async (req) => {
-		const args = ["workers", "sync", "state", "reset", "--worker-id", req.params.id, req.body.syncKey];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const result = await runNtnRawAllowingFailure(args);
-		return {
-			command: `ntn ${args.join(" ")}`,
-			cwd: "",
-			exitCode: result.exitCode,
-			stdout: result.stdout,
-			stderr: result.stderr,
-			durationMs: result.durationMs,
-		} satisfies DeployResult;
-	},
-);
+await app.register(syncRoutes);
 
 app.post<{ Params: { id: string }; Body: { path: string } }>(
 	"/api/workers/:id/local-path",
