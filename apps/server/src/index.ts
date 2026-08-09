@@ -5,37 +5,18 @@ import { join, relative, resolve } from "node:path";
 import cookiePlugin from "@fastify/cookie";
 import cors from "@fastify/cors";
 import Fastify from "fastify";
-import type {
-	AppConfig,
-	DeployResult,
-	GitStatus,
-	GitStatusEntry,
-	LocalInfo,
-	WebhookEntry,
-	WebhooksPayload,
-	Whoami,
-	Worker,
-	WorkerEnvPayload,
-	WorkerUsage,
-} from "@ntn-worker-tools/shared";
+import type { AppConfig, DeployResult, GitStatus, GitStatusEntry, LocalInfo } from "@ntn-worker-tools/shared";
 import { getConfigPath } from "./config.js";
-import {
-	NtnError,
-	runNtnJson,
-	runNtnJsonWithTrace,
-	runNtnRawAllowingFailure,
-	runNtnRawWithTrace,
-	runShellAllowingFailure,
-} from "./ntn.js";
+import { NtnError, runNtnJsonWithTrace, runNtnRawAllowingFailure, runShellAllowingFailure } from "./ntn.js";
 import configRoutes from "./routes/config.js";
 import fsRoutes from "./routes/fs.js";
-import { attachTrace, isVerbose } from "./route-helpers.js";
+import { isVerbose } from "./route-helpers.js";
 import runsRoutes from "./routes/runs.js";
 import sessionRoutes from "./routes/session.js";
 import webhookRoutes from "./routes/webhook.js";
+import workersRoutes from "./routes/workers.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
 import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "./state.js";
-import { fetchWhoami } from "./whoami.js";
 
 // Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
 // one unambiguous place to be set, rather than shell-specific environment
@@ -140,45 +121,7 @@ await app.register(sessionRoutes, { sessionToken });
 await app.register(configRoutes);
 await app.register(fsRoutes);
 
-app.get<{ Querystring: { verbose?: string } }>(
-	"/api/whoami",
-	async (req): Promise<Whoami> => fetchWhoami(isVerbose(req.query.verbose)),
-);
-
-app.get("/api/workers", async (): Promise<Worker[]> => runNtnJson<Worker[]>(["workers", "list"]));
-
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id",
-	async (req): Promise<Worker> => {
-		const args = ["workers", "get", req.params.id];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<Worker>(args);
-		return verbose ? attachTrace(data, stderr) : data;
-	},
-);
-
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/webhooks",
-	async (req): Promise<WebhooksPayload> => {
-		const args = ["workers", "webhooks", "list", req.params.id];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<WebhookEntry[]>(args);
-		return verbose && stderr ? { webhooks: data, _trace: stderr } : { webhooks: data };
-	},
-);
-
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/capabilities",
-	async (req) => {
-		const args = ["workers", "capabilities", "list", req.params.id];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<unknown>(args);
-		return verbose && stderr ? { capabilities: data, _trace: stderr } : { capabilities: data };
-	},
-);
+await app.register(workersRoutes);
 
 app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 	"/api/workers/:id/sync/status",
@@ -260,28 +203,6 @@ app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { sy
 			stderr: result.stderr,
 			durationMs: result.durationMs,
 		} satisfies DeployResult;
-	},
-);
-
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/usage",
-	async (req): Promise<WorkerUsage> => {
-		const args = ["workers", "usage", req.params.id];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { data, stderr } = await runNtnJsonWithTrace<WorkerUsage>(args);
-		return verbose ? attachTrace(data, stderr) : data;
-	},
-);
-
-app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
-	"/api/workers/:id/env",
-	async (req): Promise<WorkerEnvPayload> => {
-		const args = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
-		const verbose = isVerbose(req.query.verbose);
-		if (verbose) args.push("-v");
-		const { stdout, stderr } = await runNtnRawWithTrace(args);
-		return verbose && stderr ? { text: stdout, _trace: stderr } : { text: stdout };
 	},
 );
 
