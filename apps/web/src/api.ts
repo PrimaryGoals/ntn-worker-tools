@@ -53,13 +53,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 			throw new Error(SERVER_UNREACHABLE_MESSAGE);
 		}
 		let msg = text;
+		let body: Record<string, unknown> = {};
 		try {
-			const body = JSON.parse(text) as { error?: string; detail?: string };
-			msg = body.detail ? `${body.error}: ${body.detail}` : (body.error ?? text);
+			body = JSON.parse(text) as Record<string, unknown>;
+			msg = body.detail ? `${body.error}: ${body.detail}` : ((body.error as string) ?? text);
 		} catch {
 			/* keep raw text */
 		}
-		throw new Error(msg || `${res.status} ${res.statusText}`);
+		const err = new Error(msg || `${res.status} ${res.statusText}`);
+		Object.assign(err, body);
+		throw err;
 	}
 	return (await res.json()) as T;
 }
