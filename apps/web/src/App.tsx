@@ -166,6 +166,7 @@ function AppContent() {
 		renameWorkerOpen,
 		setRenameWorkerOpen,
 	} = useUIState();
+	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
 		deployWorker,
 		pnpmDeployWorker,
@@ -693,17 +694,17 @@ function AppContent() {
 					}
 					workerId={selectedWorkerId}
 					submitting={renameWorker.isPending || deployWorker.isPending}
-					error={
-						(renameWorker.error as Error | null) ||
-						(renameWorker.data && deployWorker.error ? (deployWorker.error as Error | null) : null)
-					}
+					error={(renameWorker.error as Error | null) || (deployWorker.error as Error | null)}
 					success={!!renameWorker.data && renameWorker.data.exitCode === 0}
+					successName={renamedWorkerName ?? undefined}
 					onClose={() => {
 						setRenameWorkerOpen(false);
 						renameWorker.reset();
+						setRenamedWorkerName(null);
 					}}
 					onSubmit={(newName) => {
 						clearTransientOutputs();
+						setRenamedWorkerName(newName);
 						renameWorker.mutate({ workerId: selectedWorkerId, newName });
 					}}
 					onRedeploy={() => {

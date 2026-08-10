@@ -23,6 +23,7 @@ export function RenameWorkerModal({
 	onSubmit,
 	onRedeploy,
 	success,
+	successName,
 }: {
 	workerName: string;
 	workerId: string;
@@ -32,6 +33,7 @@ export function RenameWorkerModal({
 	onSubmit: (newName: string) => void;
 	onRedeploy: () => void;
 	success: boolean;
+	successName?: string;
 }) {
 	const [newName, setNewName] = useState("");
 	const normalized = normalizeWorkerName(newName);
@@ -39,17 +41,16 @@ export function RenameWorkerModal({
 
 	useEffect(() => {
 		const h = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
+			if (e.key === "Escape" && !success) onClose();
 		};
 		window.addEventListener("keydown", h);
 		return () => window.removeEventListener("keydown", h);
-	}, [onClose]);
+	}, [onClose, success]);
 
 	if (success) {
 		return (
 			<div
 				className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-				onClick={onClose}
 				role="presentation"
 			>
 				<div
@@ -61,25 +62,15 @@ export function RenameWorkerModal({
 				>
 					<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
 						<h2 className="text-sm font-semibold">Rename Complete</h2>
-						<button
-							type="button"
-							onClick={onClose}
-							className="rounded px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-900"
-						>
-							✕
-						</button>
 					</div>
 					<div className="flex flex-col gap-3 p-4">
 						<p className="text-sm">
 							Worker <span className="font-medium">{workerName}</span> has been successfully
-							renamed to <span className="font-medium">{normalized}</span>.
+							renamed to <span className="font-medium">{successName}</span>.
 						</p>
 						<p className="text-xs text-neutral-600 dark:text-neutral-400">
 							Would you like to redeploy the worker now?
 						</p>
-						{error ? (
-							<div className="text-xs text-red-600 dark:text-red-400">{error.message}</div>
-						) : null}
 						<div className="flex justify-end gap-2">
 							<button
 								type="button"
@@ -90,7 +81,10 @@ export function RenameWorkerModal({
 							</button>
 							<button
 								type="button"
-								onClick={onRedeploy}
+								onClick={() => {
+									onClose();
+									onRedeploy();
+								}}
 								disabled={submitting}
 								className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
 							>
@@ -148,7 +142,8 @@ export function RenameWorkerModal({
 							autoFocus
 							autoComplete="off"
 							spellCheck={false}
-							className="rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-900"
+							disabled={submitting}
+							className="rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-xs disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900"
 						/>
 						{newName && !isValid && (
 							<div className="text-xs text-red-600 dark:text-red-400">
