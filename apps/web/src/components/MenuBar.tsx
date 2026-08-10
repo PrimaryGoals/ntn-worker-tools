@@ -16,6 +16,7 @@ export function MenuBar({
 	onSetLocalPath,
 	onClearLocalPath,
 	onReveal,
+	onRenameWorker,
 	onNtnDeploy,
 	onPnpmDeploy,
 	onPushSecrets,
@@ -41,6 +42,7 @@ export function MenuBar({
 	onSetLocalPath: () => void;
 	onClearLocalPath: () => void;
 	onReveal: () => void;
+	onRenameWorker: () => void;
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
 	onPushSecrets: () => void;
@@ -105,6 +107,15 @@ export function MenuBar({
 							onClick={() => {
 								setOpen(false);
 								onReveal();
+							}}
+						/>
+						<MenuItem
+							label="Rename worker"
+							disabled={!localPath}
+							disabledReason="No local folder registered — use Set local folder… first."
+							onClick={() => {
+								setOpen(false);
+								onRenameWorker();
 							}}
 						/>
 						<MenuItem

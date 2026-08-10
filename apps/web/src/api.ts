@@ -157,6 +157,11 @@ export const api = {
 		),
 	pnpmDeployWorker: (workerId: string) =>
 		request<DeployResult>(`/api/workers/${workerId}/pnpm-deploy`, { method: "POST" }),
+	renameWorker: (workerId: string, newName: string) =>
+		request<DeployResult>(`/api/workers/${workerId}/rename`, {
+			method: "POST",
+			body: JSON.stringify({ newName }),
+		}),
 	pushWorkerSecrets: (workerId: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,

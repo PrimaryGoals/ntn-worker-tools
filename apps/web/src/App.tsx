@@ -9,6 +9,7 @@ import { Empty, Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
+import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
 import { WebhookLine } from "./components/WebhookLine";
@@ -162,6 +163,8 @@ function AppContent() {
 		setFolderPickerOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
+		renameWorkerOpen,
+		setRenameWorkerOpen,
 	} = useUIState();
 	const {
 		deployWorker,
@@ -211,7 +214,7 @@ function AppContent() {
 		isSyncWorker,
 		syncStatusQ,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
-	const { setLocalPath, clearLocalPath, revealWorker, savePanelSize, schedulePanelSave } =
+	const { setLocalPath, clearLocalPath, revealWorker, renameWorker, savePanelSize, schedulePanelSave } =
 		useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
 	return (
@@ -247,6 +250,10 @@ function AppContent() {
 				}}
 				onReveal={() => {
 					if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
+				}}
+				onRenameWorker={() => {
+					renameWorker.reset();
+					setRenameWorkerOpen(true);
 				}}
 				onNtnDeploy={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -676,6 +683,31 @@ function AppContent() {
 					onSelect={(path) => {
 						clearTransientOutputs();
 						setLocalPath.mutate({ workerId: selectedWorkerId, path });
+					}}
+				/>
+			) : null}
+			{renameWorkerOpen && selectedWorkerId ? (
+				<RenameWorkerModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					workerId={selectedWorkerId}
+					submitting={renameWorker.isPending || deployWorker.isPending}
+					error={
+						(renameWorker.error as Error | null) ||
+						(renameWorker.data && deployWorker.error ? (deployWorker.error as Error | null) : null)
+					}
+					success={!!renameWorker.data && renameWorker.data.exitCode === 0}
+					onClose={() => {
+						setRenameWorkerOpen(false);
+						renameWorker.reset();
+					}}
+					onSubmit={(newName) => {
+						clearTransientOutputs();
+						renameWorker.mutate({ workerId: selectedWorkerId, newName });
+					}}
+					onRedeploy={() => {
+						deployWorker.mutate(selectedWorkerId);
 					}}
 				/>
 			) : null}

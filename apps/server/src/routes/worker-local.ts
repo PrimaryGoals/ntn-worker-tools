@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
 	AppConfig,
@@ -422,6 +422,91 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				stdout: result.stdout,
 				stderr: result.stderr,
 				durationMs: result.durationMs,
+			};
+		},
+	);
+
+	app.post<{ Params: { id: string }; Body: { newName: string } }>(
+		"/api/workers/:id/rename",
+		async (req, reply): Promise<DeployResult> => {
+			const path = getConfig().workerLocalPaths?.[req.params.id];
+			if (!path) {
+				return reply
+					.code(400)
+					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			const newName = req.body?.newName?.trim();
+			if (!newName) {
+				return reply
+					.code(400)
+					.send({ error: "new worker name required" }) as unknown as DeployResult;
+			}
+
+			const parentDir = dirname(path);
+			const newPath = join(parentDir, newName);
+
+			try {
+				await rename(path, newPath);
+			} catch (err) {
+				return reply.code(400).send({
+					error: "failed to rename directory",
+					detail: `Could not rename folder from ${basename(path)} to ${newName}. It may be in use.`,
+				}) as unknown as DeployResult;
+			}
+
+			await updateConfig({
+				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: newPath },
+			});
+
+			const ntnResult = await runNtnRawAllowingFailure(
+				["workers", "rename", "--worker-id", req.params.id, newName],
+				{},
+			);
+
+			if (ntnResult.exitCode !== 0) {
+				return {
+					command: `ntn workers rename --worker-id ${req.params.id} ${newName}`,
+					cwd: "",
+					exitCode: ntnResult.exitCode,
+					stdout: ntnResult.stdout,
+					stderr: ntnResult.stderr,
+					durationMs: ntnResult.durationMs,
+				};
+			}
+
+			try {
+				const pkgRaw = await readFile(join(newPath, "package.json"), "utf8");
+				const pkg = JSON.parse(pkgRaw) as Record<string, unknown>;
+				const oldName = basename(path);
+				let replacementCount = 0;
+
+				if (typeof pkg.name === "string" && pkg.name.includes(oldName)) {
+					pkg.name = pkg.name.replaceAll(oldName, newName);
+					replacementCount++;
+				}
+
+				if (pkg.scripts && typeof pkg.scripts === "object") {
+					const scripts = pkg.scripts as Record<string, unknown>;
+					if (typeof scripts.deploy === "string" && scripts.deploy.includes(oldName)) {
+						scripts.deploy = scripts.deploy.replaceAll(oldName, newName);
+						replacementCount++;
+					}
+				}
+
+				if (replacementCount > 0) {
+					await writeFile(join(newPath, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+				}
+			} catch {
+				/* no package.json or update failed — continue */
+			}
+
+			return {
+				command: `ntn workers rename --worker-id ${req.params.id} ${newName}`,
+				cwd: newPath,
+				exitCode: ntnResult.exitCode,
+				stdout: ntnResult.stdout,
+				stderr: ntnResult.stderr,
+				durationMs: ntnResult.durationMs,
 			};
 		},
 	);

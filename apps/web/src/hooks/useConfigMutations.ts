@@ -27,6 +27,11 @@ export function useConfigMutations(
 		mutationFn: api.revealWorker,
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
 	});
+	const renameWorker = useMutation({
+		mutationFn: ({ workerId, newName }: { workerId: string; newName: string }) =>
+			api.renameWorker(workerId, newName),
+		onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
+	});
 	const savePanelSize = useMutation({
 		mutationFn: (patch: Record<string, number>) =>
 			api.updateUiConfig({ panelSizes: { ...persistedPanelSizes, ...patch } }),
@@ -50,5 +55,5 @@ export function useConfigMutations(
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	return { setLocalPath, clearLocalPath, revealWorker, savePanelSize, schedulePanelSave };
+	return { setLocalPath, clearLocalPath, revealWorker, renameWorker, savePanelSize, schedulePanelSave };
 }
