@@ -16,6 +16,7 @@ function isValidWorkerName(name: string): boolean {
 
 export function RenameWorkerModal({
 	workerName,
+	currentWorkerName,
 	workerId,
 	submitting,
 	error,
@@ -26,6 +27,7 @@ export function RenameWorkerModal({
 	successName,
 }: {
 	workerName: string;
+	currentWorkerName: string;
 	workerId: string;
 	submitting: boolean;
 	error: Error | null;
@@ -35,7 +37,7 @@ export function RenameWorkerModal({
 	success: boolean;
 	successName?: string;
 }) {
-	const [newName, setNewName] = useState("");
+	const [newName, setNewName] = useState(currentWorkerName);
 	const normalized = normalizeWorkerName(newName);
 	const isValid = isValidWorkerName(normalized);
 

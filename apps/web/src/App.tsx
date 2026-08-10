@@ -692,6 +692,9 @@ function AppContent() {
 					workerName={
 						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
 					}
+					currentWorkerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
 					workerId={selectedWorkerId}
 					submitting={renameWorker.isPending || deployWorker.isPending}
 					error={(renameWorker.error as Error | null) || (deployWorker.error as Error | null)}
@@ -708,7 +711,13 @@ function AppContent() {
 						renameWorker.mutate({ workerId: selectedWorkerId, newName });
 					}}
 					onRedeploy={() => {
-						deployWorker.mutate(selectedWorkerId);
+						if (!selectedWorkerId) return;
+						clearTransientOutputs();
+						if (hasDeployScript) {
+							pnpmDeployWorker.mutate(selectedWorkerId);
+						} else {
+							deployWorker.mutate(selectedWorkerId);
+						}
 					}}
 				/>
 			) : null}
