@@ -56,10 +56,19 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				}) as unknown as AppConfig;
 			}
 			if (folderWorkerId !== req.params.id) {
+				let folderWorkerName: string | undefined;
+				try {
+					const pkgRaw = await readFile(join(abs, "package.json"), "utf8");
+					const pkg = JSON.parse(pkgRaw) as { name?: string };
+					folderWorkerName = pkg.name;
+				} catch {
+					/* no package.json or invalid JSON — leave undefined */
+				}
 				return reply.code(400).send({
 					error: "worker mismatch",
 					detail: `Folder ${abs} is registered to workerId=${folderWorkerId}, but you have workerId=${req.params.id} selected.`,
 					folderWorkerId,
+					folderWorkerName,
 					selectedWorkerId: req.params.id,
 				}) as unknown as AppConfig;
 			}

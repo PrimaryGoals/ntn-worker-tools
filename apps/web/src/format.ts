@@ -244,17 +244,17 @@ export function formatWebhookResult(r: WebhookFireResult): string {
 }
 
 // Rewrites the raw server error into a friendlier message for folder selection
-// errors. Checks for folderWorkerId to show the actual worker in the folder.
+// errors. Shows the actual worker name from the folder when there's a mismatch.
 export function friendlySetPathError(
 	err: Error | null,
 	workerName: string | null,
 ): Error | null {
 	if (!err) return null;
 	if (err.message.startsWith("worker mismatch")) {
-		const folderWorkerId = (err as Record<string, unknown>).folderWorkerId;
-		if (folderWorkerId) {
+		const folderWorkerName = (err as Record<string, unknown>).folderWorkerName;
+		if (folderWorkerName) {
 			return new Error(
-				`The folder you chose appears to be for a worker called ${folderWorkerId}`,
+				`The folder you chose appears to be for a worker called ${folderWorkerName}`,
 			);
 		}
 	}
