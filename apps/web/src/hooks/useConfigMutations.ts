@@ -30,7 +30,10 @@ export function useConfigMutations(
 	const renameWorker = useMutation({
 		mutationFn: ({ workerId, newName }: { workerId: string; newName: string }) =>
 			api.renameWorker(workerId, newName),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			qc.invalidateQueries({ queryKey: ["workers"] });
+		},
 	});
 	const savePanelSize = useMutation({
 		mutationFn: (patch: Record<string, number>) =>
