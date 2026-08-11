@@ -9,8 +9,16 @@ export function getConfig(): AppConfig {
 }
 
 export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+	const oldConfig = config;
 	config = { ...config, ...patch };
-	await saveConfig(config);
+	try {
+		await saveConfig(config);
+	} catch (err) {
+		config = oldConfig;
+		throw new Error(
+			`Failed to save config: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 	return config;
 }
 
@@ -21,7 +29,7 @@ export const envInfo: EnvInfo =
 		? { gitAvailable: true, gitVersion: gitCheck.stdout.trim() }
 		: { gitAvailable: false, gitVersion: null };
 
-async function detectGitRoot(cwd: string): Promise<string | null> {
+export async function detectGitRoot(cwd: string): Promise<string | null> {
 	if (!envInfo.gitAvailable) return null;
 	const r = await runShellAllowingFailure("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (r.exitCode !== 0) return null;

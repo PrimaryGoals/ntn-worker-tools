@@ -35,10 +35,10 @@ export default async function fsRoutes(app: FastifyInstance) {
 			} catch {
 				/* no workers.json here — leave false */
 			}
-			// Only directories, sorted case-insensitively.
+			// Only directories (excluding hidden ones starting with "."), sorted case-insensitively.
 			const entries = await Promise.all(
 				dirents
-					.filter((d) => d.isDirectory())
+					.filter((d) => d.isDirectory() && !d.name.startsWith("."))
 					.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
 					.map(async (d) => {
 						let hasWorkers = false;
