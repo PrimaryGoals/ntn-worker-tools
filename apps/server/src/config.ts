@@ -67,18 +67,18 @@ export async function saveConfig(config: AppConfig): Promise<void> {
 	const configDir = dirname(configFile);
 	await mkdir(configDir, { recursive: true });
 
-	const jsonContent = JSON.stringify(config, null, 2) + "\n";
-
-	// Write to temp file first for atomicity
-	await writeFile(configTempFile, jsonContent, "utf8");
-
-	// Create backup of current config before replacing it
+	// Create backup of current config BEFORE writing any new data
 	try {
 		const currentRaw = await readFile(configFile, "utf8");
 		await writeFile(configBackupFile, currentRaw, "utf8");
 	} catch {
 		/* Current config doesn't exist or can't be read; skip backup */
 	}
+
+	const jsonContent = JSON.stringify(config, null, 2) + "\n";
+
+	// Write to temp file first for atomicity
+	await writeFile(configTempFile, jsonContent, "utf8");
 
 	// Atomically replace config file with temp file
 	await rename(configTempFile, configFile);
