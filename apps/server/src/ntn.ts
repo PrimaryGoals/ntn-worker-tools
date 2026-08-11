@@ -55,6 +55,23 @@ function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult
 	return runRawCommand("ntn", args, opts);
 }
 
+// Quotes an arg for display so the printed command is copy-pasteable into a
+// real shell (PowerShell, cmd, or POSIX). Whitelist rather than blacklist:
+// PowerShell treats characters like % and { } specially even mid-token with
+// no surrounding whitespace (e.g. `%{http_code}` is parsed as a ForEach-Object
+// script block, not a literal string) — bare flags and simple tokens
+// (letters, digits, and -_./:=,@) stay unquoted to match how you'd type them
+// by hand; anything else gets wrapped in double quotes, which passes through
+// unmodified in PowerShell, cmd, and POSIX shells alike. None of our values
+// contain embedded double quotes.
+function quoteForDisplay(arg: string): string {
+	return /^[A-Za-z0-9_\-.\/:=,@]*$/.test(arg) ? arg : `"${arg}"`;
+}
+
+function formatCommandForDisplay(cmd: string, args: string[]): string {
+	return [cmd, ...args.map(quoteForDisplay)].join(" ");
+}
+
 function runRawCommand(
 	cmd: string,
 	args: string[],
@@ -63,7 +80,7 @@ function runRawCommand(
 	return new Promise((resolve, reject) => {
 		const start = Date.now();
 		// eslint-disable-next-line no-console
-		console.log(`[${cmd} spawn] ${cmd} ${(opts.logAs ?? args).join(" ")}`);
+		console.log(`[${cmd} spawn] ${formatCommandForDisplay(cmd, opts.logAs ?? args)}`);
 		const child = execFile(cmd, args, {
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
 			windowsHide: true,
@@ -81,10 +98,10 @@ function runRawCommand(
 				}, opts.timeoutMs)
 			: null;
 
-		child.stdout.on("data", (chunk: Buffer) => {
+		child.stdout?.on("data", (chunk: Buffer) => {
 			stdout += chunk.toString("utf8");
 		});
-		child.stderr.on("data", (chunk: Buffer) => {
+		child.stderr?.on("data", (chunk: Buffer) => {
 			stderr += chunk.toString("utf8");
 		});
 
@@ -127,7 +144,7 @@ export async function runShellAllowingFailure(
 ): Promise<{ command: string; exitCode: number; stdout: string; stderr: string; durationMs: number }> {
 	const result = await runRawCommand(cmd, args, { timeoutMs: 5 * 60_000, ...opts });
 	return {
-		command: `${cmd} ${(opts.logAs ?? args).join(" ")}`,
+		command: formatCommandForDisplay(cmd, opts.logAs ?? args),
 		exitCode: result.exitCode,
 		stdout: result.stdout,
 		stderr: result.stderr,

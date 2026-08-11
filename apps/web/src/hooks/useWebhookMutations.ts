@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { WebhookFireResult } from "@ntn-worker-tools/shared";
+import type { RunsPayload, WebhookFireResult } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import { ntnCmd } from "../format";
 
@@ -21,13 +21,17 @@ export function useWebhookMutations(selectedWorkerId: string | null, verboseLogs
 	// Invalidated on a new fire / resetWebhookResult() so a poll round that
 	// resolves after the user has moved on doesn't overwrite the panel.
 	const followupTokenRef = useRef(0);
-	const fireStartRef = useRef(0);
+	// Snapshot of this worker's runIds taken right before firing. Comparing
+	// startedAt against a client-clock timestamp used to miss runs whenever
+	// the local clock ran even slightly ahead of Notion's — the comparison
+	// could never become true, so the poll ran out the clock and reported a
+	// false timeout even though the run had completed fine.
+	const existingRunIdsRef = useRef<Set<string>>(new Set());
 
-	// Polls `ntn workers runs list` with a widening gap (5s, 10s, 15s, ...)
-	// until a run that started at/after `firedAt` shows up with an exit code,
-	// then fetches and displays its logs. Runs that predate `firedAt` are
-	// ignored — they're a leftover from before this fire, not its result.
-	async function pollForRunCompletion(workerId: string, firedAt: number) {
+	// Polls `ntn workers runs list` (scoped to this one workerId) with a
+	// widening gap (5s, 10s, 15s, ...) until a run whose id wasn't in the
+	// pre-fire snapshot shows up with an exit code, then fetches its logs.
+	async function pollForRunCompletion(workerId: string, existingRunIds: Set<string>) {
 		const token = ++followupTokenRef.current;
 		setRunLogsFollowup({ state: "polling" });
 
@@ -52,20 +56,19 @@ export function useWebhookMutations(selectedWorkerId: string | null, verboseLogs
 			if (followupTokenRef.current !== token) return;
 			qc.setQueryData(["runs", workerId], runsPayload);
 
-			const mostRecent = runsPayload.runs[0];
-			const isOurs = mostRecent && new Date(mostRecent.startedAt).getTime() >= firedAt;
-			if (isOurs && mostRecent.exitCode != null) {
+			const newRun = runsPayload.runs.find((run) => !existingRunIds.has(run.runId));
+			if (newRun && newRun.exitCode != null) {
 				const command = ntnCmd([
 					"workers",
 					"runs",
 					"logs",
-					mostRecent.runId,
+					newRun.runId,
 					"--worker-id",
 					workerId,
 					...(verboseLogs ? ["-v"] : []),
 				]);
 				try {
-					const logsResult = await api.getLogs(workerId, mostRecent.runId, verboseLogs);
+					const logsResult = await api.getLogs(workerId, newRun.runId, verboseLogs);
 					if (followupTokenRef.current !== token) return;
 					setRunLogsFollowup({
 						state: "done",
@@ -85,16 +88,21 @@ export function useWebhookMutations(selectedWorkerId: string | null, verboseLogs
 
 	const fireWebhook = useMutation({
 		mutationFn: ({ url, webhookSecret }: { url: string; webhookSecret?: string }) =>
-			api.fireWebhook(url, webhookSecret),
+			api.fireWebhook(url, webhookSecret, verboseLogs),
 		onMutate: () => {
-			fireStartRef.current = Date.now();
+			// Scoped to this one workerId's cached run list, so it can only ever
+			// match against runs belonging to the worker that's about to fire.
+			const cached = selectedWorkerId
+				? qc.getQueryData<RunsPayload>(["runs", selectedWorkerId])
+				: undefined;
+			existingRunIdsRef.current = new Set((cached?.runs ?? []).map((run) => run.runId));
 		},
 		onSuccess: (data) => {
 			setWebhookResult(data);
 			if (selectedWorkerId) {
 				const workerId = selectedWorkerId;
 				qc.invalidateQueries({ queryKey: ["runs", workerId] });
-				pollForRunCompletion(workerId, fireStartRef.current);
+				pollForRunCompletion(workerId, existingRunIdsRef.current);
 			}
 		},
 	});
