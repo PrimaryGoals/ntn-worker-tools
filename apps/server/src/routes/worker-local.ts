@@ -11,7 +11,7 @@ import type {
 } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
-import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
+import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
 
 export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Body: { path: string } }>(
@@ -72,11 +72,13 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					selectedWorkerId: req.params.id,
 				}) as unknown as AppConfig;
 			}
-			// Register the path first, then let resolveIsGitRepo cache positive detections.
+			// Detect git root for this folder, then register path and git info in a single atomic update
+			const gitRoot = await detectGitRoot(abs);
 			const updated = await updateConfig({
 				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
+				workerIsGitRepo: { ...(getConfig().workerIsGitRepo ?? {}), [req.params.id]: gitRoot !== null },
+				workerGitRoot: gitRoot ? { ...(getConfig().workerGitRoot ?? {}), [req.params.id]: gitRoot } : getConfig().workerGitRoot ?? {},
 			});
-			await resolveIsGitRepo(req.params.id, abs);
 			return updated;
 		},
 	);

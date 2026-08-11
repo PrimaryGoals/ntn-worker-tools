@@ -29,7 +29,7 @@ export const envInfo: EnvInfo =
 		? { gitAvailable: true, gitVersion: gitCheck.stdout.trim() }
 		: { gitAvailable: false, gitVersion: null };
 
-async function detectGitRoot(cwd: string): Promise<string | null> {
+export async function detectGitRoot(cwd: string): Promise<string | null> {
 	if (!envInfo.gitAvailable) return null;
 	const r = await runShellAllowingFailure("git", ["rev-parse", "--show-toplevel"], { cwd });
 	if (r.exitCode !== 0) return null;
