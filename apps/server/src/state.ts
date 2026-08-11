@@ -9,8 +9,16 @@ export function getConfig(): AppConfig {
 }
 
 export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+	const oldConfig = config;
 	config = { ...config, ...patch };
-	await saveConfig(config);
+	try {
+		await saveConfig(config);
+	} catch (err) {
+		config = oldConfig;
+		throw new Error(
+			`Failed to save config: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
 	return config;
 }
 
