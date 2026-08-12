@@ -51,10 +51,10 @@ export function GitCheckinModal({
 	const commit = useMutation({
 		mutationFn: () => api.gitCommit(workerId, [...selected], message),
 		onSuccess: (result) => {
-			// A fresh commit changes the local latest-commit time the out-of-date
-			// indicator compares against — rescan it so the worker list updates
-			// without needing a browser refresh.
-			qc.invalidateQueries({ queryKey: ["localCommitTimes"] });
+			// The files just committed were edited before this modal was even
+			// opened, possibly after the last local-mtimes scan — rescan so the
+			// out-of-date indicator reflects those edits without a browser refresh.
+			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 			onCommitted(result);
 		},
 	});

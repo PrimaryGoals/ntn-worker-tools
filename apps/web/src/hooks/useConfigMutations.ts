@@ -13,9 +13,9 @@ export function useConfigMutations(
 			api.setWorkerLocalPath(workerId, path),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["config"] });
-			// Registering a path brings a new (or changed) local repo into the
-			// out-of-date comparison — rescan its commit time.
-			qc.invalidateQueries({ queryKey: ["localCommitTimes"] });
+			// Registering a path brings a new (or changed) local folder into the
+			// out-of-date comparison — rescan its mtime.
+			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 			// Only close the folder picker after the workerId-match check server-side
 			// has accepted the path. On failure (e.g. worker mismatch) it stays open
 			// so the user sees the inline error and can navigate somewhere else.
@@ -26,7 +26,7 @@ export function useConfigMutations(
 		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["config"] });
-			qc.invalidateQueries({ queryKey: ["localCommitTimes"] });
+			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 		},
 	});
 	const revealWorker = useMutation({

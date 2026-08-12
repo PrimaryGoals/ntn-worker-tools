@@ -35,10 +35,10 @@ export function useWorkerData(
 		queryFn: api.getWorkers,
 		enabled: !!whoamiQ.data,
 	});
-	const localCommitTimesQ = useQuery({
-		queryKey: ["localCommitTimes"],
-		queryFn: api.getLocalCommitTimes,
-		enabled: !!whoamiQ.data && gitAvailable,
+	const localMtimesQ = useQuery({
+		queryKey: ["localMtimes"],
+		queryFn: api.getLocalMtimes,
+		enabled: !!whoamiQ.data,
 	});
 	const runsQ = useQuery({
 		queryKey: ["runs", selectedWorkerId],
@@ -87,19 +87,19 @@ export function useWorkerData(
 			),
 		[workersQ.data],
 	);
-	// workerId -> local commit is newer than the worker's last deploy
-	// (updatedAt). Only meaningful for workers with a registered local repo —
-	// a null/missing commit time means "can't tell", not "up to date".
+	// workerId -> local files were modified more recently than the worker's
+	// last deploy (updatedAt). Only meaningful for workers with a registered
+	// local path — a null/missing mtime means "can't tell", not "up to date".
 	const outOfDateWorkerIds = useMemo(() => {
-		const commitTimes = localCommitTimesQ.data;
-		if (!commitTimes) return new Set<string>();
+		const mtimes = localMtimesQ.data;
+		if (!mtimes) return new Set<string>();
 		const ids = new Set<string>();
 		for (const w of workersQ.data ?? []) {
-			const commitTime = commitTimes[w.workerId];
-			if (commitTime && new Date(commitTime) > new Date(w.updatedAt)) ids.add(w.workerId);
+			const mtime = mtimes[w.workerId];
+			if (mtime && new Date(mtime) > new Date(w.updatedAt)) ids.add(w.workerId);
 		}
 		return ids;
-	}, [workersQ.data, localCommitTimesQ.data]);
+	}, [workersQ.data, localMtimesQ.data]);
 
 	const capabilities = capabilitiesQ.data?.capabilities;
 	const syncCapabilities = useMemo(() => {
@@ -125,7 +125,7 @@ export function useWorkerData(
 		hasDeployScript,
 		isGitRepo,
 		workersQ,
-		localCommitTimesQ,
+		localMtimesQ,
 		runsQ,
 		logsQ,
 		workerQ,
