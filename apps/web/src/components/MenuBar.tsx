@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MenuItem } from "./ui/MenuItem";
+import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
 	workspaceName,
@@ -19,6 +20,7 @@ export function MenuBar({
 	onRenameWorker,
 	onNtnDeploy,
 	onPnpmDeploy,
+	onDeployUpdatedWorkers,
 	onPushSecrets,
 	onOpenGitCheckin,
 	onMarkTime,
@@ -48,6 +50,7 @@ export function MenuBar({
 	onRenameWorker: () => void;
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
+	onDeployUpdatedWorkers: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
@@ -124,32 +127,37 @@ export function MenuBar({
 								onRenameWorker();
 							}}
 						/>
-						<MenuItem
-							label="ntn workers deploy"
-							disabled={!localPath || hasDeployScript}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "This project defines scripts.deploy in package.json — use pnpm run deploy."
-							}
-							onClick={() => {
-								setOpen(false);
-								onNtnDeploy();
-							}}
-						/>
-						<MenuItem
-							label="pnpm run deploy"
-							disabled={!localPath || !hasDeployScript}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "This project has no scripts.deploy in package.json — use ntn workers deploy."
-							}
-							onClick={() => {
-								setOpen(false);
-								onPnpmDeploy();
-							}}
-						/>
+						<MenuItemSubmenu
+							label="Deploy workers"
+							disabled={!localPath}
+							disabledReason="Requires a registered local folder."
+						>
+							<MenuItem
+								label="ntn workers deploy"
+								disabled={hasDeployScript}
+								disabledReason="This project defines scripts.deploy in package.json — use pnpm run deploy."
+								onClick={() => {
+									setOpen(false);
+									onNtnDeploy();
+								}}
+							/>
+							<MenuItem
+								label="pnpm run deploy"
+								disabled={!hasDeployScript}
+								disabledReason="This project has no scripts.deploy in package.json — use ntn workers deploy."
+								onClick={() => {
+									setOpen(false);
+									onPnpmDeploy();
+								}}
+							/>
+							<MenuItem
+								label="deploy updated workers"
+								onClick={() => {
+									setOpen(false);
+									onDeployUpdatedWorkers();
+								}}
+							/>
+						</MenuItemSubmenu>
 						<MenuItem
 							label="push secrets to Notion"
 							disabled={!localPath || !hasEnvFile}
@@ -206,27 +214,29 @@ export function MenuBar({
 						{isSyncWorker ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />
-								<MenuItem
-									label="sync pause"
-									onClick={() => {
-										setOpen(false);
-										onSyncPause();
-									}}
-								/>
-								<MenuItem
-									label="sync resume"
-									onClick={() => {
-										setOpen(false);
-										onSyncResume();
-									}}
-								/>
-								<MenuItem
-									label="sync reset"
-									onClick={() => {
-										setOpen(false);
-										onSyncStateReset();
-									}}
-								/>
+								<MenuItemSubmenu label="Sync Options">
+									<MenuItem
+										label="sync pause"
+										onClick={() => {
+											setOpen(false);
+											onSyncPause();
+										}}
+									/>
+									<MenuItem
+										label="sync resume"
+										onClick={() => {
+											setOpen(false);
+											onSyncResume();
+										}}
+									/>
+									<MenuItem
+										label="sync reset"
+										onClick={() => {
+											setOpen(false);
+											onSyncStateReset();
+										}}
+									/>
+								</MenuItemSubmenu>
 							</>
 						) : null}
 						{localPath ? (

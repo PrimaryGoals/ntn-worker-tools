@@ -170,6 +170,7 @@ function AppContent() {
 	const {
 		deployWorker,
 		pnpmDeployWorker,
+		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,
@@ -285,6 +286,16 @@ function AppContent() {
 					) {
 						clearTransientOutputs();
 						pnpmDeployWorker.mutate(selectedWorkerId);
+					}
+				}}
+				onDeployUpdatedWorkers={() => {
+					if (
+						window.confirm(
+							"Deploy all workers with local code newer than their last deploy?\nThis will run ntn deploy or pnpm deploy for each outdated worker.",
+						)
+					) {
+						clearTransientOutputs();
+						deployUpdatedWorkers.mutate(verboseLogs);
 					}
 				}}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
