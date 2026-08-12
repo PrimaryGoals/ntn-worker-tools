@@ -197,6 +197,15 @@ export interface GitStatusEntry {
 	path: string;
 }
 
+export interface LocalMtimes {
+	// workerId -> ISO 8601 timestamp of the most recently modified file under
+	// that worker's local path (recursive scan, skipping node_modules/build
+	// output/hidden dirs), or null when the folder is empty or unreadable.
+	// Works regardless of VCS (or no VCS at all). Only includes workers with a
+	// registered local path.
+	[workerId: string]: string | null;
+}
+
 export interface GitStatus {
 	isGitRepo: boolean;
 	files: GitStatusEntry[];

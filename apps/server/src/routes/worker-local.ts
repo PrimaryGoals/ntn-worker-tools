@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
@@ -8,12 +8,59 @@ import type {
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
+	LocalMtimes,
 } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
 
+// Directories skipped when scanning for the latest mtime — dependency/build
+// output churns constantly (installs, rebuilds) and isn't "local source
+// changed since deploy", so including it would make every worker look
+// perpetually out of date.
+const SCAN_IGNORED_DIR_NAMES = new Set(["node_modules", "dist", "build", "coverage", "out"]);
+
+// Recursively finds the most recent file mtime under `dir`, skipping hidden
+// directories (incl. .git) and the build/dependency dirs above. VCS-agnostic
+// by design — some workers aren't in git, or use something else entirely.
+async function latestMtimeMs(dir: string): Promise<number | null> {
+	let dirents;
+	try {
+		dirents = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+	let latest: number | null = null;
+	for (const d of dirents) {
+		if (d.name.startsWith(".") || SCAN_IGNORED_DIR_NAMES.has(d.name)) continue;
+		const full = join(dir, d.name);
+		if (d.isDirectory()) {
+			const sub = await latestMtimeMs(full);
+			if (sub !== null && (latest === null || sub > latest)) latest = sub;
+		} else if (d.isFile()) {
+			try {
+				const s = await stat(full);
+				if (latest === null || s.mtimeMs > latest) latest = s.mtimeMs;
+			} catch {
+				/* file vanished mid-scan — skip */
+			}
+		}
+	}
+	return latest;
+}
+
 export default async function workerLocalRoutes(app: FastifyInstance) {
+	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
+		const paths = getConfig().workerLocalPaths ?? {};
+		const entries = await Promise.all(
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string | null]> => {
+				const latest = await latestMtimeMs(path);
+				return [workerId, latest !== null ? new Date(latest).toISOString() : null];
+			}),
+		);
+		return Object.fromEntries(entries);
+	});
+
 	app.post<{ Params: { id: string }; Body: { path: string } }>(
 		"/api/workers/:id/local-path",
 		async (req, reply): Promise<AppConfig> => {
