@@ -578,7 +578,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const mtimeMap = Object.fromEntries(latestMtimes);
 
 			const outOfDateWorkers = workers.filter((w) => {
-				const mtime = mtimeMap[w.id];
+				const mtime = mtimeMap[w.workerId];
 				if (!mtime) return false;
 				return new Date(mtime) > new Date(w.updatedAt);
 			});
@@ -599,10 +599,10 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			let hasError = false;
 
 			for (const worker of outOfDateWorkers) {
-				const path = localPaths[worker.id];
+				const path = localPaths[worker.workerId];
 				if (!path) continue;
 
-				outputs.push(`\n--- Deploying ${worker.name} (${worker.id}) ---`);
+				outputs.push(`\n--- Deploying ${worker.name} (${worker.workerId}) ---`);
 
 				let hasDeployScript = false;
 				try {
