@@ -10,6 +10,7 @@ export function useUIState() {
 	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
+	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
 
 	return {
 		selectedWorkerId,
@@ -24,5 +25,7 @@ export function useUIState() {
 		setFolderPickerOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
+		renameWorkerOpen,
+		setRenameWorkerOpen,
 	};
 }

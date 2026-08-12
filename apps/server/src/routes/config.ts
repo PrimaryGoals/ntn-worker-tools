@@ -10,4 +10,12 @@ export default async function configRoutes(app: FastifyInstance) {
 	app.patch<{ Body: Partial<AppConfig["ui"]> }>("/api/config/ui", async (req) => {
 		return updateConfig({ ui: { ...getConfig().ui, ...(req.body ?? {}) } });
 	});
+
+	app.post("/api/config/mark-time", async () => {
+		return updateConfig({ timeMarker: new Date().toISOString() });
+	});
+
+	app.post("/api/config/clear-time-marker", async () => {
+		return updateConfig({ timeMarker: undefined });
+	});
 }

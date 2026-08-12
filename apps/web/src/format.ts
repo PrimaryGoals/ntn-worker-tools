@@ -6,6 +6,7 @@ import type {
 	WorkerUsage,
 	Whoami,
 } from "@ntn-worker-tools/shared";
+import type { ApiRequestError } from "./api";
 
 export function formatDuration(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "running";
@@ -243,18 +244,28 @@ export function formatWebhookResult(r: WebhookFireResult): string {
 	return `${lines.join("\n")}\n${"─".repeat(60)}\n${body}`;
 }
 
-// Rewrites the raw server error into a friendlier message when we recognise
-// the workerId-mismatch case. Any other error passes through unchanged.
+// Rewrites the raw server error into a friendlier message for folder selection
+// errors. Shows the actual worker name from the folder when there's a mismatch.
 export function friendlySetPathError(
-	err: Error | null,
+	err: ApiRequestError | null,
 	workerName: string | null,
 ): Error | null {
 	if (!err) return null;
 	if (err.message.startsWith("worker mismatch")) {
-		const name = workerName ?? "the selected worker";
-		return new Error(
-			`The folder you chose appears to be for a different worker than ${name}.`,
-		);
+		const folderWorkerName = err.folderWorkerName;
+		if (folderWorkerName) {
+			return new Error(
+				`The folder you chose appears to be for a worker called ${folderWorkerName}`,
+			);
+		}
+	}
+	if (
+		err.message.includes("not a worker project") ||
+		err.message.includes("workers.json is not valid JSON") ||
+		err.message.includes("workers.json is missing a workerId") ||
+		err.message.includes("path is not a directory")
+	) {
+		return new Error("This is not a worker folder");
 	}
 	return err;
 }

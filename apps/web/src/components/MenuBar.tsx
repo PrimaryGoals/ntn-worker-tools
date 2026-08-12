@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MenuItem } from "./ui/MenuItem";
+import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
 	workspaceName,
@@ -16,10 +17,15 @@ export function MenuBar({
 	onSetLocalPath,
 	onClearLocalPath,
 	onReveal,
+	onRenameWorker,
 	onNtnDeploy,
 	onPnpmDeploy,
+	onDeployUpdatedWorkers,
 	onPushSecrets,
 	onOpenGitCheckin,
+	onMarkTime,
+	hasTimeMarker,
+	onClearTimeMarker,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -41,10 +47,15 @@ export function MenuBar({
 	onSetLocalPath: () => void;
 	onClearLocalPath: () => void;
 	onReveal: () => void;
+	onRenameWorker: () => void;
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
+	onDeployUpdatedWorkers: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
+	onMarkTime: () => void;
+	hasTimeMarker: boolean;
+	onClearTimeMarker: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -56,21 +67,6 @@ export function MenuBar({
 	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
-			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
-				<span
-					className={
-						"text-xs " +
-						(error ? "text-red-600 dark:text-red-400" : "text-neutral-500")
-					}
-				>
-					{loading
-						? "checking auth…"
-						: error
-							? "not signed in — run `ntn login` in a terminal"
-							: `${workspaceName} · ${userName}`}
-				</span>
-			</div>
 			<div className="relative">
 				<button
 					type="button"
@@ -88,7 +84,7 @@ export function MenuBar({
 				</button>
 				{open && workerId ? (
 					<div
-						className="absolute right-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+						className="absolute left-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
 						onMouseLeave={() => setOpen(false)}
 					>
 						<MenuItem
@@ -108,31 +104,45 @@ export function MenuBar({
 							}}
 						/>
 						<MenuItem
-							label="ntn workers deploy"
-							disabled={!localPath || hasDeployScript}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "This project defines scripts.deploy in package.json — use pnpm run deploy."
-							}
+							label="Rename worker"
+							disabled={!localPath}
+							disabledReason="No local folder registered — use Set local folder… first."
 							onClick={() => {
 								setOpen(false);
-								onNtnDeploy();
+								onRenameWorker();
 							}}
 						/>
-						<MenuItem
-							label="pnpm run deploy"
-							disabled={!localPath || !hasDeployScript}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "This project has no scripts.deploy in package.json — use ntn workers deploy."
-							}
-							onClick={() => {
-								setOpen(false);
-								onPnpmDeploy();
-							}}
-						/>
+						<MenuItemSubmenu
+							label="Deploy workers"
+							disabled={!localPath}
+							disabledReason="Requires a registered local folder."
+						>
+							<MenuItem
+								label="ntn workers deploy"
+								disabled={hasDeployScript}
+								disabledReason="This project defines scripts.deploy in package.json — use pnpm run deploy."
+								onClick={() => {
+									setOpen(false);
+									onNtnDeploy();
+								}}
+							/>
+							<MenuItem
+								label="pnpm run deploy"
+								disabled={!hasDeployScript}
+								disabledReason="This project has no scripts.deploy in package.json — use ntn workers deploy."
+								onClick={() => {
+									setOpen(false);
+									onPnpmDeploy();
+								}}
+							/>
+							<MenuItem
+								label="deploy updated workers"
+								onClick={() => {
+									setOpen(false);
+									onDeployUpdatedWorkers();
+								}}
+							/>
+						</MenuItemSubmenu>
 						<MenuItem
 							label="push secrets to Notion"
 							disabled={!localPath || !hasEnvFile}
@@ -170,30 +180,48 @@ export function MenuBar({
 								onOpenGitCheckin();
 							}}
 						/>
+						<MenuItem
+							label="Mark current time"
+							onClick={() => {
+								setOpen(false);
+								onMarkTime();
+							}}
+						/>
+						{hasTimeMarker ? (
+							<MenuItem
+								label="Clear Time Marker"
+								onClick={() => {
+									setOpen(false);
+									onClearTimeMarker();
+								}}
+							/>
+						) : null}
 						{isSyncWorker ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />
-								<MenuItem
-									label="sync pause"
-									onClick={() => {
-										setOpen(false);
-										onSyncPause();
-									}}
-								/>
-								<MenuItem
-									label="sync resume"
-									onClick={() => {
-										setOpen(false);
-										onSyncResume();
-									}}
-								/>
-								<MenuItem
-									label="sync reset"
-									onClick={() => {
-										setOpen(false);
-										onSyncStateReset();
-									}}
-								/>
+								<MenuItemSubmenu label="Sync Options">
+									<MenuItem
+										label="sync pause"
+										onClick={() => {
+											setOpen(false);
+											onSyncPause();
+										}}
+									/>
+									<MenuItem
+										label="sync resume"
+										onClick={() => {
+											setOpen(false);
+											onSyncResume();
+										}}
+									/>
+									<MenuItem
+										label="sync reset"
+										onClick={() => {
+											setOpen(false);
+											onSyncStateReset();
+										}}
+									/>
+								</MenuItemSubmenu>
 							</>
 						) : null}
 						{localPath ? (
@@ -221,6 +249,32 @@ export function MenuBar({
 						) : null}
 					</div>
 				) : null}
+			</div>
+			<div className="flex items-center gap-3">
+				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
+				<span
+					className={
+						"text-xs " +
+						(error ? "text-red-600 dark:text-red-400" : "text-neutral-500")
+					}
+				>
+					{loading
+						? "checking auth…"
+						: error
+							? "not signed in — run `ntn login` in a terminal"
+							: <>
+								<a
+									href="https://PrimaryGoals.com"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="hover:underline"
+								>
+									{workspaceName}
+								</a>
+								{" · "}
+								{userName}
+							</>}
+				</span>
 			</div>
 		</header>
 	);

@@ -1,10 +1,12 @@
 import type {
+	ApiError,
 	AppConfig,
 	DeployResult,
 	EnvInfo,
 	FsListing,
 	GitStatus,
 	LocalInfo,
+	LocalMtimes,
 	LogsPayload,
 	RunsPayload,
 	SyncStatus,
@@ -18,6 +20,11 @@ import type {
 
 const SERVER_UNREACHABLE_MESSAGE =
 	"Confirm that your local server is running, or restart it with: pnpm dev";
+
+// The server's JSON error body (ApiError) gets Object.assign'd onto the thrown
+// Error below, so any extra fields it sends (e.g. folderWorkerName) are
+// available on caught errors without a runtime cast.
+export type ApiRequestError = Error & Partial<ApiError>;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// Only advertise JSON when we're actually sending a body — Fastify rejects
@@ -53,13 +60,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 			throw new Error(SERVER_UNREACHABLE_MESSAGE);
 		}
 		let msg = text;
+		let body: Record<string, unknown> = {};
 		try {
-			const body = JSON.parse(text) as { error?: string; detail?: string };
-			msg = body.detail ? `${body.error}: ${body.detail}` : (body.error ?? text);
+			body = JSON.parse(text) as Record<string, unknown>;
+			msg = body.detail ? `${body.error}: ${body.detail}` : ((body.error as string) ?? text);
 		} catch {
 			/* keep raw text */
 		}
-		throw new Error(msg || `${res.status} ${res.statusText}`);
+		const err: ApiRequestError = new Error(msg || `${res.status} ${res.statusText}`);
+		Object.assign(err, body);
+		throw err;
 	}
 	return (await res.json()) as T;
 }
@@ -87,6 +97,9 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
+	markTime: () => request<AppConfig>("/api/config/mark-time", { method: "POST" }),
+	clearTimeMarker: () =>
+		request<AppConfig>("/api/config/clear-time-marker", { method: "POST" }),
 	getLogs: (workerId: string, runId: string, verbose = false) =>
 		request<LogsPayload>(
 			`/api/workers/${workerId}/runs/${runId}/logs${verbose ? "?verbose=1" : ""}`,
@@ -145,6 +158,7 @@ export const api = {
 		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
+	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
 	deployWorker: (workerId: string, verbose = false) =>
@@ -154,6 +168,11 @@ export const api = {
 		),
 	pnpmDeployWorker: (workerId: string) =>
 		request<DeployResult>(`/api/workers/${workerId}/pnpm-deploy`, { method: "POST" }),
+	renameWorker: (workerId: string, newName: string) =>
+		request<DeployResult>(`/api/workers/${workerId}/rename`, {
+			method: "POST",
+			body: JSON.stringify({ newName }),
+		}),
 	pushWorkerSecrets: (workerId: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,
@@ -170,5 +189,9 @@ export const api = {
 		request<DeployResult>(`/api/workers/${workerId}/git-commit`, {
 			method: "POST",
 			body: JSON.stringify({ files, message }),
+		}),
+	deployUpdatedWorkers: (verbose = false) =>
+		request<DeployResult>(`/api/workers/deploy-updated${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
 		}),
 };

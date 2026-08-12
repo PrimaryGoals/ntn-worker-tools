@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
 	AppConfig,
@@ -8,12 +8,60 @@ import type {
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
+	LocalMtimes,
+	Worker,
 } from "@ntn-worker-tools/shared";
-import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
+import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
-import { envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
+import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
+
+// Directories skipped when scanning for the latest mtime — dependency/build
+// output churns constantly (installs, rebuilds) and isn't "local source
+// changed since deploy", so including it would make every worker look
+// perpetually out of date.
+const SCAN_IGNORED_DIR_NAMES = new Set(["node_modules", "dist", "build", "coverage", "out"]);
+
+// Recursively finds the most recent file mtime under `dir`, skipping hidden
+// directories (incl. .git) and the build/dependency dirs above. VCS-agnostic
+// by design — some workers aren't in git, or use something else entirely.
+async function latestMtimeMs(dir: string): Promise<number | null> {
+	let dirents;
+	try {
+		dirents = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return null;
+	}
+	let latest: number | null = null;
+	for (const d of dirents) {
+		if (d.name.startsWith(".") || SCAN_IGNORED_DIR_NAMES.has(d.name)) continue;
+		const full = join(dir, d.name);
+		if (d.isDirectory()) {
+			const sub = await latestMtimeMs(full);
+			if (sub !== null && (latest === null || sub > latest)) latest = sub;
+		} else if (d.isFile()) {
+			try {
+				const s = await stat(full);
+				if (latest === null || s.mtimeMs > latest) latest = s.mtimeMs;
+			} catch {
+				/* file vanished mid-scan — skip */
+			}
+		}
+	}
+	return latest;
+}
 
 export default async function workerLocalRoutes(app: FastifyInstance) {
+	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
+		const paths = getConfig().workerLocalPaths ?? {};
+		const entries = await Promise.all(
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string | null]> => {
+				const latest = await latestMtimeMs(path);
+				return [workerId, latest !== null ? new Date(latest).toISOString() : null];
+			}),
+		);
+		return Object.fromEntries(entries);
+	});
+
 	app.post<{ Params: { id: string }; Body: { path: string } }>(
 		"/api/workers/:id/local-path",
 		async (req, reply): Promise<AppConfig> => {
@@ -56,18 +104,29 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				}) as unknown as AppConfig;
 			}
 			if (folderWorkerId !== req.params.id) {
+				let folderWorkerName: string | undefined;
+				try {
+					const pkgRaw = await readFile(join(abs, "package.json"), "utf8");
+					const pkg = JSON.parse(pkgRaw) as { name?: string };
+					folderWorkerName = pkg.name;
+				} catch {
+					/* no package.json or invalid JSON — leave undefined */
+				}
 				return reply.code(400).send({
 					error: "worker mismatch",
 					detail: `Folder ${abs} is registered to workerId=${folderWorkerId}, but you have workerId=${req.params.id} selected.`,
 					folderWorkerId,
+					folderWorkerName,
 					selectedWorkerId: req.params.id,
 				}) as unknown as AppConfig;
 			}
-			// Register the path first, then let resolveIsGitRepo cache positive detections.
+			// Detect git root for this folder, then register path and git info in a single atomic update
+			const gitRoot = await detectGitRoot(abs);
 			const updated = await updateConfig({
 				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
+				workerIsGitRepo: { ...(getConfig().workerIsGitRepo ?? {}), [req.params.id]: gitRoot !== null },
+				workerGitRoot: gitRoot ? { ...(getConfig().workerGitRoot ?? {}), [req.params.id]: gitRoot } : getConfig().workerGitRoot ?? {},
 			});
-			await resolveIsGitRepo(req.params.id, abs);
 			return updated;
 		},
 	);
@@ -413,6 +472,175 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				stdout: result.stdout,
 				stderr: result.stderr,
 				durationMs: result.durationMs,
+			};
+		},
+	);
+
+	app.post<{ Params: { id: string }; Body: { newName: string } }>(
+		"/api/workers/:id/rename",
+		async (req, reply): Promise<DeployResult> => {
+			const path = getConfig().workerLocalPaths?.[req.params.id];
+			if (!path) {
+				return reply
+					.code(400)
+					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			const newName = req.body?.newName?.trim();
+			if (!newName) {
+				return reply
+					.code(400)
+					.send({ error: "new worker name required" }) as unknown as DeployResult;
+			}
+
+			const parentDir = dirname(path);
+			const newPath = join(parentDir, newName);
+
+			try {
+				await rename(path, newPath);
+			} catch (err) {
+				return reply.code(400).send({
+					error: "failed to rename directory",
+					detail: `Could not rename folder from ${basename(path)} to ${newName}. It may be in use.`,
+				}) as unknown as DeployResult;
+			}
+
+			await updateConfig({
+				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: newPath },
+			});
+
+			const ntnResult = await runNtnRawAllowingFailure(
+				["workers", "rename", "--worker-id", req.params.id, newName],
+				{},
+			);
+
+			if (ntnResult.exitCode !== 0) {
+				return {
+					command: `ntn workers rename --worker-id ${req.params.id} ${newName}`,
+					cwd: "",
+					exitCode: ntnResult.exitCode,
+					stdout: ntnResult.stdout,
+					stderr: ntnResult.stderr,
+					durationMs: ntnResult.durationMs,
+				};
+			}
+
+			try {
+				const pkgRaw = await readFile(join(newPath, "package.json"), "utf8");
+				const pkg = JSON.parse(pkgRaw) as Record<string, unknown>;
+				const oldName = basename(path);
+				let replacementCount = 0;
+
+				if (typeof pkg.name === "string" && pkg.name.includes(oldName)) {
+					pkg.name = pkg.name.replaceAll(oldName, newName);
+					replacementCount++;
+				}
+
+				if (pkg.scripts && typeof pkg.scripts === "object") {
+					const scripts = pkg.scripts as Record<string, unknown>;
+					if (typeof scripts.deploy === "string" && scripts.deploy.includes(oldName)) {
+						scripts.deploy = scripts.deploy.replaceAll(oldName, newName);
+						replacementCount++;
+					}
+				}
+
+				if (replacementCount > 0) {
+					await writeFile(join(newPath, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
+				}
+			} catch {
+				/* no package.json or update failed — continue */
+			}
+
+			return {
+				command: `ntn workers rename --worker-id ${req.params.id} ${newName}`,
+				cwd: newPath,
+				exitCode: ntnResult.exitCode,
+				stdout: ntnResult.stdout,
+				stderr: ntnResult.stderr,
+				durationMs: ntnResult.durationMs,
+			};
+		},
+	);
+
+	app.post<{ Querystring: { verbose?: string } }>(
+		"/api/workers/deploy-updated",
+		async (req, reply): Promise<DeployResult> => {
+			const verbose = isVerbose(req.query.verbose);
+			const config = getConfig();
+			const localPaths = config.workerLocalPaths ?? {};
+			const workers = await runNtnJson<Worker[]>(["workers", "list"]);
+
+			const latestMtimes = await Promise.all(
+				Object.entries(localPaths).map(async ([workerId, path]): Promise<[string, number | null]> => {
+					const latest = await latestMtimeMs(path);
+					return [workerId, latest];
+				}),
+			);
+			const mtimeMap = Object.fromEntries(latestMtimes);
+
+			const outOfDateWorkers = workers.filter((w) => {
+				const mtime = mtimeMap[w.workerId];
+				if (!mtime) return false;
+				return new Date(mtime) > new Date(w.updatedAt);
+			});
+
+			if (outOfDateWorkers.length === 0) {
+				return {
+					command: "deploy updated workers",
+					cwd: "",
+					exitCode: 0,
+					stdout: "No out-of-date workers found.",
+					stderr: "",
+					durationMs: 0,
+				};
+			}
+
+			const outputs: string[] = [];
+			let totalDurationMs = 0;
+			let hasError = false;
+
+			for (const worker of outOfDateWorkers) {
+				const path = localPaths[worker.workerId];
+				if (!path) continue;
+
+				outputs.push(`\n--- Deploying ${worker.name} (${worker.workerId}) ---`);
+
+				let hasDeployScript = false;
+				try {
+					const pkgRaw = await readFile(join(path, "package.json"), "utf8");
+					const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
+					const raw = pkg.scripts?.deploy;
+					if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
+				} catch {
+					/* no package.json or unreadable — use ntn deploy */
+				}
+
+				let result;
+				if (hasDeployScript) {
+					result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+						cwd: path,
+						shell: true,
+					});
+					outputs.push(`Command: ${result.command}`);
+				} else {
+					const args = ["workers", "deploy", "--json"];
+					if (verbose) args.push("-v");
+					result = await runNtnRawAllowingFailure(args, { cwd: path });
+					outputs.push(`Command: ntn ${args.join(" ")}`);
+				}
+
+				totalDurationMs += result.durationMs;
+				if (result.exitCode !== 0) hasError = true;
+				if (result.stdout) outputs.push(result.stdout);
+				if (result.stderr) outputs.push(`stderr: ${result.stderr}`);
+			}
+
+			return {
+				command: "deploy updated workers",
+				cwd: "",
+				exitCode: hasError ? 1 : 0,
+				stdout: outputs.join("\n"),
+				stderr: "",
+				durationMs: totalDurationMs,
 			};
 		},
 	);

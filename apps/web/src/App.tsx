@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { api } from "./api";
+import { api, type ApiRequestError } from "./api";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
@@ -9,6 +9,7 @@ import { Empty, Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
+import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
 import { WebhookLine } from "./components/WebhookLine";
@@ -162,10 +163,14 @@ function AppContent() {
 		setFolderPickerOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
+		renameWorkerOpen,
+		setRenameWorkerOpen,
 	} = useUIState();
+	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
 		deployWorker,
 		pnpmDeployWorker,
+		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,
@@ -207,12 +212,21 @@ function AppContent() {
 		envQ,
 		selectedRun,
 		sortedWorkers,
+		outOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
-	const { setLocalPath, clearLocalPath, revealWorker, savePanelSize, schedulePanelSave } =
-		useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
+	const {
+		setLocalPath,
+		clearLocalPath,
+		revealWorker,
+		renameWorker,
+		markTime,
+		clearTimeMarker,
+		savePanelSize,
+		schedulePanelSave,
+	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
 	return (
 		<>
@@ -231,7 +245,7 @@ function AppContent() {
 				gitAvailable={gitAvailable}
 				isGitRepo={isGitRepo}
 				setLocalPathError={friendlySetPathError(
-					setLocalPath.error as Error | null,
+					setLocalPath.error as ApiRequestError | null,
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
 				)}
 				onSetLocalPath={() => {
@@ -247,6 +261,10 @@ function AppContent() {
 				}}
 				onReveal={() => {
 					if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
+				}}
+				onRenameWorker={() => {
+					renameWorker.reset();
+					setRenameWorkerOpen(true);
 				}}
 				onNtnDeploy={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -270,6 +288,22 @@ function AppContent() {
 						pnpmDeployWorker.mutate(selectedWorkerId);
 					}
 				}}
+				onDeployUpdatedWorkers={() => {
+					const outOfDateWorkerNames = sortedWorkers
+						.filter((w) => outOfDateWorkerIds.has(w.workerId))
+						.map((w) => w.name);
+
+					if (outOfDateWorkerNames.length === 0) {
+						alert("No out-of-date workers found.");
+						return;
+					}
+
+					const message = `Deploy ${outOfDateWorkerNames.length} worker${outOfDateWorkerNames.length === 1 ? "" : "s"} with local code newer than their last deploy?\n\nWorkers to deploy:\n${outOfDateWorkerNames.map((n) => `  • ${n}`).join("\n")}\n\nThis will run ntn deploy or pnpm deploy for each.`;
+					if (window.confirm(message)) {
+						clearTransientOutputs();
+						deployUpdatedWorkers.mutate(verboseLogs);
+					}
+				}}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
 				onPushSecrets={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -283,6 +317,9 @@ function AppContent() {
 					}
 				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
+				onMarkTime={() => markTime.mutate()}
+				hasTimeMarker={!!configQ.data?.timeMarker}
+				onClearTimeMarker={() => clearTimeMarker.mutate()}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -332,6 +369,7 @@ function AppContent() {
 										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
+										outOfDateWorkerIds={outOfDateWorkerIds}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
@@ -354,6 +392,7 @@ function AppContent() {
 											error={runsQ.error as Error | null}
 											runs={runsQ.data?.runs ?? []}
 											selectedId={selectedRunId}
+											markerTime={configQ.data?.timeMarker ?? null}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -668,7 +707,7 @@ function AppContent() {
 					startPath={localPath}
 					submitting={setLocalPath.isPending}
 					error={friendlySetPathError(
-						setLocalPath.error as Error | null,
+						setLocalPath.error as ApiRequestError | null,
 						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
 					)}
 					onClose={() => setFolderPickerOpen(false)}
@@ -676,6 +715,40 @@ function AppContent() {
 					onSelect={(path) => {
 						clearTransientOutputs();
 						setLocalPath.mutate({ workerId: selectedWorkerId, path });
+					}}
+				/>
+			) : null}
+			{renameWorkerOpen && selectedWorkerId ? (
+				<RenameWorkerModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					currentWorkerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					workerId={selectedWorkerId}
+					submitting={renameWorker.isPending || deployWorker.isPending}
+					error={(renameWorker.error as Error | null) || (deployWorker.error as Error | null)}
+					success={!!renameWorker.data && renameWorker.data.exitCode === 0}
+					successName={renamedWorkerName ?? undefined}
+					onClose={() => {
+						setRenameWorkerOpen(false);
+						renameWorker.reset();
+						setRenamedWorkerName(null);
+					}}
+					onSubmit={(newName) => {
+						clearTransientOutputs();
+						setRenamedWorkerName(newName);
+						renameWorker.mutate({ workerId: selectedWorkerId, newName });
+					}}
+					onRedeploy={() => {
+						if (!selectedWorkerId) return;
+						clearTransientOutputs();
+						if (hasDeployScript) {
+							pnpmDeployWorker.mutate(selectedWorkerId);
+						} else {
+							deployWorker.mutate(selectedWorkerId);
+						}
 					}}
 				/>
 			) : null}

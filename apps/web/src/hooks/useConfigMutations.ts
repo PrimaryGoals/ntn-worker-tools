@@ -13,6 +13,9 @@ export function useConfigMutations(
 			api.setWorkerLocalPath(workerId, path),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["config"] });
+			// Registering a path brings a new (or changed) local folder into the
+			// out-of-date comparison — rescan its mtime.
+			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 			// Only close the folder picker after the workerId-match check server-side
 			// has accepted the path. On failure (e.g. worker mismatch) it stays open
 			// so the user sees the inline error and can navigate somewhere else.
@@ -21,11 +24,37 @@ export function useConfigMutations(
 	});
 	const clearLocalPath = useMutation({
 		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["config"] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+		},
 	});
 	const revealWorker = useMutation({
 		mutationFn: api.revealWorker,
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
+	});
+	const markTime = useMutation({
+		mutationFn: () => api.markTime(),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			// Marker is global — refresh runs for every worker, not just the selected one.
+			qc.invalidateQueries({ queryKey: ["runs"] });
+		},
+	});
+	const clearTimeMarker = useMutation({
+		mutationFn: () => api.clearTimeMarker(),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			qc.invalidateQueries({ queryKey: ["runs"] });
+		},
+	});
+	const renameWorker = useMutation({
+		mutationFn: ({ workerId, newName }: { workerId: string; newName: string }) =>
+			api.renameWorker(workerId, newName),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			qc.invalidateQueries({ queryKey: ["workers"] });
+		},
 	});
 	const savePanelSize = useMutation({
 		mutationFn: (patch: Record<string, number>) =>
@@ -50,5 +79,14 @@ export function useConfigMutations(
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	return { setLocalPath, clearLocalPath, revealWorker, savePanelSize, schedulePanelSave };
+	return {
+		setLocalPath,
+		clearLocalPath,
+		revealWorker,
+		renameWorker,
+		markTime,
+		clearTimeMarker,
+		savePanelSize,
+		schedulePanelSave,
+	};
 }
