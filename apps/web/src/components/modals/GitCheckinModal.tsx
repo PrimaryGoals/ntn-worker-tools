@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "../../api";
@@ -15,6 +15,7 @@ export function GitCheckinModal({
 	onClose: () => void;
 	onCommitted: (result: DeployResult) => void;
 }) {
+	const qc = useQueryClient();
 	const statusQ = useQuery({
 		queryKey: ["gitStatus", workerId],
 		queryFn: () => api.getGitStatus(workerId),
@@ -49,7 +50,13 @@ export function GitCheckinModal({
 
 	const commit = useMutation({
 		mutationFn: () => api.gitCommit(workerId, [...selected], message),
-		onSuccess: onCommitted,
+		onSuccess: (result) => {
+			// A fresh commit changes the local latest-commit time the out-of-date
+			// indicator compares against — rescan it so the worker list updates
+			// without needing a browser refresh.
+			qc.invalidateQueries({ queryKey: ["localCommitTimes"] });
+			onCommitted(result);
+		},
 	});
 
 	function toggle(path: string, on: boolean) {
