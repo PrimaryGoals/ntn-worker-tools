@@ -289,11 +289,17 @@ function AppContent() {
 					}
 				}}
 				onDeployUpdatedWorkers={() => {
-					if (
-						window.confirm(
-							"Deploy all workers with local code newer than their last deploy?\nThis will run ntn deploy or pnpm deploy for each outdated worker.",
-						)
-					) {
+					const outOfDateWorkerNames = sortedWorkers
+						.filter((w) => outOfDateWorkerIds.has(w.workerId))
+						.map((w) => w.name);
+
+					if (outOfDateWorkerNames.length === 0) {
+						alert("No out-of-date workers found.");
+						return;
+					}
+
+					const message = `Deploy ${outOfDateWorkerNames.length} worker${outOfDateWorkerNames.length === 1 ? "" : "s"} with local code newer than their last deploy?\n\nWorkers to deploy:\n${outOfDateWorkerNames.map((n) => `  • ${n}`).join("\n")}\n\nThis will run ntn deploy or pnpm deploy for each.`;
+					if (window.confirm(message)) {
 						clearTransientOutputs();
 						deployUpdatedWorkers.mutate(verboseLogs);
 					}
