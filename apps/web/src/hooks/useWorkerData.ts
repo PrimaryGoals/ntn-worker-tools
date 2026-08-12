@@ -35,6 +35,11 @@ export function useWorkerData(
 		queryFn: api.getWorkers,
 		enabled: !!whoamiQ.data,
 	});
+	const localCommitTimesQ = useQuery({
+		queryKey: ["localCommitTimes"],
+		queryFn: api.getLocalCommitTimes,
+		enabled: !!whoamiQ.data && gitAvailable,
+	});
 	const runsQ = useQuery({
 		queryKey: ["runs", selectedWorkerId],
 		queryFn: () => api.getRuns(selectedWorkerId!),
@@ -82,6 +87,19 @@ export function useWorkerData(
 			),
 		[workersQ.data],
 	);
+	// workerId -> local commit is newer than the worker's last deploy
+	// (updatedAt). Only meaningful for workers with a registered local repo —
+	// a null/missing commit time means "can't tell", not "up to date".
+	const outOfDateWorkerIds = useMemo(() => {
+		const commitTimes = localCommitTimesQ.data;
+		if (!commitTimes) return new Set<string>();
+		const ids = new Set<string>();
+		for (const w of workersQ.data ?? []) {
+			const commitTime = commitTimes[w.workerId];
+			if (commitTime && new Date(commitTime) > new Date(w.updatedAt)) ids.add(w.workerId);
+		}
+		return ids;
+	}, [workersQ.data, localCommitTimesQ.data]);
 
 	const capabilities = capabilitiesQ.data?.capabilities;
 	const syncCapabilities = useMemo(() => {
@@ -107,6 +125,7 @@ export function useWorkerData(
 		hasDeployScript,
 		isGitRepo,
 		workersQ,
+		localCommitTimesQ,
 		runsQ,
 		logsQ,
 		workerQ,
@@ -116,6 +135,7 @@ export function useWorkerData(
 		envQ,
 		selectedRun,
 		sortedWorkers,
+		outOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,

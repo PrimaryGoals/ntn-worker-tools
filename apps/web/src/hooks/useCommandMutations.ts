@@ -64,11 +64,17 @@ export function useCommandMutations(
 
 	const deployWorker = useMutation({
 		mutationFn: (workerId: string) => api.deployWorker(workerId, verboseLogs),
-		onSuccess: (data) => setDeployResult(data),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["workers"] });
+		},
 	});
 	const pnpmDeployWorker = useMutation({
 		mutationFn: api.pnpmDeployWorker,
-		onSuccess: (data) => setDeployResult(data),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["workers"] });
+		},
 	});
 	const pushSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),

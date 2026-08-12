@@ -211,6 +211,7 @@ function AppContent() {
 		envQ,
 		selectedRun,
 		sortedWorkers,
+		outOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
@@ -351,6 +352,7 @@ function AppContent() {
 										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
+										outOfDateWorkerIds={outOfDateWorkerIds}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);

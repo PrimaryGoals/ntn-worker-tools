@@ -7,6 +7,7 @@ import type {
 	DeployResult,
 	GitStatus,
 	GitStatusEntry,
+	LocalCommitTimes,
 	LocalInfo,
 } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
@@ -14,6 +15,24 @@ import { isVerbose } from "../route-helpers.js";
 import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
 
 export default async function workerLocalRoutes(app: FastifyInstance) {
+	app.get("/api/workers/local-commit-times", async (): Promise<LocalCommitTimes> => {
+		const paths = getConfig().workerLocalPaths ?? {};
+		if (!envInfo.gitAvailable) return {};
+		const entries = await Promise.all(
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string | null]> => {
+				const gitRoot = await resolveGitRoot(workerId, path);
+				if (!gitRoot) return [workerId, null];
+				const relPath = relative(gitRoot, path).replace(/\\/g, "/");
+				const args = ["log", "-1", "--format=%cI"];
+				if (relPath) args.push("--", relPath);
+				const result = await runShellAllowingFailure("git", args, { cwd: gitRoot });
+				const time = result.exitCode === 0 ? result.stdout.trim() : "";
+				return [workerId, time || null];
+			}),
+		);
+		return Object.fromEntries(entries);
+	});
+
 	app.post<{ Params: { id: string }; Body: { path: string } }>(
 		"/api/workers/:id/local-path",
 		async (req, reply): Promise<AppConfig> => {

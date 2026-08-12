@@ -5,6 +5,7 @@ import type {
 	EnvInfo,
 	FsListing,
 	GitStatus,
+	LocalCommitTimes,
 	LocalInfo,
 	LogsPayload,
 	RunsPayload,
@@ -157,6 +158,7 @@ export const api = {
 		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
+	getLocalCommitTimes: () => request<LocalCommitTimes>("/api/workers/local-commit-times"),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
 	deployWorker: (workerId: string, verbose = false) =>

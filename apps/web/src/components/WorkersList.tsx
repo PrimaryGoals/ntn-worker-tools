@@ -7,6 +7,7 @@ export function WorkersList({
 	workers,
 	selectedId,
 	localPaths,
+	outOfDateWorkerIds,
 	onSelect,
 	onRevealPath,
 }: {
@@ -15,6 +16,7 @@ export function WorkersList({
 	workers: Worker[];
 	selectedId: string | null;
 	localPaths: Record<string, string>;
+	outOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
 	onRevealPath: (id: string) => void;
 }) {
@@ -39,6 +41,9 @@ export function WorkersList({
 							<div>
 								<span className="font-medium">{w.name}</span>
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
+								{outOfDateWorkerIds.has(w.workerId) && (
+									<span className="font-medium text-red-600 dark:text-red-400"> - redeploy</span>
+								)}
 							</div>
 						</button>
 						{localPath ? (

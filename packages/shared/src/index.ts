@@ -197,6 +197,14 @@ export interface GitStatusEntry {
 	path: string;
 }
 
+export interface LocalCommitTimes {
+	// workerId -> ISO 8601 timestamp of the latest local commit touching that
+	// worker's path (`git log -1 --format=%cI`), or null when there's no
+	// registered local git repo or no commits yet. Only includes workers with
+	// a registered local path.
+	[workerId: string]: string | null;
+}
+
 export interface GitStatus {
 	isGitRepo: boolean;
 	files: GitStatusEntry[];
