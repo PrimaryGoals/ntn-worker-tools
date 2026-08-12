@@ -190,4 +190,8 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ files, message }),
 		}),
+	deployUpdatedWorkers: (verbose = false) =>
+		request<DeployResult>(`/api/workers/deploy-updated${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+		}),
 };

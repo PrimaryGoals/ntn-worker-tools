@@ -76,6 +76,13 @@ export function useCommandMutations(
 			qc.invalidateQueries({ queryKey: ["workers"] });
 		},
 	});
+	const deployUpdatedWorkers = useMutation({
+		mutationFn: (verbose: boolean) => api.deployUpdatedWorkers(verbose),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["workers"] });
+		},
+	});
 	const pushSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
 		onSuccess: (data) => setDeployResult(data),
@@ -136,7 +143,9 @@ export function useCommandMutations(
 		? "ntn workers deploy"
 		: pnpmDeployWorker.isPending
 			? "pnpm run deploy"
-			: pushSecrets.isPending
+			: deployUpdatedWorkers.isPending
+				? "deploy updated workers"
+				: pushSecrets.isPending
 				? "ntn workers env push"
 				: setEnvVar.isPending
 					? "ntn workers env set"
@@ -152,6 +161,7 @@ export function useCommandMutations(
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
+		(deployUpdatedWorkers.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
 		(setEnvVar.error as Error | null) ??
 		(syncTrigger.error as Error | null) ??
@@ -165,6 +175,7 @@ export function useCommandMutations(
 		setDeployResult(null);
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
+		deployUpdatedWorkers.reset();
 		pushSecrets.reset();
 		setEnvVar.reset();
 		syncTrigger.reset();
@@ -176,6 +187,7 @@ export function useCommandMutations(
 	return {
 		deployWorker,
 		pnpmDeployWorker,
+		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,

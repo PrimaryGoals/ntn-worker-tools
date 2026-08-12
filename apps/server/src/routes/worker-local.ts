@@ -9,8 +9,9 @@ import type {
 	GitStatusEntry,
 	LocalInfo,
 	LocalMtimes,
+	Worker,
 } from "@ntn-worker-tools/shared";
-import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
+import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
 
@@ -556,6 +557,90 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				stdout: ntnResult.stdout,
 				stderr: ntnResult.stderr,
 				durationMs: ntnResult.durationMs,
+			};
+		},
+	);
+
+	app.post<{ Querystring: { verbose?: string } }>(
+		"/api/workers/deploy-updated",
+		async (req, reply): Promise<DeployResult> => {
+			const verbose = isVerbose(req.query.verbose);
+			const config = getConfig();
+			const localPaths = config.workerLocalPaths ?? {};
+			const workers = await runNtnJson<Worker[]>(["workers", "list"]);
+
+			const latestMtimes = await Promise.all(
+				Object.entries(localPaths).map(async ([workerId, path]): Promise<[string, number | null]> => {
+					const latest = await latestMtimeMs(path);
+					return [workerId, latest];
+				}),
+			);
+			const mtimeMap = Object.fromEntries(latestMtimes);
+
+			const outOfDateWorkers = workers.filter((w) => {
+				const mtime = mtimeMap[w.workerId];
+				if (!mtime) return false;
+				return new Date(mtime) > new Date(w.updatedAt);
+			});
+
+			if (outOfDateWorkers.length === 0) {
+				return {
+					command: "deploy updated workers",
+					cwd: "",
+					exitCode: 0,
+					stdout: "No out-of-date workers found.",
+					stderr: "",
+					durationMs: 0,
+				};
+			}
+
+			const outputs: string[] = [];
+			let totalDurationMs = 0;
+			let hasError = false;
+
+			for (const worker of outOfDateWorkers) {
+				const path = localPaths[worker.workerId];
+				if (!path) continue;
+
+				outputs.push(`\n--- Deploying ${worker.name} (${worker.workerId}) ---`);
+
+				let hasDeployScript = false;
+				try {
+					const pkgRaw = await readFile(join(path, "package.json"), "utf8");
+					const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
+					const raw = pkg.scripts?.deploy;
+					if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
+				} catch {
+					/* no package.json or unreadable — use ntn deploy */
+				}
+
+				let result;
+				if (hasDeployScript) {
+					result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+						cwd: path,
+						shell: true,
+					});
+					outputs.push(`Command: ${result.command}`);
+				} else {
+					const args = ["workers", "deploy", "--json"];
+					if (verbose) args.push("-v");
+					result = await runNtnRawAllowingFailure(args, { cwd: path });
+					outputs.push(`Command: ntn ${args.join(" ")}`);
+				}
+
+				totalDurationMs += result.durationMs;
+				if (result.exitCode !== 0) hasError = true;
+				if (result.stdout) outputs.push(result.stdout);
+				if (result.stderr) outputs.push(`stderr: ${result.stderr}`);
+			}
+
+			return {
+				command: "deploy updated workers",
+				cwd: "",
+				exitCode: hasError ? 1 : 0,
+				stdout: outputs.join("\n"),
+				stderr: "",
+				durationMs: totalDurationMs,
 			};
 		},
 	);
