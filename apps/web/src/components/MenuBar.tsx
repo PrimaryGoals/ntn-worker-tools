@@ -67,21 +67,6 @@ export function MenuBar({
 	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
-			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
-				<span
-					className={
-						"text-xs " +
-						(error ? "text-red-600 dark:text-red-400" : "text-neutral-500")
-					}
-				>
-					{loading
-						? "checking auth…"
-						: error
-							? "not signed in — run `ntn login` in a terminal"
-							: `${workspaceName} · ${userName}`}
-				</span>
-			</div>
 			<div className="relative">
 				<button
 					type="button"
@@ -99,7 +84,7 @@ export function MenuBar({
 				</button>
 				{open && workerId ? (
 					<div
-						className="absolute right-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
+						className="absolute left-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
 						onMouseLeave={() => setOpen(false)}
 					>
 						<MenuItem
@@ -264,6 +249,32 @@ export function MenuBar({
 						) : null}
 					</div>
 				) : null}
+			</div>
+			<div className="flex items-center gap-3">
+				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
+				<span
+					className={
+						"text-xs " +
+						(error ? "text-red-600 dark:text-red-400" : "text-neutral-500")
+					}
+				>
+					{loading
+						? "checking auth…"
+						: error
+							? "not signed in — run `ntn login` in a terminal"
+							: <>
+								<a
+									href="https://PrimaryGoals.com"
+									target="_blank"
+									rel="noopener noreferrer"
+									className="hover:underline"
+								>
+									{workspaceName}
+								</a>
+								{" · "}
+								{userName}
+							</>}
+				</span>
 			</div>
 		</header>
 	);

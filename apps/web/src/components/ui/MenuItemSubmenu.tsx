@@ -31,11 +31,11 @@ export function MenuItemSubmenu({
 						: "hover:bg-neutral-100 dark:hover:bg-neutral-900")
 				}
 			>
-				<span className="text-xs">◂</span>
 				<span>{label}</span>
+				<span className="text-xs">▸</span>
 			</button>
 			{open && !disabled && (
-				<div className="absolute right-full top-0 mr-0 w-56 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950">
+				<div className="absolute left-full top-0 ml-0 w-56 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950">
 					{children}
 				</div>
 			)}
