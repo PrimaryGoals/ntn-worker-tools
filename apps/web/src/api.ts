@@ -1,4 +1,5 @@
 import type {
+	ApiError,
 	AppConfig,
 	DeployResult,
 	EnvInfo,
@@ -18,6 +19,11 @@ import type {
 
 const SERVER_UNREACHABLE_MESSAGE =
 	"Confirm that your local server is running, or restart it with: pnpm dev";
+
+// The server's JSON error body (ApiError) gets Object.assign'd onto the thrown
+// Error below, so any extra fields it sends (e.g. folderWorkerName) are
+// available on caught errors without a runtime cast.
+export type ApiRequestError = Error & Partial<ApiError>;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	// Only advertise JSON when we're actually sending a body — Fastify rejects
@@ -60,7 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 		} catch {
 			/* keep raw text */
 		}
-		const err = new Error(msg || `${res.status} ${res.statusText}`);
+		const err: ApiRequestError = new Error(msg || `${res.status} ${res.statusText}`);
 		Object.assign(err, body);
 		throw err;
 	}
@@ -90,6 +96,9 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
+	markTime: () => request<AppConfig>("/api/config/mark-time", { method: "POST" }),
+	clearTimeMarker: () =>
+		request<AppConfig>("/api/config/clear-time-marker", { method: "POST" }),
 	getLogs: (workerId: string, runId: string, verbose = false) =>
 		request<LogsPayload>(
 			`/api/workers/${workerId}/runs/${runId}/logs${verbose ? "?verbose=1" : ""}`,
