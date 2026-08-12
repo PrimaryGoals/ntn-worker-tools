@@ -21,6 +21,9 @@ export function MenuBar({
 	onPnpmDeploy,
 	onPushSecrets,
 	onOpenGitCheckin,
+	onMarkTime,
+	hasTimeMarker,
+	onClearTimeMarker,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -47,6 +50,9 @@ export function MenuBar({
 	onPnpmDeploy: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
+	onMarkTime: () => void;
+	hasTimeMarker: boolean;
+	onClearTimeMarker: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -181,6 +187,22 @@ export function MenuBar({
 								onOpenGitCheckin();
 							}}
 						/>
+						<MenuItem
+							label="Mark current time"
+							onClick={() => {
+								setOpen(false);
+								onMarkTime();
+							}}
+						/>
+						{hasTimeMarker ? (
+							<MenuItem
+								label="Clear Time Marker"
+								onClick={() => {
+									setOpen(false);
+									onClearTimeMarker();
+								}}
+							/>
+						) : null}
 						{isSyncWorker ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />

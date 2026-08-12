@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { api } from "./api";
+import { api, type ApiRequestError } from "./api";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
@@ -215,8 +215,16 @@ function AppContent() {
 		isSyncWorker,
 		syncStatusQ,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
-	const { setLocalPath, clearLocalPath, revealWorker, renameWorker, savePanelSize, schedulePanelSave } =
-		useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
+	const {
+		setLocalPath,
+		clearLocalPath,
+		revealWorker,
+		renameWorker,
+		markTime,
+		clearTimeMarker,
+		savePanelSize,
+		schedulePanelSave,
+	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
 	return (
 		<>
@@ -235,7 +243,7 @@ function AppContent() {
 				gitAvailable={gitAvailable}
 				isGitRepo={isGitRepo}
 				setLocalPathError={friendlySetPathError(
-					setLocalPath.error as Error | null,
+					setLocalPath.error as ApiRequestError | null,
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
 				)}
 				onSetLocalPath={() => {
@@ -291,6 +299,9 @@ function AppContent() {
 					}
 				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
+				onMarkTime={() => markTime.mutate()}
+				hasTimeMarker={!!configQ.data?.timeMarker}
+				onClearTimeMarker={() => clearTimeMarker.mutate()}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -362,6 +373,7 @@ function AppContent() {
 											error={runsQ.error as Error | null}
 											runs={runsQ.data?.runs ?? []}
 											selectedId={selectedRunId}
+											markerTime={configQ.data?.timeMarker ?? null}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -676,7 +688,7 @@ function AppContent() {
 					startPath={localPath}
 					submitting={setLocalPath.isPending}
 					error={friendlySetPathError(
-						setLocalPath.error as Error | null,
+						setLocalPath.error as ApiRequestError | null,
 						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
 					)}
 					onClose={() => setFolderPickerOpen(false)}

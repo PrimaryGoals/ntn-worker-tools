@@ -27,6 +27,21 @@ export function useConfigMutations(
 		mutationFn: api.revealWorker,
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
 	});
+	const markTime = useMutation({
+		mutationFn: () => api.markTime(),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			// Marker is global — refresh runs for every worker, not just the selected one.
+			qc.invalidateQueries({ queryKey: ["runs"] });
+		},
+	});
+	const clearTimeMarker = useMutation({
+		mutationFn: () => api.clearTimeMarker(),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+			qc.invalidateQueries({ queryKey: ["runs"] });
+		},
+	});
 	const renameWorker = useMutation({
 		mutationFn: ({ workerId, newName }: { workerId: string; newName: string }) =>
 			api.renameWorker(workerId, newName),
@@ -58,5 +73,14 @@ export function useConfigMutations(
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
-	return { setLocalPath, clearLocalPath, revealWorker, renameWorker, savePanelSize, schedulePanelSave };
+	return {
+		setLocalPath,
+		clearLocalPath,
+		revealWorker,
+		renameWorker,
+		markTime,
+		clearTimeMarker,
+		savePanelSize,
+		schedulePanelSave,
+	};
 }

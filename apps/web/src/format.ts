@@ -6,6 +6,7 @@ import type {
 	WorkerUsage,
 	Whoami,
 } from "@ntn-worker-tools/shared";
+import type { ApiRequestError } from "./api";
 
 export function formatDuration(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "running";
@@ -246,12 +247,12 @@ export function formatWebhookResult(r: WebhookFireResult): string {
 // Rewrites the raw server error into a friendlier message for folder selection
 // errors. Shows the actual worker name from the folder when there's a mismatch.
 export function friendlySetPathError(
-	err: Error | null,
+	err: ApiRequestError | null,
 	workerName: string | null,
 ): Error | null {
 	if (!err) return null;
 	if (err.message.startsWith("worker mismatch")) {
-		const folderWorkerName = (err as Record<string, unknown>).folderWorkerName;
+		const folderWorkerName = err.folderWorkerName;
 		if (folderWorkerName) {
 			return new Error(
 				`The folder you chose appears to be for a worker called ${folderWorkerName}`,

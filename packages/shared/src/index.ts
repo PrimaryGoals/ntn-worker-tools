@@ -149,6 +149,10 @@ export interface AppConfig {
 	// the worker's local path). All git commands run from this directory so
 	// porcelain-relative paths resolve correctly.
 	workerGitRoot?: Record<string, string>;
+	// ISO 8601 timestamp of the last "Mark current time" click. Global (not
+	// per-worker) — shown in the runs panel for every worker to split runs
+	// into before/after the marker.
+	timeMarker?: string;
 }
 
 export interface EnvInfo {
@@ -237,4 +241,8 @@ export interface DeployResult {
 export interface ApiError {
 	error: string;
 	detail?: string;
+	// Present on the "worker mismatch" 400 from POST /api/workers/:id/local-path.
+	folderWorkerId?: string;
+	folderWorkerName?: string;
+	selectedWorkerId?: string;
 }
