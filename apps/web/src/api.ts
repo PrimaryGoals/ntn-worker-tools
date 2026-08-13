@@ -97,7 +97,13 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
-	markTime: () => request<AppConfig>("/api/config/mark-time", { method: "POST" }),
+	getCrossWorkerRuns: (since: string) =>
+		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
+	markTime: (time?: string) =>
+		request<AppConfig>("/api/config/mark-time", {
+			method: "POST",
+			...(time ? { body: JSON.stringify({ time }) } : {}),
+		}),
 	clearTimeMarker: () =>
 		request<AppConfig>("/api/config/clear-time-marker", { method: "POST" }),
 	getLogs: (workerId: string, runId: string, verbose = false) =>

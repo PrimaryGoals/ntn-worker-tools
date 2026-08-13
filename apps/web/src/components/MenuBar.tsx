@@ -26,6 +26,8 @@ export function MenuBar({
 	onMarkTime,
 	hasTimeMarker,
 	onClearTimeMarker,
+	onAdjustTimeMarker,
+	onCrossWorkerRuns,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -56,6 +58,8 @@ export function MenuBar({
 	onMarkTime: () => void;
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
+	onAdjustTimeMarker: () => void;
+	onCrossWorkerRuns: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -180,22 +184,40 @@ export function MenuBar({
 								onOpenGitCheckin();
 							}}
 						/>
-						<MenuItem
-							label="Mark current time"
-							onClick={() => {
-								setOpen(false);
-								onMarkTime();
-							}}
-						/>
-						{hasTimeMarker ? (
+						<MenuItemSubmenu label="Time Markers">
 							<MenuItem
-								label="Clear Time Marker"
+								label="Mark current time"
 								onClick={() => {
 									setOpen(false);
-									onClearTimeMarker();
+									onMarkTime();
 								}}
 							/>
-						) : null}
+							{hasTimeMarker ? (
+								<MenuItem
+									label="Clear Time Marker"
+									onClick={() => {
+										setOpen(false);
+										onClearTimeMarker();
+									}}
+								/>
+							) : null}
+							<MenuItem
+								label="adjust time marker"
+								onClick={() => {
+									setOpen(false);
+									onAdjustTimeMarker();
+								}}
+							/>
+							<MenuItem
+								label="Cross-worker runtimes"
+								disabled={!hasTimeMarker}
+								disabledReason="Requires an active time marker — mark a time first."
+								onClick={() => {
+									setOpen(false);
+									onCrossWorkerRuns();
+								}}
+							/>
+						</MenuItemSubmenu>
 						{isSyncWorker ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />

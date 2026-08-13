@@ -10,6 +10,7 @@ export function useWorkerData(
 	selectedWorkerId: string | null,
 	selectedRunId: string | null,
 	verboseLogs: boolean,
+	crossWorkerView: boolean,
 ) {
 	const whoamiQ = useQuery({
 		queryKey: ["whoami"],
@@ -43,12 +44,27 @@ export function useWorkerData(
 	const runsQ = useQuery({
 		queryKey: ["runs", selectedWorkerId],
 		queryFn: () => api.getRuns(selectedWorkerId!),
-		enabled: !!selectedWorkerId,
+		enabled: !!selectedWorkerId && !crossWorkerView,
 	});
+	const timeMarker = configQ.data?.timeMarker;
+	const crossWorkerRunsQ = useQuery({
+		queryKey: ["crossWorkerRuns", timeMarker],
+		queryFn: () => api.getCrossWorkerRuns(timeMarker!),
+		enabled: crossWorkerView && !!timeMarker,
+	});
+	const activeRunsData = crossWorkerView ? crossWorkerRunsQ.data : runsQ.data;
+	const selectedRun = useMemo(
+		() => activeRunsData?.runs.find((r) => r.runId === selectedRunId) ?? null,
+		[activeRunsData, selectedRunId],
+	);
+	// Use the run's own workerId (rather than the sidebar's selectedWorkerId)
+	// so a cross-worker run's logs load correctly even though selecting it
+	// doesn't change which worker is selected in the sidebar.
+	const logsWorkerId = selectedRun?.workerId ?? selectedWorkerId;
 	const logsQ = useQuery({
-		queryKey: ["logs", selectedWorkerId, selectedRunId, verboseLogs],
-		queryFn: () => api.getLogs(selectedWorkerId!, selectedRunId!, verboseLogs),
-		enabled: !!(selectedWorkerId && selectedRunId),
+		queryKey: ["logs", logsWorkerId, selectedRunId, verboseLogs],
+		queryFn: () => api.getLogs(logsWorkerId!, selectedRunId!, verboseLogs),
+		enabled: !!(logsWorkerId && selectedRunId),
 	});
 	const workerQ = useQuery({
 		queryKey: ["worker", selectedWorkerId, verboseLogs],
@@ -76,9 +92,9 @@ export function useWorkerData(
 		enabled: !!selectedWorkerId,
 	});
 
-	const selectedRun = useMemo(
-		() => runsQ.data?.runs.find((r) => r.runId === selectedRunId) ?? null,
-		[runsQ.data, selectedRunId],
+	const workerNamesById = useMemo(
+		() => Object.fromEntries((workersQ.data ?? []).map((w) => [w.workerId, w.name])),
+		[workersQ.data],
 	);
 	const sortedWorkers = useMemo(
 		() =>
@@ -127,6 +143,7 @@ export function useWorkerData(
 		workersQ,
 		localMtimesQ,
 		runsQ,
+		crossWorkerRunsQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,
@@ -135,6 +152,7 @@ export function useWorkerData(
 		envQ,
 		selectedRun,
 		sortedWorkers,
+		workerNamesById,
 		outOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
