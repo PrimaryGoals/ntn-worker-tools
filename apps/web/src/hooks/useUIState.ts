@@ -11,6 +11,7 @@ export function useUIState() {
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
+	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
 
 	return {
 		selectedWorkerId,
@@ -27,5 +28,7 @@ export function useUIState() {
 		setTokenPushOpen,
 		renameWorkerOpen,
 		setRenameWorkerOpen,
+		adjustTimeMarkerOpen,
+		setAdjustTimeMarkerOpen,
 	};
 }

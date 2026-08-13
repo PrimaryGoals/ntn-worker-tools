@@ -7,6 +7,7 @@ import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOu
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { Empty, Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
+import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
@@ -165,6 +166,8 @@ function AppContent() {
 		setTokenPushOpen,
 		renameWorkerOpen,
 		setRenameWorkerOpen,
+		adjustTimeMarkerOpen,
+		setAdjustTimeMarkerOpen,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
@@ -317,9 +320,13 @@ function AppContent() {
 					}
 				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
-				onMarkTime={() => markTime.mutate()}
+				onMarkTime={() => markTime.mutate(undefined)}
 				hasTimeMarker={!!configQ.data?.timeMarker}
 				onClearTimeMarker={() => clearTimeMarker.mutate()}
+				onAdjustTimeMarker={() => {
+					markTime.reset();
+					setAdjustTimeMarkerOpen(true);
+				}}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -749,6 +756,22 @@ function AppContent() {
 						} else {
 							deployWorker.mutate(selectedWorkerId);
 						}
+					}}
+				/>
+			) : null}
+			{adjustTimeMarkerOpen ? (
+				<AdjustTimeMarkerModal
+					currentMarkerTime={configQ.data?.timeMarker ?? null}
+					submitting={markTime.isPending}
+					error={markTime.error as Error | null}
+					onClose={() => {
+						setAdjustTimeMarkerOpen(false);
+						markTime.reset();
+					}}
+					onSubmit={(isoTime) => {
+						markTime.mutate(isoTime, {
+							onSuccess: () => setAdjustTimeMarkerOpen(false),
+						});
 					}}
 				/>
 			) : null}
