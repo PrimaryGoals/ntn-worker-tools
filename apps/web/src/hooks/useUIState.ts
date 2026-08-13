@@ -12,6 +12,7 @@ export function useUIState() {
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
 	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
+	const [crossWorkerView, setCrossWorkerView] = useState(false);
 
 	return {
 		selectedWorkerId,
@@ -30,5 +31,7 @@ export function useUIState() {
 		setRenameWorkerOpen,
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
+		crossWorkerView,
+		setCrossWorkerView,
 	};
 }

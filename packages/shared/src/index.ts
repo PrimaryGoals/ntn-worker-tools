@@ -32,6 +32,10 @@ export interface Run {
 	exitCode: number | null;
 	startedAt: string;
 	endedAt: string | null;
+	// Populated by the cross-worker runs endpoint, which already knows the
+	// worker's name while iterating — the single-worker endpoint leaves this
+	// unset and callers fall back to a client-side workerId -> name lookup.
+	workerName?: string;
 }
 
 export interface RunsPayload {

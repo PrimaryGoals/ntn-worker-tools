@@ -27,6 +27,7 @@ export function MenuBar({
 	hasTimeMarker,
 	onClearTimeMarker,
 	onAdjustTimeMarker,
+	onCrossWorkerRuns,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -58,6 +59,7 @@ export function MenuBar({
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
 	onAdjustTimeMarker: () => void;
+	onCrossWorkerRuns: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -204,6 +206,15 @@ export function MenuBar({
 								onClick={() => {
 									setOpen(false);
 									onAdjustTimeMarker();
+								}}
+							/>
+							<MenuItem
+								label="Cross-worker runtimes"
+								disabled={!hasTimeMarker}
+								disabledReason="Requires an active time marker — mark a time first."
+								onClick={() => {
+									setOpen(false);
+									onCrossWorkerRuns();
 								}}
 							/>
 						</MenuItemSubmenu>

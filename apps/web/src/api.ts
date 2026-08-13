@@ -97,6 +97,8 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
+	getCrossWorkerRuns: (since: string) =>
+		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
 	markTime: (time?: string) =>
 		request<AppConfig>("/api/config/mark-time", {
 			method: "POST",

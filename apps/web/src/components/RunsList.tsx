@@ -28,6 +28,8 @@ export function RunsList({
 	runs,
 	selectedId,
 	markerTime,
+	workerNames,
+	showWorkerColumn,
 	onSelect,
 }: {
 	loading: boolean;
@@ -35,6 +37,8 @@ export function RunsList({
 	runs: Run[];
 	selectedId: string | null;
 	markerTime?: string | null;
+	workerNames?: Record<string, string>;
+	showWorkerColumn?: boolean;
 	onSelect: (id: string) => void;
 }) {
 	if (loading) return <Empty>Loading runs…</Empty>;
@@ -45,6 +49,7 @@ export function RunsList({
 		<table className="w-full text-sm">
 			<thead className="sticky top-0 bg-neutral-50 text-xs uppercase tracking-wide text-neutral-500 dark:bg-neutral-900">
 				<tr>
+					{showWorkerColumn ? <th className="px-3 py-2 text-left">Worker</th> : null}
 					<th className="px-3 py-2 text-left">Name</th>
 					<th className="px-3 py-2 text-left">Actor</th>
 					<th className="px-3 py-2 text-left">Exit</th>
@@ -59,6 +64,9 @@ export function RunsList({
 							key="time-marker"
 							className="border-t border-dashed border-blue-400 bg-blue-50/70 dark:border-blue-700 dark:bg-blue-950/30"
 						>
+							{showWorkerColumn ? (
+								<td className="px-3 py-1.5 text-neutral-400">----</td>
+							) : null}
 							<td className="px-3 py-1.5 font-medium text-neutral-400">----</td>
 							<td className="px-3 py-1.5 text-neutral-400">----</td>
 							<td className="px-3 py-1.5 text-neutral-400">----</td>
@@ -76,6 +84,11 @@ export function RunsList({
 								(selectedId === row.run.runId ? "bg-neutral-100 dark:bg-neutral-900" : "")
 							}
 						>
+							{showWorkerColumn ? (
+								<td className="px-3 py-1.5 text-neutral-600 dark:text-neutral-400">
+									{row.run.workerName ?? workerNames?.[row.run.workerId] ?? row.run.workerId}
+								</td>
+							) : null}
 							<td className="px-3 py-1.5 font-medium">{row.run.name}</td>
 							<td className="px-3 py-1.5">{row.run.actorName}</td>
 							<td className="px-3 py-1.5">

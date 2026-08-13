@@ -168,6 +168,8 @@ function AppContent() {
 		setRenameWorkerOpen,
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
+		crossWorkerView,
+		setCrossWorkerView,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
@@ -207,6 +209,7 @@ function AppContent() {
 		isGitRepo,
 		workersQ,
 		runsQ,
+		crossWorkerRunsQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,
@@ -215,11 +218,12 @@ function AppContent() {
 		envQ,
 		selectedRun,
 		sortedWorkers,
+		workerNamesById,
 		outOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
-	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
+	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, crossWorkerView);
 	const {
 		setLocalPath,
 		clearLocalPath,
@@ -327,6 +331,11 @@ function AppContent() {
 					markTime.reset();
 					setAdjustTimeMarkerOpen(true);
 				}}
+				onCrossWorkerRuns={() => {
+					clearTransientOutputs();
+					setSelectedRunId(null);
+					setCrossWorkerView(true);
+				}}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -380,6 +389,7 @@ function AppContent() {
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
+											setCrossWorkerView(false);
 											clearTransientOutputs();
 										}}
 										onRevealPath={(id) => revealWorker.mutate(id)}
@@ -395,11 +405,19 @@ function AppContent() {
 										<BrandingSplash />
 									) : (
 										<RunsList
-											loading={runsQ.isLoading}
-											error={runsQ.error as Error | null}
-											runs={runsQ.data?.runs ?? []}
+											loading={
+												crossWorkerView ? crossWorkerRunsQ.isLoading : runsQ.isLoading
+											}
+											error={
+												(crossWorkerView ? crossWorkerRunsQ.error : runsQ.error) as Error | null
+											}
+											runs={
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.runs ?? []
+											}
 											selectedId={selectedRunId}
 											markerTime={configQ.data?.timeMarker ?? null}
+											workerNames={workerNamesById}
+											showWorkerColumn={crossWorkerView}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -443,6 +461,14 @@ function AppContent() {
 							<>
 								<span className="font-mono text-xs text-neutral-500">{selectedRun.runId}</span>
 								<span className="font-medium">{selectedRun.name}</span>
+								{crossWorkerView ? (
+									<span>
+										<span className="text-neutral-500">Worker:</span>{" "}
+										{selectedRun.workerName ??
+											workerNamesById[selectedRun.workerId] ??
+											selectedRun.workerId}
+									</span>
+								) : null}
 								<span>
 									<span className="text-neutral-500">Actor:</span> {selectedRun.actorName}
 								</span>
@@ -587,6 +613,14 @@ function AppContent() {
 					) : workerQ.data && workerUsageQ.data && capabilitiesQ.data && envQ.data ? (
 						<CommandOutputList
 							items={[
+								{
+									command: ntnCmd(["workers", "runs", "list", selectedWorkerId]),
+									output: runsQ.isLoading
+										? "Fetching runs…"
+										: runsQ.error
+											? (runsQ.error as Error).message
+											: `${runsQ.data?.runs.length ?? 0} run${runsQ.data?.runs.length === 1 ? "" : "s"} retrieved.`,
+								},
 								{
 									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
 									output: (
