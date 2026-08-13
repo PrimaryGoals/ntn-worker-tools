@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-12
+
+### Added
+- Out-of-date worker indicator: workers with local code newer than their last deploy are flagged, detected via a folder mtime scan (not git log, so it works for non-git workers too)
+- "Deploy workers" submenu with "deploy updated workers" — deploys every out-of-date worker in one action, auto-selecting `ntn workers deploy` or `pnpm run deploy` per worker, with a confirmation listing exactly which workers will be deployed
+- "Sync Options" submenu grouping sync pause/resume/reset
+- Worker rename, including updating the local folder, `package.json` name/deploy script, and re-fetching the worker from Notion afterward
+- Time marker: mark a point in time and split the runs panel into before/after
+- Clearer error message when registering a local folder that belongs to a different worker — shows the folder's actual worker name
+- `watch-debug.mjs` diagnostic script for investigating phantom `dev:server` restarts
+- `shutdown-stray-servers.ps1` for killing stray dev servers left behind by testing
+
+### Changed
+- Header layout: worker menu moved to the far left (so submenus have room to open), branding moved to the far right; workspace name now links to primarygoals.com
+- `apps/server/src/index.ts` split from one ~980-line file into `state.ts` plus one route module per domain (`routes/session.ts`, `config.ts`, `fs.ts`, `workers.ts`, `sync.ts`, `worker-local.ts`, `webhook.ts`, `runs.ts`), deduplicating the sync trigger/pause/resume/reset handlers along the way
+- Webhook fire now shells out to `curl` instead of Node's `fetch()`
+- Config writes are now atomic with a backup taken before each write
+- Folder picker excludes hidden directories
+
+### Fixed
+- `pnpm run deploy` / `ntn workers deploy` selection for `deploy-updated` matching workers by `workerId` correctly (previously matched nothing, so it always reported "No out-of-date workers found")
+- Webhook run-completion poll matched against a `runId` snapshot instead of the client clock, avoiding clock-skew misses
+- `dev:server`'s `node --watch` scoped to `apps/server/src` and eventually dropped from the top-level script after the narrower scoping didn't fully eliminate phantom restarts (root cause still under investigation — see #5)
+
 ## [0.5.2] - 2026-08-05
 
 ### Added
