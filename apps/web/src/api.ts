@@ -2,6 +2,7 @@ import type {
 	ApiError,
 	AppConfig,
 	CrossWorkerUsagePayload,
+	DeployNewInspection,
 	DeployResult,
 	EnvInfo,
 	FsListing,
@@ -201,5 +202,22 @@ export const api = {
 	deployUpdatedWorkers: (verbose = false) =>
 		request<DeployResult>(`/api/workers/deploy-updated${verbose ? "?verbose=1" : ""}`, {
 			method: "POST",
+		}),
+	inspectDeployNewPath: (path: string) =>
+		request<DeployNewInspection>(`/api/deploy-new/inspect?path=${encodeURIComponent(path)}`),
+	cleanDeployNewFiles: (path: string, files: Array<"workers.json" | ".env">) =>
+		request<{ ok: true }>("/api/deploy-new/clean", {
+			method: "POST",
+			body: JSON.stringify({ path, files }),
+		}),
+	deployNewWorker: (path: string, name: string) =>
+		request<DeployResult>("/api/deploy-new/deploy", {
+			method: "POST",
+			body: JSON.stringify({ path, name }),
+		}),
+	pnpmDeployNewWorker: (path: string, newName?: string) =>
+		request<DeployResult>("/api/deploy-new/pnpm-deploy", {
+			method: "POST",
+			body: JSON.stringify({ path, ...(newName ? { newName } : {}) }),
 		}),
 };

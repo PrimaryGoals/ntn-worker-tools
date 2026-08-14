@@ -8,6 +8,7 @@ import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
+import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
@@ -170,6 +171,8 @@ function AppContent() {
 		setRenameWorkerOpen,
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
+		deployNewWorkerOpen,
+		setDeployNewWorkerOpen,
 		runsViewMode,
 		setRunsViewMode,
 	} = useUIState();
@@ -324,6 +327,7 @@ function AppContent() {
 						deployUpdatedWorkers.mutate(verboseLogs);
 					}
 				}}
+				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
 				onPushSecrets={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -811,6 +815,19 @@ function AppContent() {
 						} else {
 							deployWorker.mutate(selectedWorkerId);
 						}
+					}}
+				/>
+			) : null}
+			{deployNewWorkerOpen ? (
+				<DeployNewWorkerModal
+					startPath={localPath}
+					whoami={whoamiQ.data ?? null}
+					existingWorkers={workersQ.data ?? []}
+					onClose={() => setDeployNewWorkerOpen(false)}
+					onDeployed={(result) => {
+						setDeployNewWorkerOpen(false);
+						clearTransientOutputs();
+						setDeployResult(result);
 					}}
 				/>
 			) : null}

@@ -19,6 +19,7 @@ export function MenuBar({
 	onNtnDeploy,
 	onPnpmDeploy,
 	onDeployUpdatedWorkers,
+	onDeployToNewWorkspace,
 	onPushSecrets,
 	onOpenGitCheckin,
 	onMarkTime,
@@ -48,6 +49,7 @@ export function MenuBar({
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
 	onDeployUpdatedWorkers: () => void;
+	onDeployToNewWorkspace: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
@@ -62,25 +64,17 @@ export function MenuBar({
 	onSyncStateReset: () => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="relative">
 				<button
 					type="button"
-					disabled={disabled}
 					onClick={() => setOpen((v) => !v)}
-					title={disabled ? "Select a worker first" : undefined}
-					className={
-						"rounded border px-2 py-1 text-xs " +
-						(disabled
-							? "cursor-not-allowed border-neutral-200 text-neutral-400 dark:border-neutral-800 dark:text-neutral-600"
-							: "border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900")
-					}
+					className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
 				>
 					Worker{workerName ? `: ${workerName}` : ""} ▾
 				</button>
-				{open && workerId ? (
+				{open ? (
 					<div
 						className="absolute left-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
 						onMouseLeave={() => setOpen(false)}
@@ -141,6 +135,13 @@ export function MenuBar({
 								}}
 							/>
 						</MenuItemSubmenu>
+						<MenuItem
+							label="Deploy to new workspace"
+							onClick={() => {
+								setOpen(false);
+								onDeployToNewWorkspace();
+							}}
+						/>
 						<MenuItem
 							label="push secrets to Notion"
 							disabled={!localPath || !hasEnvFile}

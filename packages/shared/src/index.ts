@@ -255,6 +255,28 @@ export interface DeployResult {
 	};
 }
 
+export interface DeployNewInspection {
+	path: string;
+	folderName: string;
+	hasWorkersJson: boolean;
+	// Present only when workers.json exists and parses with the fields we need.
+	workersJson?: { workspaceId: string; workerId: string; environment: string };
+	hasEnvFile: boolean;
+	// True when package.json declares scripts.deploy — usually a sign this
+	// worker lives in a monorepo and needs a custom local-bundle step, not a
+	// plain `ntn workers deploy`.
+	hasDeployScript: boolean;
+	deployScript: string | null;
+	// package.json's own "name" field with any npm scope stripped (e.g.
+	// "@pmfn/pm-echo" -> "pm-echo"). Used to detect/rename a stale worker name
+	// left over from copying another worker's folder.
+	packageName: string | null;
+	// True when any dependency uses the pnpm/yarn `workspace:` protocol.
+	// The remote build sandbox runs plain `npm install`, which errors on it
+	// (EUNSUPPORTEDPROTOCOL) — a plain `ntn workers deploy` will fail here.
+	hasWorkspaceProtocolDeps: boolean;
+}
+
 export interface ApiError {
 	error: string;
 	detail?: string;
