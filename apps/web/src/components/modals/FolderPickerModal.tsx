@@ -12,6 +12,9 @@ function joinPath(dir: string, name: string): string {
 
 export function FolderPickerModal({
 	workerName,
+	title,
+	selectLabel,
+	requireWorkerProject = true,
 	startPath,
 	submitting,
 	error,
@@ -20,6 +23,14 @@ export function FolderPickerModal({
 	onSelect,
 }: {
 	workerName: string | null;
+	// Overrides the default "Choose a local worker folder" heading — useful
+	// when the folder being picked isn't (yet) a registered worker.
+	title?: string;
+	selectLabel?: string;
+	// When false, any directory can be selected, not just ones containing
+	// workers.json — for flows (like deploying a fresh copy) that start from
+	// a folder that has never been deployed.
+	requireWorkerProject?: boolean;
 	startPath: string | null;
 	submitting: boolean;
 	error: Error | null;
@@ -67,7 +78,7 @@ export function FolderPickerModal({
 		onResetError();
 	}
 
-	const canSelect = !!listingQ.data?.isWorkerProject;
+	const canSelect = requireWorkerProject ? !!listingQ.data?.isWorkerProject : !!listingQ.data;
 
 	return (
 		<div
@@ -84,7 +95,7 @@ export function FolderPickerModal({
 			>
 				<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
 					<h2 className="text-sm font-semibold">
-						Choose a local worker folder{workerName ? ` for ${workerName}` : ""}
+						{title ?? `Choose a local worker folder${workerName ? ` for ${workerName}` : ""}`}
 					</h2>
 					<button
 						type="button"
@@ -175,6 +186,10 @@ export function FolderPickerModal({
 							<span className="text-emerald-700 dark:text-emerald-400">
 								✓ This folder contains workers.json — ready to select.
 							</span>
+						) : !requireWorkerProject && listingQ.data ? (
+							<span className="text-neutral-600 dark:text-neutral-400">
+								No workers.json here — this folder has never been deployed.
+							</span>
 						) : listingQ.data ? (
 							<span className="text-red-600 dark:text-red-400">
 								No workers.json here — navigate into a worker project directory.
@@ -200,13 +215,13 @@ export function FolderPickerModal({
 							disabled={!canSelect || !currentPath || submitting}
 							onClick={() => currentPath && onSelect(currentPath)}
 							title={
-								canSelect
+								canSelect || !requireWorkerProject
 									? undefined
 									: "Selectable only when the current folder contains workers.json"
 							}
 							className="rounded bg-neutral-900 px-3 py-1 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900"
 						>
-							{submitting ? "Setting…" : "Select this folder"}
+							{submitting ? "Setting…" : (selectLabel ?? "Select this folder")}
 						</button>
 					</div>
 				</div>

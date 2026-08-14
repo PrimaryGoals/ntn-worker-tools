@@ -8,6 +8,7 @@ import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
+import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
@@ -170,6 +171,8 @@ function AppContent() {
 		setRenameWorkerOpen,
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
+		deployNewWorkerOpen,
+		setDeployNewWorkerOpen,
 		runsViewMode,
 		setRunsViewMode,
 	} = useUIState();
@@ -222,7 +225,8 @@ function AppContent() {
 		selectedRun,
 		sortedWorkers,
 		workerNamesById,
-		outOfDateWorkerIds,
+		codeOutOfDateWorkerIds,
+		envOutOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
@@ -310,7 +314,7 @@ function AppContent() {
 				}}
 				onDeployUpdatedWorkers={() => {
 					const outOfDateWorkerNames = sortedWorkers
-						.filter((w) => outOfDateWorkerIds.has(w.workerId))
+						.filter((w) => codeOutOfDateWorkerIds.has(w.workerId))
 						.map((w) => w.name);
 
 					if (outOfDateWorkerNames.length === 0) {
@@ -324,6 +328,7 @@ function AppContent() {
 						deployUpdatedWorkers.mutate(verboseLogs);
 					}
 				}}
+				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
 				onPushSecrets={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -390,7 +395,8 @@ function AppContent() {
 										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
-										outOfDateWorkerIds={outOfDateWorkerIds}
+										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
+										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
@@ -645,7 +651,11 @@ function AppContent() {
 								{
 									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
 									output: (
-										<WorkerDetailsBody worker={workerQ.data} />
+										<WorkerDetailsBody
+											worker={workerQ.data}
+											lastCodeDeployAt={configQ.data?.workerLastCodeDeployAt?.[selectedWorkerId]}
+											lastEnvPushAt={configQ.data?.workerLastEnvPushAt?.[selectedWorkerId]}
+										/>
 									),
 									trace: workerQ.data._trace,
 								},
@@ -811,6 +821,19 @@ function AppContent() {
 						} else {
 							deployWorker.mutate(selectedWorkerId);
 						}
+					}}
+				/>
+			) : null}
+			{deployNewWorkerOpen ? (
+				<DeployNewWorkerModal
+					startPath={localPath}
+					whoami={whoamiQ.data ?? null}
+					existingWorkers={workersQ.data ?? []}
+					onClose={() => setDeployNewWorkerOpen(false)}
+					onDeployed={(result) => {
+						setDeployNewWorkerOpen(false);
+						clearTransientOutputs();
+						setDeployResult(result);
 					}}
 				/>
 			) : null}

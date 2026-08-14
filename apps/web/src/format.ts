@@ -8,6 +8,23 @@ import type {
 } from "@ntn-worker-tools/shared";
 import type { ApiRequestError } from "./api";
 
+const VALID_WORKER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// Notion Workers names are kebab-case: lowercase letters, digits, hyphens.
+// Used both when renaming an existing worker and when proposing a name for a
+// fresh deploy (defaulted from the folder name, which may have spaces/casing).
+export function normalizeWorkerName(input: string): string {
+	return input
+		.toLowerCase()
+		.trim()
+		.replace(/\s+/g, "-")
+		.replace(/[^a-z0-9-]/g, "");
+}
+
+export function isValidWorkerName(name: string): boolean {
+	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
+}
+
 export function formatDuration(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "running";
 	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();

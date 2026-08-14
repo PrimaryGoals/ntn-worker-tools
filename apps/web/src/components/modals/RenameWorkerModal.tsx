@@ -1,18 +1,5 @@
 import { useEffect, useState } from "react";
-
-const VALID_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-
-function normalizeWorkerName(input: string): string {
-	return input
-		.toLowerCase()
-		.trim()
-		.replace(/\s+/g, "-")
-		.replace(/[^a-z0-9-]/g, "");
-}
-
-function isValidWorkerName(name: string): boolean {
-	return name.length > 0 && VALID_NAME_REGEX.test(name);
-}
+import { isValidWorkerName, normalizeWorkerName } from "../../format";
 
 export function RenameWorkerModal({
 	workerName,

@@ -157,6 +157,24 @@ export interface AppConfig {
 	// the worker's local path). All git commands run from this directory so
 	// porcelain-relative paths resolve correctly.
 	workerGitRoot?: Record<string, string>;
+	// workerId -> ISO timestamp of the last successful code deploy THIS APP
+	// initiated (ntn workers deploy / pnpm run deploy / deploy-updated /
+	// deploy-new). Deliberately not re-derived from the worker's live
+	// `updatedAt` on every check: that field bumps on ANY mutation, including
+	// env pushes, so comparing local mtime against it live can mask an
+	// undeployed code change behind an unrelated env push (this happened in
+	// practice — a security-check code change sat undeployed on 8 workers
+	// while an unrelated secrets sync made all 8 look up to date). Seeded once
+	// from that live `updatedAt` the first time a worker's mtime is checked
+	// with no prior record, so pre-existing setups don't all show stale on
+	// rollout; after that, only actions this app runs update it. Tradeoff: an
+	// external deploy (another machine, a teammate, a raw terminal) won't be
+	// reflected here until this app deploys or pushes again — accepted as the
+	// lesser failure mode (over-flagging something already fine) versus the
+	// old one (silently hiding something that wasn't).
+	workerLastCodeDeployAt?: Record<string, string>;
+	// Same idea, for env pushes (env/push and env/set).
+	workerLastEnvPushAt?: Record<string, string>;
 	// ISO 8601 timestamp of the last "Mark current time" click. Global (not
 	// per-worker) — shown in the runs panel for every worker to split runs
 	// into before/after the marker.
@@ -205,13 +223,21 @@ export interface GitStatusEntry {
 	path: string;
 }
 
+export interface LocalMtimeInfo {
+	// ISO timestamp of the most recently modified file under the worker's
+	// local path, excluding .env (recursive scan, skipping node_modules/build
+	// output/hidden dirs), or null when there's nothing to compare. Compared
+	// against workerLastCodeDeployAt.
+	code: string | null;
+	// ISO timestamp of .env's own mtime, or null if there's no .env file.
+	// Compared against workerLastEnvPushAt.
+	env: string | null;
+}
+
 export interface LocalMtimes {
-	// workerId -> ISO 8601 timestamp of the most recently modified file under
-	// that worker's local path (recursive scan, skipping node_modules/build
-	// output/hidden dirs), or null when the folder is empty or unreadable.
-	// Works regardless of VCS (or no VCS at all). Only includes workers with a
-	// registered local path.
-	[workerId: string]: string | null;
+	// workerId -> {code, env} mtimes. Works regardless of VCS (or no VCS at
+	// all). Only includes workers with a registered local path.
+	[workerId: string]: LocalMtimeInfo;
 }
 
 export interface GitStatus {
@@ -253,6 +279,28 @@ export interface DeployResult {
 		stderr: string;
 		durationMs: number;
 	};
+}
+
+export interface DeployNewInspection {
+	path: string;
+	folderName: string;
+	hasWorkersJson: boolean;
+	// Present only when workers.json exists and parses with the fields we need.
+	workersJson?: { workspaceId: string; workerId: string; environment: string };
+	hasEnvFile: boolean;
+	// True when package.json declares scripts.deploy — usually a sign this
+	// worker lives in a monorepo and needs a custom local-bundle step, not a
+	// plain `ntn workers deploy`.
+	hasDeployScript: boolean;
+	deployScript: string | null;
+	// package.json's own "name" field with any npm scope stripped (e.g.
+	// "@pmfn/pm-echo" -> "pm-echo"). Used to detect/rename a stale worker name
+	// left over from copying another worker's folder.
+	packageName: string | null;
+	// True when any dependency uses the pnpm/yarn `workspace:` protocol.
+	// The remote build sandbox runs plain `npm install`, which errors on it
+	// (EUNSUPPORTEDPROTOCOL) — a plain `ntn workers deploy` will fail here.
+	hasWorkspaceProtocolDeps: boolean;
 }
 
 export interface ApiError {

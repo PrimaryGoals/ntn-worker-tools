@@ -19,6 +19,7 @@ export function MenuBar({
 	onNtnDeploy,
 	onPnpmDeploy,
 	onDeployUpdatedWorkers,
+	onDeployToNewWorkspace,
 	onPushSecrets,
 	onOpenGitCheckin,
 	onMarkTime,
@@ -48,6 +49,7 @@ export function MenuBar({
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
 	onDeployUpdatedWorkers: () => void;
+	onDeployToNewWorkspace: () => void;
 	onPushSecrets: () => void;
 	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
@@ -62,25 +64,17 @@ export function MenuBar({
 	onSyncStateReset: () => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="relative">
 				<button
 					type="button"
-					disabled={disabled}
 					onClick={() => setOpen((v) => !v)}
-					title={disabled ? "Select a worker first" : undefined}
-					className={
-						"rounded border px-2 py-1 text-xs " +
-						(disabled
-							? "cursor-not-allowed border-neutral-200 text-neutral-400 dark:border-neutral-800 dark:text-neutral-600"
-							: "border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900")
-					}
+					className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
 				>
 					Worker{workerName ? `: ${workerName}` : ""} ▾
 				</button>
-				{open && workerId ? (
+				{open ? (
 					<div
 						className="absolute left-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
 						onMouseLeave={() => setOpen(false)}
@@ -110,15 +104,15 @@ export function MenuBar({
 								onRenameWorker();
 							}}
 						/>
-						<MenuItemSubmenu
-							label="Deploy workers"
-							disabled={!localPath}
-							disabledReason="Requires a registered local folder."
-						>
+						<MenuItemSubmenu label="Deploy workers">
 							<MenuItem
 								label="ntn workers deploy"
-								disabled={hasDeployScript}
-								disabledReason="This project defines scripts.deploy in package.json — use pnpm run deploy."
+								disabled={!localPath || hasDeployScript}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "This project defines scripts.deploy in package.json — use pnpm run deploy."
+								}
 								onClick={() => {
 									setOpen(false);
 									onNtnDeploy();
@@ -126,8 +120,12 @@ export function MenuBar({
 							/>
 							<MenuItem
 								label="pnpm run deploy"
-								disabled={!hasDeployScript}
-								disabledReason="This project has no scripts.deploy in package.json — use ntn workers deploy."
+								disabled={!localPath || !hasDeployScript}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "This project has no scripts.deploy in package.json — use ntn workers deploy."
+								}
 								onClick={() => {
 									setOpen(false);
 									onPnpmDeploy();
@@ -140,29 +138,42 @@ export function MenuBar({
 									onDeployUpdatedWorkers();
 								}}
 							/>
+							<MenuItem
+								label="Deploy to new workspace"
+								onClick={() => {
+									setOpen(false);
+									onDeployToNewWorkspace();
+								}}
+							/>
 						</MenuItemSubmenu>
-						<MenuItem
-							label="push secrets to Notion"
-							disabled={!localPath || !hasEnvFile}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "No .env file found in the registered local folder."
-							}
-							onClick={() => {
-								setOpen(false);
-								onPushSecrets();
-							}}
-						/>
-						<MenuItem
-							label="push NOTION_API_TOKEN"
-							disabled={!!localPath}
-							disabledReason="You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file."
-							onClick={() => {
-								setOpen(false);
-								onOpenTokenPush();
-							}}
-						/>
+						<MenuItemSubmenu label="Secrets">
+							<MenuItem
+								label="push secrets to Notion"
+								disabled={!localPath || !hasEnvFile}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "No .env file found in the registered local folder."
+								}
+								onClick={() => {
+									setOpen(false);
+									onPushSecrets();
+								}}
+							/>
+							<MenuItem
+								label="push NOTION_API_TOKEN"
+								disabled={!workerId || !!localPath}
+								disabledReason={
+									!workerId
+										? "Select a worker first."
+										: "You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file."
+								}
+								onClick={() => {
+									setOpen(false);
+									onOpenTokenPush();
+								}}
+							/>
+						</MenuItemSubmenu>
 						<MenuItem
 							label="local check-in"
 							disabled={!localPath || !gitAvailable || !isGitRepo}
