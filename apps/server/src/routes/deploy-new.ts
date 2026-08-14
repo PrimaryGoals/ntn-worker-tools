@@ -3,7 +3,7 @@ import { basename, join, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { DeployNewInspection, DeployResult } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
-import { detectGitRoot, getConfig, updateConfig } from "../state.js";
+import { detectGitRoot, getConfig, recordCodeDeploy, updateConfig } from "../state.js";
 
 // The only two files this flow is ever allowed to delete, and only inside
 // whatever directory the caller already told us they're inspecting — never
@@ -264,6 +264,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 							? { ...(getConfig().workerGitRoot ?? {}), [newWorkerId]: gitRoot }
 							: (getConfig().workerGitRoot ?? {}),
 					});
+					await recordCodeDeploy(newWorkerId);
 				}
 			}
 
@@ -388,6 +389,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 							? { ...(getConfig().workerGitRoot ?? {}), [newWorkerId]: gitRoot }
 							: (getConfig().workerGitRoot ?? {}),
 					});
+					await recordCodeDeploy(newWorkerId);
 				}
 			}
 

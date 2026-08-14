@@ -8,12 +8,22 @@ import type {
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
+	LocalMtimeInfo,
 	LocalMtimes,
 	Worker,
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
-import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
+import {
+	detectGitRoot,
+	envInfo,
+	getConfig,
+	recordCodeDeploy,
+	recordEnvPush,
+	resolveGitRoot,
+	resolveIsGitRepo,
+	updateConfig,
+} from "../state.js";
 
 // Directories skipped when scanning for the latest mtime — dependency/build
 // output churns constantly (installs, rebuilds) and isn't "local source
@@ -21,42 +31,104 @@ import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, up
 // perpetually out of date.
 const SCAN_IGNORED_DIR_NAMES = new Set(["node_modules", "dist", "build", "coverage", "out"]);
 
-// Recursively finds the most recent file mtime under `dir`, skipping hidden
-// directories (incl. .git) and the build/dependency dirs above. VCS-agnostic
-// by design — some workers aren't in git, or use something else entirely.
-async function latestMtimeMs(dir: string): Promise<number | null> {
+// Recursively finds the most recent "code" file mtime under `dir` (used
+// against workerLastCodeDeployAt) and, separately, .env's own mtime (used
+// against workerLastEnvPushAt) — kept apart so a secrets sync touching only
+// .env can't mask an older, still-undeployed code change, and vice versa.
+// Skips hidden directories (incl. .git) and the build/dependency dirs above.
+// VCS-agnostic by design — some workers aren't in git, or use something else
+// entirely.
+async function scanLocalMtimes(dir: string): Promise<{ code: number | null; env: number | null }> {
 	let dirents;
 	try {
 		dirents = await readdir(dir, { withFileTypes: true });
 	} catch {
-		return null;
+		return { code: null, env: null };
 	}
-	let latest: number | null = null;
+	let code: number | null = null;
+	let env: number | null = null;
 	for (const d of dirents) {
+		if (d.name === ".env") {
+			try {
+				const s = await stat(join(dir, d.name));
+				if (env === null || s.mtimeMs > env) env = s.mtimeMs;
+			} catch {
+				/* file vanished mid-scan — skip */
+			}
+			continue;
+		}
 		if (d.name.startsWith(".") || SCAN_IGNORED_DIR_NAMES.has(d.name)) continue;
 		const full = join(dir, d.name);
 		if (d.isDirectory()) {
-			const sub = await latestMtimeMs(full);
-			if (sub !== null && (latest === null || sub > latest)) latest = sub;
+			const sub = await scanLocalMtimes(full);
+			if (sub.code !== null && (code === null || sub.code > code)) code = sub.code;
+			if (sub.env !== null && (env === null || sub.env > env)) env = sub.env;
 		} else if (d.isFile()) {
 			try {
 				const s = await stat(full);
-				if (latest === null || s.mtimeMs > latest) latest = s.mtimeMs;
+				if (code === null || s.mtimeMs > code) code = s.mtimeMs;
 			} catch {
 				/* file vanished mid-scan — skip */
 			}
 		}
 	}
-	return latest;
+	return { code, env };
+}
+
+// One-time backfill for any registered worker missing a local timestamp
+// record (pre-existing setups from before this tracking existed, or a
+// worker registered by an older version of this app). Seeds both maps from
+// the worker's current (live) `updatedAt` — a reasonable starting point that
+// avoids a flood of false "out of date" flags on rollout — then leaves them
+// alone; only recordCodeDeploy/recordEnvPush ever touch them again. Pass in
+// an already-fetched `workers` list when the caller has one (avoids a
+// redundant `ntn workers list` call); pass null to let it fetch its own,
+// but only when actually needed.
+async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<void> {
+	const cfg = getConfig();
+	const ids = Object.keys(cfg.workerLocalPaths ?? {});
+	const missing = ids.filter(
+		(id) => !cfg.workerLastCodeDeployAt?.[id] || !cfg.workerLastEnvPushAt?.[id],
+	);
+	if (missing.length === 0) return;
+	let list = workers;
+	if (!list) {
+		try {
+			list = await runNtnJson<Worker[]>(["workers", "list"]);
+		} catch {
+			return; // ntn unreachable right now — try again next call
+		}
+	}
+	const byId = new Map(list.map((w) => [w.workerId, w.updatedAt]));
+	const codeUpdates: Record<string, string> = {};
+	const envUpdates: Record<string, string> = {};
+	for (const id of missing) {
+		const updatedAt = byId.get(id);
+		if (!updatedAt) continue; // worker not found remotely (e.g. deleted) — leave unseeded
+		if (!cfg.workerLastCodeDeployAt?.[id]) codeUpdates[id] = updatedAt;
+		if (!cfg.workerLastEnvPushAt?.[id]) envUpdates[id] = updatedAt;
+	}
+	if (Object.keys(codeUpdates).length === 0 && Object.keys(envUpdates).length === 0) return;
+	await updateConfig({
+		workerLastCodeDeployAt: { ...(getConfig().workerLastCodeDeployAt ?? {}), ...codeUpdates },
+		workerLastEnvPushAt: { ...(getConfig().workerLastEnvPushAt ?? {}), ...envUpdates },
+	});
 }
 
 export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
+		await seedMissingWorkerTimestamps(null);
 		const paths = getConfig().workerLocalPaths ?? {};
 		const entries = await Promise.all(
-			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string | null]> => {
-				const latest = await latestMtimeMs(path);
-				return [workerId, latest !== null ? new Date(latest).toISOString() : null];
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, LocalMtimeInfo]> => {
+				const { code, env } = await scanLocalMtimes(path);
+				return [
+					workerId,
+					{
+						code: code !== null ? new Date(code).toISOString() : null,
+						env: env !== null ? new Date(env).toISOString() : null,
+					},
+				];
 			}),
 		);
 		return Object.fromEntries(entries);
@@ -240,6 +312,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				} catch {
 					/* stdout wasn't clean JSON; leave summary undefined */
 				}
+				await recordCodeDeploy(req.params.id);
 			}
 			return {
 				command: `ntn ${args.join(" ")}`,
@@ -403,6 +476,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				...(verbose ? ["-v"] : []),
 			];
 			const result = await runShellAllowingFailure("ntn", args, { logAs });
+			if (result.exitCode === 0) await recordEnvPush(req.params.id);
 			return {
 				command: `ntn ${logAs.join(" ")}`,
 				cwd: "",
@@ -429,6 +503,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const push = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
 			let followup: DeployResult["followup"];
 			if (push.exitCode === 0) {
+				await recordEnvPush(req.params.id);
 				const pullArgs = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
 				if (verbose) pullArgs.push("-v");
 				const pull = await runNtnRawAllowingFailure(pullArgs, { cwd: path });
@@ -465,6 +540,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				cwd: path,
 				shell: true,
 			});
+			if (result.exitCode === 0) await recordCodeDeploy(req.params.id);
 			return {
 				command: result.command,
 				cwd: path,
@@ -565,22 +641,24 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		"/api/workers/deploy-updated",
 		async (req, reply): Promise<DeployResult> => {
 			const verbose = isVerbose(req.query.verbose);
-			const config = getConfig();
-			const localPaths = config.workerLocalPaths ?? {};
+			const localPaths = getConfig().workerLocalPaths ?? {};
 			const workers = await runNtnJson<Worker[]>(["workers", "list"]);
+			await seedMissingWorkerTimestamps(workers);
 
 			const latestMtimes = await Promise.all(
 				Object.entries(localPaths).map(async ([workerId, path]): Promise<[string, number | null]> => {
-					const latest = await latestMtimeMs(path);
-					return [workerId, latest];
+					const { code } = await scanLocalMtimes(path);
+					return [workerId, code];
 				}),
 			);
 			const mtimeMap = Object.fromEntries(latestMtimes);
+			const lastDeployMap = getConfig().workerLastCodeDeployAt ?? {};
 
 			const outOfDateWorkers = workers.filter((w) => {
 				const mtime = mtimeMap[w.workerId];
-				if (!mtime) return false;
-				return new Date(mtime) > new Date(w.updatedAt);
+				const lastDeploy = lastDeployMap[w.workerId];
+				if (!mtime || !lastDeploy) return false;
+				return new Date(mtime) > new Date(lastDeploy);
 			});
 
 			if (outOfDateWorkers.length === 0) {
@@ -629,7 +707,11 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				}
 
 				totalDurationMs += result.durationMs;
-				if (result.exitCode !== 0) hasError = true;
+				if (result.exitCode !== 0) {
+					hasError = true;
+				} else {
+					await recordCodeDeploy(worker.workerId);
+				}
 				if (result.stdout) outputs.push(result.stdout);
 				if (result.stderr) outputs.push(`stderr: ${result.stderr}`);
 			}

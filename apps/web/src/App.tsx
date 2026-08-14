@@ -225,7 +225,8 @@ function AppContent() {
 		selectedRun,
 		sortedWorkers,
 		workerNamesById,
-		outOfDateWorkerIds,
+		codeOutOfDateWorkerIds,
+		envOutOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
@@ -313,7 +314,7 @@ function AppContent() {
 				}}
 				onDeployUpdatedWorkers={() => {
 					const outOfDateWorkerNames = sortedWorkers
-						.filter((w) => outOfDateWorkerIds.has(w.workerId))
+						.filter((w) => codeOutOfDateWorkerIds.has(w.workerId))
 						.map((w) => w.name);
 
 					if (outOfDateWorkerNames.length === 0) {
@@ -394,7 +395,8 @@ function AppContent() {
 										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
-										outOfDateWorkerIds={outOfDateWorkerIds}
+										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
+										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
@@ -649,7 +651,11 @@ function AppContent() {
 								{
 									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
 									output: (
-										<WorkerDetailsBody worker={workerQ.data} />
+										<WorkerDetailsBody
+											worker={workerQ.data}
+											lastCodeDeployAt={configQ.data?.workerLastCodeDeployAt?.[selectedWorkerId]}
+											lastEnvPushAt={configQ.data?.workerLastEnvPushAt?.[selectedWorkerId]}
+										/>
 									),
 									trace: workerQ.data._trace,
 								},
