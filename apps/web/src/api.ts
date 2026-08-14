@@ -1,6 +1,7 @@
 import type {
 	ApiError,
 	AppConfig,
+	CrossWorkerUsagePayload,
 	DeployResult,
 	EnvInfo,
 	FsListing,
@@ -99,6 +100,7 @@ export const api = {
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
 	getCrossWorkerRuns: (since: string) =>
 		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
+	getCrossWorkerUsage: () => request<CrossWorkerUsagePayload>("/api/usage/cross-worker"),
 	markTime: (time?: string) =>
 		request<AppConfig>("/api/config/mark-time", {
 			method: "POST",

@@ -5,7 +5,7 @@ import { api, type ApiRequestError } from "./api";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
-import { Empty, Panel } from "./components/ui/Panel";
+import { Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
@@ -13,6 +13,8 @@ import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
+import { UsageList } from "./components/UsageList";
+import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
 import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
 import { WorkersList } from "./components/WorkersList";
@@ -168,8 +170,8 @@ function AppContent() {
 		setRenameWorkerOpen,
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
-		crossWorkerView,
-		setCrossWorkerView,
+		runsViewMode,
+		setRunsViewMode,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
@@ -210,6 +212,7 @@ function AppContent() {
 		workersQ,
 		runsQ,
 		crossWorkerRunsQ,
+		crossWorkerUsageQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,
@@ -223,7 +226,8 @@ function AppContent() {
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
-	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, crossWorkerView);
+	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
+	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
 		setLocalPath,
 		clearLocalPath,
@@ -235,12 +239,21 @@ function AppContent() {
 		schedulePanelSave,
 	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
+	function openAdjustTimeMarker() {
+		markTime.reset();
+		setAdjustTimeMarkerOpen(true);
+	}
+
+	function switchRunsViewMode(mode: typeof runsViewMode) {
+		clearTransientOutputs();
+		setSelectedRunId(null);
+		setRunsViewMode(mode);
+	}
+
 	return (
 		<>
 		<div className="flex h-screen flex-col">
 			<MenuBar
-				workspaceName={whoamiQ.data?.spaceName}
-				userName={whoamiQ.data?.userName}
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				workerId={selectedWorkerId}
@@ -327,15 +340,7 @@ function AppContent() {
 				onMarkTime={() => markTime.mutate(undefined)}
 				hasTimeMarker={!!configQ.data?.timeMarker}
 				onClearTimeMarker={() => clearTimeMarker.mutate()}
-				onAdjustTimeMarker={() => {
-					markTime.reset();
-					setAdjustTimeMarkerOpen(true);
-				}}
-				onCrossWorkerRuns={() => {
-					clearTransientOutputs();
-					setSelectedRunId(null);
-					setCrossWorkerView(true);
-				}}
+				onAdjustTimeMarker={openAdjustTimeMarker}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -389,7 +394,7 @@ function AppContent() {
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
-											setCrossWorkerView(false);
+											setRunsViewMode("worker");
 											clearTransientOutputs();
 										}}
 										onRevealPath={(id) => revealWorker.mutate(id)}
@@ -400,9 +405,25 @@ function AppContent() {
 						<PanelResizeHandle className="w-1 cursor-col-resize bg-neutral-200 hover:bg-neutral-400 dark:bg-neutral-800 dark:hover:bg-neutral-600" />
 						<RPanel defaultSize={100 - (persistedPanelSizes.workersRuns ?? 30)} minSize={30}>
 							<div className="h-full p-2">
-								<Panel title="Runs">
+								<Panel
+									title="Runs"
+									headerRight={
+										<RunsViewModeSwitch
+											mode={runsViewMode}
+											onModeChange={switchRunsViewMode}
+											markerTime={configQ.data?.timeMarker ?? null}
+											onAdjustTimeMarker={openAdjustTimeMarker}
+										/>
+									}
+								>
 									{!selectedWorkerId ? (
 										<BrandingSplash />
+									) : runsViewMode === "usage" ? (
+										<UsageList
+											loading={crossWorkerUsageQ.isLoading}
+											error={crossWorkerUsageQ.error as Error | null}
+											usages={crossWorkerUsageQ.data?.usages ?? []}
+										/>
 									) : (
 										<RunsList
 											loading={

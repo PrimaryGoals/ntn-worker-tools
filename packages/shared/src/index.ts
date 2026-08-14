@@ -73,6 +73,10 @@ export interface WorkerUsage {
 	_trace?: string;
 }
 
+export interface CrossWorkerUsagePayload {
+	usages: WorkerUsage[];
+}
+
 export interface WebhookEntry {
 	key: string;
 	url: string;

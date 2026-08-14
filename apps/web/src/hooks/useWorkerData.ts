@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api } from "../api";
+import type { RunsViewMode } from "./useUIState";
 
 // All read-only data for the app: whoami, config, workers, the selected
 // worker's runs/logs/details, and derived values computed from that data.
@@ -10,8 +11,9 @@ export function useWorkerData(
 	selectedWorkerId: string | null,
 	selectedRunId: string | null,
 	verboseLogs: boolean,
-	crossWorkerView: boolean,
+	runsViewMode: RunsViewMode,
 ) {
+	const crossWorkerView = runsViewMode === "crossWorker";
 	const whoamiQ = useQuery({
 		queryKey: ["whoami"],
 		queryFn: () => api.getWhoami(true),
@@ -51,6 +53,11 @@ export function useWorkerData(
 		queryKey: ["crossWorkerRuns", timeMarker],
 		queryFn: () => api.getCrossWorkerRuns(timeMarker!),
 		enabled: crossWorkerView && !!timeMarker,
+	});
+	const crossWorkerUsageQ = useQuery({
+		queryKey: ["crossWorkerUsage"],
+		queryFn: () => api.getCrossWorkerUsage(),
+		enabled: runsViewMode === "usage",
 	});
 	const activeRunsData = crossWorkerView ? crossWorkerRunsQ.data : runsQ.data;
 	const selectedRun = useMemo(
@@ -144,6 +151,7 @@ export function useWorkerData(
 		localMtimesQ,
 		runsQ,
 		crossWorkerRunsQ,
+		crossWorkerUsageQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,

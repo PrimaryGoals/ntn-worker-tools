@@ -3,8 +3,6 @@ import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
-	workspaceName,
-	userName,
 	loading,
 	error,
 	workerId,
@@ -27,7 +25,6 @@ export function MenuBar({
 	hasTimeMarker,
 	onClearTimeMarker,
 	onAdjustTimeMarker,
-	onCrossWorkerRuns,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -35,8 +32,6 @@ export function MenuBar({
 	onSyncResume,
 	onSyncStateReset,
 }: {
-	workspaceName?: string;
-	userName?: string;
 	loading: boolean;
 	error: Error | null;
 	workerId: string | null;
@@ -59,7 +54,6 @@ export function MenuBar({
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
 	onAdjustTimeMarker: () => void;
-	onCrossWorkerRuns: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -208,15 +202,6 @@ export function MenuBar({
 									onAdjustTimeMarker();
 								}}
 							/>
-							<MenuItem
-								label="Cross-worker runtimes"
-								disabled={!hasTimeMarker}
-								disabledReason="Requires an active time marker — mark a time first."
-								onClick={() => {
-									setOpen(false);
-									onCrossWorkerRuns();
-								}}
-							/>
 						</MenuItemSubmenu>
 						{isSyncWorker ? (
 							<>
@@ -284,18 +269,14 @@ export function MenuBar({
 						? "checking auth…"
 						: error
 							? "not signed in — run `ntn login` in a terminal"
-							: <>
-								<a
+							: <a
 									href="https://PrimaryGoals.com"
 									target="_blank"
 									rel="noopener noreferrer"
-									className="hover:underline"
+									className="text-blue-600 underline hover:no-underline dark:text-blue-400"
 								>
-									{workspaceName}
-								</a>
-								{" · "}
-								{userName}
-							</>}
+									PrimaryGoals.com
+								</a>}
 				</span>
 			</div>
 		</header>
