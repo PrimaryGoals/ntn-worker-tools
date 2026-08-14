@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type {
+	CrossWorkerUsagePayload,
 	WebhookEntry,
 	WebhooksPayload,
 	Whoami,
@@ -62,6 +63,14 @@ export default async function workersRoutes(app: FastifyInstance) {
 			return verbose ? attachTrace(data, stderr) : data;
 		},
 	);
+
+	app.get("/api/usage/cross-worker", async (): Promise<CrossWorkerUsagePayload> => {
+		const workers = await runNtnJson<Worker[]>(["workers", "list"]);
+		const usages = await Promise.all(
+			workers.map((worker) => runNtnJson<WorkerUsage>(["workers", "usage", worker.workerId])),
+		);
+		return { usages };
+	});
 
 	app.get<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 		"/api/workers/:id/env",

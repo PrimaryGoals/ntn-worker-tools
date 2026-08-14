@@ -43,7 +43,15 @@ export function RunsList({
 }) {
 	if (loading) return <Empty>Loading runs…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (runs.length === 0 && !markerTime) return <Empty>No runs for this worker yet.</Empty>;
+	if (runs.length === 0 && !markerTime) {
+		return (
+			<Empty>
+				{showWorkerColumn
+					? "Set a time marker to see cross-worker runs."
+					: "No runs for this worker yet."}
+			</Empty>
+		);
+	}
 	const rows = buildRows(runs, markerTime ?? null);
 	return (
 		<table className="w-full text-sm">
