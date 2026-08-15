@@ -3,17 +3,24 @@ import type { WebhookFireResult } from "@ntn-worker-tools/shared";
 import { runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 
-const NOTION_WEBHOOK_PREFIX = "https://www.notion.so/webhooks/worker/";
+// Notion moved worker webhook URLs from www.notion.so to app.notion.com
+// (the same cutover that broke the OAuth redirect URL). Accepting both
+// prefixes instead of swapping outright, in case any environment still
+// hands back the old domain.
+const NOTION_WEBHOOK_PREFIXES = [
+	"https://www.notion.so/webhooks/worker/",
+	"https://app.notion.com/webhooks/worker/",
+];
 
 export default async function webhookRoutes(app: FastifyInstance) {
 	app.post<{ Body: { url: string; webhookSecret?: string }; Querystring: { verbose?: string } }>(
 		"/api/webhook/fire",
 		async (req, reply): Promise<WebhookFireResult> => {
 			const url = req.body?.url;
-			if (typeof url !== "string" || !url.startsWith(NOTION_WEBHOOK_PREFIX)) {
+			if (typeof url !== "string" || !NOTION_WEBHOOK_PREFIXES.some((p) => url.startsWith(p))) {
 				return reply.code(400).send({
 					error: "invalid webhook url",
-					detail: `url must start with ${NOTION_WEBHOOK_PREFIX}`,
+					detail: `url must start with one of: ${NOTION_WEBHOOK_PREFIXES.join(", ")}`,
 				}) as unknown as WebhookFireResult;
 			}
 			const verbose = isVerbose(req.query.verbose);
