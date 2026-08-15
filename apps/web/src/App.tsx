@@ -601,9 +601,14 @@ function AppContent() {
 						Firing POST to {fireWebhook.variables?.url}…
 					</div>
 				) : fireWebhook.error ? (
-					<div className="p-3 text-sm text-red-400">
-						Webhook failed: {(fireWebhook.error as Error).message}
-					</div>
+					<OutputWithCommands
+						commands={[`POST ${fireWebhook.variables?.url ?? "(unknown url)"}`]}
+						body={
+							<span className="text-red-400">
+								Webhook failed: {(fireWebhook.error as Error).message}
+							</span>
+						}
+					/>
 				) : webhookResult ? (
 					<OutputWithCommands
 						commands={[webhookResult.command]}
