@@ -21,6 +21,10 @@ export function MenuBar({
 	onDeployUpdatedWorkers,
 	onDeployToNewWorkspace,
 	onPushSecrets,
+	oauthCapabilityKey,
+	onOauthShowRedirectUrl,
+	onOauthStart,
+	onOauthToken,
 	onOpenGitCheckin,
 	onMarkTime,
 	hasTimeMarker,
@@ -51,6 +55,12 @@ export function MenuBar({
 	onDeployUpdatedWorkers: () => void;
 	onDeployToNewWorkspace: () => void;
 	onPushSecrets: () => void;
+	// The worker's oauth capability key (e.g. "googleDrive"), or null if it
+	// has no oauth capability — drives whether the OAuth submenu is enabled.
+	oauthCapabilityKey: string | null;
+	onOauthShowRedirectUrl: () => void;
+	onOauthStart: () => void;
+	onOauthToken: () => void;
 	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
 	hasTimeMarker: boolean;
@@ -171,6 +181,37 @@ export function MenuBar({
 								onClick={() => {
 									setOpen(false);
 									onOpenTokenPush();
+								}}
+							/>
+						</MenuItemSubmenu>
+						<MenuItemSubmenu
+							label="OAuth"
+							disabled={!workerId || !oauthCapabilityKey}
+							disabledReason={
+								!workerId
+									? "Select a worker first."
+									: "This worker has no oauth capability."
+							}
+						>
+							<MenuItem
+								label="show redirect url"
+								onClick={() => {
+									setOpen(false);
+									onOauthShowRedirectUrl();
+								}}
+							/>
+							<MenuItem
+								label="start (authorize)"
+								onClick={() => {
+									setOpen(false);
+									onOauthStart();
+								}}
+							/>
+							<MenuItem
+								label="token"
+								onClick={() => {
+									setOpen(false);
+									onOauthToken();
 								}}
 							/>
 						</MenuItemSubmenu>

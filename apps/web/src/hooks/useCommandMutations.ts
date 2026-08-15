@@ -138,6 +138,20 @@ export function useCommandMutations(
 			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
 		},
 	});
+	const oauthShowRedirectUrl = useMutation({
+		mutationFn: () => api.oauthShowRedirectUrl(verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const oauthStart = useMutation({
+		mutationFn: ({ workerId, key }: { workerId: string; key: string }) =>
+			api.oauthStart(workerId, key, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const oauthToken = useMutation({
+		mutationFn: ({ workerId, key }: { workerId: string; key: string }) =>
+			api.oauthToken(workerId, key, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
 
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
@@ -157,7 +171,13 @@ export function useCommandMutations(
 								? "ntn workers sync resume"
 								: syncStateReset.isPending
 									? "ntn workers sync state reset"
-									: null;
+									: oauthShowRedirectUrl.isPending
+										? "ntn workers oauth show-redirect-url"
+										: oauthStart.isPending
+											? "ntn workers oauth start"
+											: oauthToken.isPending
+												? "ntn workers oauth token"
+												: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
@@ -167,7 +187,10 @@ export function useCommandMutations(
 		(syncTrigger.error as Error | null) ??
 		(syncPause.error as Error | null) ??
 		(syncResume.error as Error | null) ??
-		(syncStateReset.error as Error | null);
+		(syncStateReset.error as Error | null) ??
+		(oauthShowRedirectUrl.error as Error | null) ??
+		(oauthStart.error as Error | null) ??
+		(oauthToken.error as Error | null);
 
 	function resetAll() {
 		followupTokenRef.current++;
@@ -182,6 +205,9 @@ export function useCommandMutations(
 		syncPause.reset();
 		syncResume.reset();
 		syncStateReset.reset();
+		oauthShowRedirectUrl.reset();
+		oauthStart.reset();
+		oauthToken.reset();
 	}
 
 	return {
@@ -194,6 +220,9 @@ export function useCommandMutations(
 		syncPause,
 		syncResume,
 		syncStateReset,
+		oauthShowRedirectUrl,
+		oauthStart,
+		oauthToken,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,
