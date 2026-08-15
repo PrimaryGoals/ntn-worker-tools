@@ -152,6 +152,16 @@ export function useWorkerData(
 	}, [capabilities]);
 	const isSyncWorker = syncCapabilities.length > 0;
 
+	// The oauth capability's key (e.g. "googleDrive") — undefined/no entry
+	// means this worker has no oauth capability at all.
+	const oauthCapabilityKey = useMemo(() => {
+		if (!Array.isArray(capabilities)) return null;
+		const found = (capabilities as Array<{ _tag?: string; key?: string }>).find(
+			(c) => c._tag === "oauth",
+		);
+		return found?.key ?? null;
+	}, [capabilities]);
+
 	const syncStatusQ = useQuery({
 		queryKey: ["syncStatus", selectedWorkerId, verboseLogs],
 		queryFn: () => api.getSyncStatus(selectedWorkerId!, verboseLogs),
@@ -187,5 +197,6 @@ export function useWorkerData(
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
+		oauthCapabilityKey,
 	};
 }

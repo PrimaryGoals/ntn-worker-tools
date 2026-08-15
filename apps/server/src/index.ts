@@ -8,6 +8,7 @@ import { NtnError } from "./ntn.js";
 import configRoutes from "./routes/config.js";
 import deployNewRoutes from "./routes/deploy-new.js";
 import fsRoutes from "./routes/fs.js";
+import oauthRoutes from "./routes/oauth.js";
 import runsRoutes from "./routes/runs.js";
 import sessionRoutes from "./routes/session.js";
 import syncRoutes from "./routes/sync.js";
@@ -121,6 +122,7 @@ await app.register(workersRoutes);
 await app.register(syncRoutes);
 await app.register(workerLocalRoutes);
 await app.register(webhookRoutes);
+await app.register(oauthRoutes);
 await app.register(runsRoutes);
 
 try {

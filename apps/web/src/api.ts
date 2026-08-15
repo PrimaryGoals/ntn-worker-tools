@@ -220,4 +220,18 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ path, ...(newName ? { newName } : {}) }),
 		}),
+	oauthShowRedirectUrl: (verbose = false) =>
+		request<DeployResult>(`/api/oauth/show-redirect-url${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+		}),
+	oauthStart: (workerId: string, key: string, verbose = false) =>
+		request<DeployResult>(`/api/workers/${workerId}/oauth/start${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+			body: JSON.stringify({ key }),
+		}),
+	oauthToken: (workerId: string, key: string, verbose = false) =>
+		request<DeployResult>(`/api/workers/${workerId}/oauth/token${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+			body: JSON.stringify({ key }),
+		}),
 };

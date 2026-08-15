@@ -187,6 +187,9 @@ function AppContent() {
 		syncPause,
 		syncResume,
 		syncStateReset,
+		oauthShowRedirectUrl,
+		oauthStart,
+		oauthToken,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,
@@ -230,6 +233,7 @@ function AppContent() {
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
+		oauthCapabilityKey,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
@@ -340,6 +344,42 @@ function AppContent() {
 						clearTransientOutputs();
 						pushSecrets.mutate(selectedWorkerId);
 					}
+				}}
+				oauthCapabilityKey={oauthCapabilityKey}
+				onOauthShowRedirectUrl={() => {
+					clearTransientOutputs();
+					oauthShowRedirectUrl.mutate();
+				}}
+				onOauthStart={() => {
+					if (!selectedWorkerId || !oauthCapabilityKey) return;
+					if (
+						window.confirm(
+							`Start the OAuth flow for "${oauthCapabilityKey}"?\nThis opens your browser to the provider's consent screen.`,
+						)
+					) {
+						clearTransientOutputs();
+						// `ntn workers oauth start` only prints the authorization URL —
+						// it doesn't launch a browser itself when run non-interactively
+						// (which is how the server always spawns it). Pre-open a blank
+						// tab synchronously, in the same click, so navigating it once the
+						// URL comes back isn't blocked as an unsolicited popup.
+						const authWindow = window.open("", "_blank");
+						oauthStart.mutate(
+							{ workerId: selectedWorkerId, key: oauthCapabilityKey },
+							{
+								onSuccess: (data) => {
+									const match = data.stdout.match(/https:\/\/\S+/);
+									if (match && authWindow) authWindow.location.href = match[0];
+									else authWindow?.close();
+								},
+							},
+						);
+					}
+				}}
+				onOauthToken={() => {
+					if (!selectedWorkerId || !oauthCapabilityKey) return;
+					clearTransientOutputs();
+					oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
 				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
 				onMarkTime={() => markTime.mutate(undefined)}
