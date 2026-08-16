@@ -450,14 +450,14 @@ function AppContent() {
 										/>
 									}
 								>
-									{!selectedWorkerId ? (
-										<BrandingSplash />
-									) : runsViewMode === "usage" ? (
+									{runsViewMode === "usage" ? (
 										<UsageList
 											loading={crossWorkerUsageQ.isLoading}
 											error={crossWorkerUsageQ.error as Error | null}
 											usages={crossWorkerUsageQ.data?.usages ?? []}
 										/>
+									) : !selectedWorkerId ? (
+										<BrandingSplash />
 									) : (
 										<RunsList
 											loading={
