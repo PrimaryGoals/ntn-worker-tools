@@ -322,7 +322,7 @@ export function MenuBar({
 						: error
 							? "not signed in — run `ntn login` in a terminal"
 							: <a
-									href="https://PrimaryGoals.com"
+									href="https://PrimaryGoals.com/ntn/"
 									target="_blank"
 									rel="noopener noreferrer"
 									className="text-blue-600 underline hover:no-underline dark:text-blue-400"
