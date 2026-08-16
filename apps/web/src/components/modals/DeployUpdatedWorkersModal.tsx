@@ -107,12 +107,31 @@ export function DeployUpdatedWorkersModal({
 	const redeployCount = values.filter((a) => a.redeploy).length;
 	const secretsCount = values.filter((a) => a.pushSecrets).length;
 	const selectedCount = values.filter((a) => a.redeploy || a.pushSecrets).length;
+	const allRedeployChecked = eligible.length > 0 && redeployCount === eligible.length;
+	const someRedeployChecked = redeployCount > 0 && !allRedeployChecked;
 	const allSecretsChecked = eligible.length > 0 && secretsCount === eligible.length;
 	const someSecretsChecked = secretsCount > 0 && !allSecretsChecked;
-	const selectAllRef = useRef<HTMLInputElement>(null);
+	const selectAllRedeployRef = useRef<HTMLInputElement>(null);
+	const selectAllSecretsRef = useRef<HTMLInputElement>(null);
 	useEffect(() => {
-		if (selectAllRef.current) selectAllRef.current.indeterminate = someSecretsChecked;
+		if (selectAllRedeployRef.current) selectAllRedeployRef.current.indeterminate = someRedeployChecked;
+	}, [someRedeployChecked]);
+	useEffect(() => {
+		if (selectAllSecretsRef.current) selectAllSecretsRef.current.indeterminate = someSecretsChecked;
 	}, [someSecretsChecked]);
+
+	function toggleAllRedeploy(checked: boolean) {
+		setActions((prev) => {
+			const next = { ...prev };
+			for (const w of eligible) {
+				const current = next[w.workerId] ?? { redeploy: false, pushSecrets: false };
+				// Same rule as the per-row checkbox: checking forces + locks
+				// secrets true; unchecking just unlocks it, leaving it as-is.
+				next[w.workerId] = { redeploy: checked, pushSecrets: checked ? true : current.pushSecrets };
+			}
+			return next;
+		});
+	}
 
 	function toggleAllSecrets(checked: boolean) {
 		setActions((prev) => {
@@ -263,15 +282,26 @@ export function DeployUpdatedWorkersModal({
 							</div>
 						) : (
 							<>
-								<label className="flex items-center gap-1.5 border-b border-neutral-100 px-3 py-1.5 text-xs text-neutral-500 dark:border-neutral-900">
-									<input
-										ref={selectAllRef}
-										type="checkbox"
-										checked={allSecretsChecked}
-										onChange={(e) => toggleAllSecrets(e.target.checked)}
-									/>
-									select all secrets
-								</label>
+								<div className="flex items-center gap-3 border-b border-neutral-100 px-3 py-1.5 text-xs text-neutral-500 dark:border-neutral-900">
+									<label className="flex items-center gap-1.5">
+										<input
+											ref={selectAllRedeployRef}
+											type="checkbox"
+											checked={allRedeployChecked}
+											onChange={(e) => toggleAllRedeploy(e.target.checked)}
+										/>
+										select all code
+									</label>
+									<label className="flex items-center gap-1.5">
+										<input
+											ref={selectAllSecretsRef}
+											type="checkbox"
+											checked={allSecretsChecked}
+											onChange={(e) => toggleAllSecrets(e.target.checked)}
+										/>
+										select all secrets
+									</label>
+								</div>
 								<ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
 									{needsUpdate.map(renderRow)}
 									{needsUpdate.length > 0 && upToDate.length > 0 ? (
