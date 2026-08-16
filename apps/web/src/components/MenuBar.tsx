@@ -142,7 +142,7 @@ export function MenuBar({
 								}}
 							/>
 							<MenuItem
-								label="deploy updated workers"
+								label="Deploy updated workers"
 								onClick={() => {
 									setOpen(false);
 									onDeployUpdatedWorkers();

@@ -637,93 +637,120 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
-	app.post<{ Querystring: { verbose?: string } }>(
-		"/api/workers/deploy-updated",
-		async (req, reply): Promise<DeployResult> => {
+	// Drives the "deploy updated workers" modal: an explicit, user-reviewed
+	// list of per-worker actions (redeploy code and/or push secrets), rather
+	// than the old auto-detected-and-confirmed batch. Each worker's two
+	// actions are independent — redeploying doesn't push secrets on its own
+	// (they're genuinely separate ntn commands), so the client sends both
+	// explicitly when it wants both.
+	// Streams NDJSON ({"type":"chunk","text":...} per completed action, then
+	// {"type":"done",...}) instead of returning one JSON blob at the end —
+	// with multiple slow deploys/pushes in one batch, waiting for the whole
+	// thing before showing anything left the modal looking frozen.
+	app.post<{
+		Body: {
+			actions?: Array<{ workerId?: string; name?: string; redeploy?: boolean; pushSecrets?: boolean }>;
+		};
+		Querystring: { verbose?: string };
+	}>(
+		"/api/workers/batch-actions",
+		async (req, reply) => {
 			const verbose = isVerbose(req.query.verbose);
 			const localPaths = getConfig().workerLocalPaths ?? {};
-			const workers = await runNtnJson<Worker[]>(["workers", "list"]);
-			await seedMissingWorkerTimestamps(workers);
+			const rawActions = req.body?.actions;
+			if (!Array.isArray(rawActions) || rawActions.length === 0) {
+				return reply.code(400).send({ error: "actions required" });
+			}
+			const actions = rawActions
+				.filter(
+					(a): a is { workerId: string; name?: string; redeploy?: boolean; pushSecrets?: boolean } =>
+						typeof a.workerId === "string" && !!a.workerId && (!!a.redeploy || !!a.pushSecrets),
+				)
+				.map((a) => ({ ...a, label: a.name?.trim() || a.workerId }));
 
-			const latestMtimes = await Promise.all(
-				Object.entries(localPaths).map(async ([workerId, path]): Promise<[string, number | null]> => {
-					const { code } = await scanLocalMtimes(path);
-					return [workerId, code];
-				}),
-			);
-			const mtimeMap = Object.fromEntries(latestMtimes);
-			const lastDeployMap = getConfig().workerLastCodeDeployAt ?? {};
-
-			const outOfDateWorkers = workers.filter((w) => {
-				const mtime = mtimeMap[w.workerId];
-				const lastDeploy = lastDeployMap[w.workerId];
-				if (!mtime || !lastDeploy) return false;
-				return new Date(mtime) > new Date(lastDeploy);
+			reply.hijack();
+			reply.raw.writeHead(200, {
+				"Content-Type": "application/x-ndjson; charset=utf-8",
+				"Cache-Control": "no-cache",
 			});
-
-			if (outOfDateWorkers.length === 0) {
-				return {
-					command: "deploy updated workers",
-					cwd: "",
-					exitCode: 0,
-					stdout: "No out-of-date workers found.",
-					stderr: "",
-					durationMs: 0,
-				};
+			function send(event: { type: "chunk"; text: string } | { type: "done"; exitCode: number; durationMs: number }) {
+				reply.raw.write(JSON.stringify(event) + "\n");
 			}
 
-			const outputs: string[] = [];
+			if (actions.length === 0) {
+				send({ type: "chunk", text: "No workers selected — nothing to do." });
+				send({ type: "done", exitCode: 0, durationMs: 0 });
+				reply.raw.end();
+				return;
+			}
+
 			let totalDurationMs = 0;
 			let hasError = false;
 
-			for (const worker of outOfDateWorkers) {
-				const path = localPaths[worker.workerId];
-				if (!path) continue;
-
-				outputs.push(`\n--- Deploying ${worker.name} (${worker.workerId}) ---`);
-
-				let hasDeployScript = false;
-				try {
-					const pkgRaw = await readFile(join(path, "package.json"), "utf8");
-					const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
-					const raw = pkg.scripts?.deploy;
-					if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
-				} catch {
-					/* no package.json or unreadable — use ntn deploy */
-				}
-
-				let result;
-				if (hasDeployScript) {
-					result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
-						cwd: path,
-						shell: true,
-					});
-					outputs.push(`Command: ${result.command}`);
-				} else {
-					const args = ["workers", "deploy", "--json"];
-					if (verbose) args.push("-v");
-					result = await runNtnRawAllowingFailure(args, { cwd: path });
-					outputs.push(`Command: ntn ${args.join(" ")}`);
-				}
-
-				totalDurationMs += result.durationMs;
-				if (result.exitCode !== 0) {
+			for (const action of actions) {
+				const path = localPaths[action.workerId];
+				if (!path) {
+					send({ type: "chunk", text: `\n--- ${action.label} ---\nNo local path registered — skipped.` });
 					hasError = true;
-				} else {
-					await recordCodeDeploy(worker.workerId);
+					continue;
 				}
-				if (result.stdout) outputs.push(result.stdout);
-				if (result.stderr) outputs.push(`stderr: ${result.stderr}`);
+
+				if (action.redeploy) {
+					send({ type: "chunk", text: `\n--- Deploying ${action.label} ---` });
+					let hasDeployScript = false;
+					try {
+						const pkgRaw = await readFile(join(path, "package.json"), "utf8");
+						const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
+						const raw = pkg.scripts?.deploy;
+						if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
+					} catch {
+						/* no package.json or unreadable — use ntn deploy */
+					}
+
+					let result;
+					if (hasDeployScript) {
+						result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+							cwd: path,
+							shell: true,
+						});
+						send({ type: "chunk", text: `Command: ${result.command}` });
+					} else {
+						const args = ["workers", "deploy", "--json"];
+						if (verbose) args.push("-v");
+						result = await runNtnRawAllowingFailure(args, { cwd: path });
+						send({ type: "chunk", text: `Command: ntn ${args.join(" ")}` });
+					}
+
+					totalDurationMs += result.durationMs;
+					if (result.exitCode !== 0) {
+						hasError = true;
+					} else {
+						await recordCodeDeploy(action.workerId);
+					}
+					if (result.stdout) send({ type: "chunk", text: result.stdout });
+					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
+				}
+
+				if (action.pushSecrets) {
+					send({ type: "chunk", text: `\n--- Pushing secrets for ${action.label} ---` });
+					const pushArgs = ["workers", "env", "push", "--yes"];
+					if (verbose) pushArgs.push("-v");
+					const result = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
+					send({ type: "chunk", text: `Command: ntn ${pushArgs.join(" ")}` });
+
+					totalDurationMs += result.durationMs;
+					if (result.exitCode !== 0) {
+						hasError = true;
+					} else {
+						await recordEnvPush(action.workerId);
+					}
+					if (result.stdout) send({ type: "chunk", text: result.stdout });
+					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
+				}
 			}
 
-			return {
-				command: "deploy updated workers",
-				cwd: "",
-				exitCode: hasError ? 1 : 0,
-				stdout: outputs.join("\n"),
-				stderr: "",
-				durationMs: totalDurationMs,
-			};
+			send({ type: "done", exitCode: hasError ? 1 : 0, durationMs: totalDurationMs });
+			reply.raw.end();
 		},
 	);
 }

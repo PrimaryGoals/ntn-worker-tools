@@ -199,10 +199,9 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ files, message }),
 		}),
-	deployUpdatedWorkers: (verbose = false) =>
-		request<DeployResult>(`/api/workers/deploy-updated${verbose ? "?verbose=1" : ""}`, {
-			method: "POST",
-		}),
+	// Note: /api/workers/batch-actions streams NDJSON and is called directly
+	// via fetch() from DeployUpdatedWorkersModal, not through this helper —
+	// request<T>() only supports one-shot JSON responses.
 	inspectDeployNewPath: (path: string) =>
 		request<DeployNewInspection>(`/api/deploy-new/inspect?path=${encodeURIComponent(path)}`),
 	cleanDeployNewFiles: (path: string, files: Array<"workers.json" | ".env">) =>

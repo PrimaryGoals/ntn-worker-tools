@@ -18,6 +18,7 @@ export function useUIState() {
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
 	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
 	const [deployNewWorkerOpen, setDeployNewWorkerOpen] = useState(false);
+	const [deployUpdatedWorkersOpen, setDeployUpdatedWorkersOpen] = useState(false);
 	const [runsViewMode, setRunsViewMode] = useState<RunsViewMode>("worker");
 
 	return {
@@ -39,6 +40,8 @@ export function useUIState() {
 		setAdjustTimeMarkerOpen,
 		deployNewWorkerOpen,
 		setDeployNewWorkerOpen,
+		deployUpdatedWorkersOpen,
+		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
 	};
