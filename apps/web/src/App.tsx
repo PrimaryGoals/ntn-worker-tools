@@ -9,6 +9,7 @@ import { Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
+import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
@@ -154,6 +155,7 @@ function SessionGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+	const qc = useQueryClient();
 	const {
 		selectedWorkerId,
 		setSelectedWorkerId,
@@ -173,6 +175,8 @@ function AppContent() {
 		setAdjustTimeMarkerOpen,
 		deployNewWorkerOpen,
 		setDeployNewWorkerOpen,
+		deployUpdatedWorkersOpen,
+		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
 	} = useUIState();
@@ -180,7 +184,6 @@ function AppContent() {
 	const {
 		deployWorker,
 		pnpmDeployWorker,
-		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,
@@ -316,22 +319,7 @@ function AppContent() {
 						pnpmDeployWorker.mutate(selectedWorkerId);
 					}
 				}}
-				onDeployUpdatedWorkers={() => {
-					const outOfDateWorkerNames = sortedWorkers
-						.filter((w) => codeOutOfDateWorkerIds.has(w.workerId))
-						.map((w) => w.name);
-
-					if (outOfDateWorkerNames.length === 0) {
-						alert("No out-of-date workers found.");
-						return;
-					}
-
-					const message = `Deploy ${outOfDateWorkerNames.length} worker${outOfDateWorkerNames.length === 1 ? "" : "s"} with local code newer than their last deploy?\n\nWorkers to deploy:\n${outOfDateWorkerNames.map((n) => `  • ${n}`).join("\n")}\n\nThis will run ntn deploy or pnpm deploy for each.`;
-					if (window.confirm(message)) {
-						clearTransientOutputs();
-						deployUpdatedWorkers.mutate(verboseLogs);
-					}
-				}}
+				onDeployUpdatedWorkers={() => setDeployUpdatedWorkersOpen(true)}
 				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
 				onPushSecrets={() => {
@@ -879,6 +867,23 @@ function AppContent() {
 						setDeployNewWorkerOpen(false);
 						clearTransientOutputs();
 						setDeployResult(result);
+					}}
+				/>
+			) : null}
+			{deployUpdatedWorkersOpen ? (
+				<DeployUpdatedWorkersModal
+					workers={sortedWorkers}
+					localPaths={configQ.data?.workerLocalPaths ?? {}}
+					codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
+					envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+					verbose={verboseLogs}
+					onClose={() => setDeployUpdatedWorkersOpen(false)}
+					onFinished={(result) => {
+						clearTransientOutputs();
+						setDeployResult(result);
+						qc.invalidateQueries({ queryKey: ["workers"] });
+						qc.invalidateQueries({ queryKey: ["config"] });
+						qc.invalidateQueries({ queryKey: ["localMtimes"] });
 					}}
 				/>
 			) : null}
