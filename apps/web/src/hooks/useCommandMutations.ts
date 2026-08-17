@@ -76,13 +76,6 @@ export function useCommandMutations(
 			qc.invalidateQueries({ queryKey: ["workers"] });
 		},
 	});
-	const deployUpdatedWorkers = useMutation({
-		mutationFn: (verbose: boolean) => api.deployUpdatedWorkers(verbose),
-		onSuccess: (data) => {
-			setDeployResult(data);
-			qc.invalidateQueries({ queryKey: ["workers"] });
-		},
-	});
 	const pushSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
 		onSuccess: (data) => setDeployResult(data),
@@ -138,14 +131,26 @@ export function useCommandMutations(
 			if (selectedWorkerId) qc.invalidateQueries({ queryKey: ["syncStatus", selectedWorkerId] });
 		},
 	});
+	const oauthShowRedirectUrl = useMutation({
+		mutationFn: () => api.oauthShowRedirectUrl(verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const oauthStart = useMutation({
+		mutationFn: ({ workerId, key }: { workerId: string; key: string }) =>
+			api.oauthStart(workerId, key, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
+	const oauthToken = useMutation({
+		mutationFn: ({ workerId, key }: { workerId: string; key: string }) =>
+			api.oauthToken(workerId, key, verboseLogs),
+		onSuccess: (data) => setDeployResult(data),
+	});
 
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
 		: pnpmDeployWorker.isPending
 			? "pnpm run deploy"
-			: deployUpdatedWorkers.isPending
-				? "deploy updated workers"
-				: pushSecrets.isPending
+			: pushSecrets.isPending
 				? "ntn workers env push"
 				: setEnvVar.isPending
 					? "ntn workers env set"
@@ -157,17 +162,25 @@ export function useCommandMutations(
 								? "ntn workers sync resume"
 								: syncStateReset.isPending
 									? "ntn workers sync state reset"
-									: null;
+									: oauthShowRedirectUrl.isPending
+										? "ntn workers oauth show-redirect-url"
+										: oauthStart.isPending
+											? "ntn workers oauth start"
+											: oauthToken.isPending
+												? "ntn workers oauth token"
+												: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
-		(deployUpdatedWorkers.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
 		(setEnvVar.error as Error | null) ??
 		(syncTrigger.error as Error | null) ??
 		(syncPause.error as Error | null) ??
 		(syncResume.error as Error | null) ??
-		(syncStateReset.error as Error | null);
+		(syncStateReset.error as Error | null) ??
+		(oauthShowRedirectUrl.error as Error | null) ??
+		(oauthStart.error as Error | null) ??
+		(oauthToken.error as Error | null);
 
 	function resetAll() {
 		followupTokenRef.current++;
@@ -175,25 +188,29 @@ export function useCommandMutations(
 		setDeployResult(null);
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
-		deployUpdatedWorkers.reset();
 		pushSecrets.reset();
 		setEnvVar.reset();
 		syncTrigger.reset();
 		syncPause.reset();
 		syncResume.reset();
 		syncStateReset.reset();
+		oauthShowRedirectUrl.reset();
+		oauthStart.reset();
+		oauthToken.reset();
 	}
 
 	return {
 		deployWorker,
 		pnpmDeployWorker,
-		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,
 		syncPause,
 		syncResume,
 		syncStateReset,
+		oauthShowRedirectUrl,
+		oauthStart,
+		oauthToken,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,

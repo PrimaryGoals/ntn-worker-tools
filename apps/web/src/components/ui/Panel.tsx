@@ -1,8 +1,17 @@
-export function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+export function Panel({
+	title,
+	headerRight,
+	children,
+}: {
+	title: string;
+	headerRight?: React.ReactNode;
+	children: React.ReactNode;
+}) {
 	return (
 		<section className="flex h-full min-h-0 flex-col rounded border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-			<div className="border-b border-neutral-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
-				{title}
+			<div className="flex items-center justify-between border-b border-neutral-200 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+				<span>{title}</span>
+				{headerRight}
 			</div>
 			<div className="min-h-0 flex-1 overflow-auto">{children}</div>
 		</section>

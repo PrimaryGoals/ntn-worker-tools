@@ -11,8 +11,9 @@ export default async function configRoutes(app: FastifyInstance) {
 		return updateConfig({ ui: { ...getConfig().ui, ...(req.body ?? {}) } });
 	});
 
-	app.post("/api/config/mark-time", async () => {
-		return updateConfig({ timeMarker: new Date().toISOString() });
+	app.post<{ Body: { time?: string } }>("/api/config/mark-time", async (req) => {
+		const time = req.body?.time ? new Date(req.body.time) : new Date();
+		return updateConfig({ timeMarker: time.toISOString() });
 	});
 
 	app.post("/api/config/clear-time-marker", async () => {

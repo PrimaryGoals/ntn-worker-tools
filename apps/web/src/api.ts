@@ -1,6 +1,8 @@
 import type {
 	ApiError,
 	AppConfig,
+	CrossWorkerUsagePayload,
+	DeployNewInspection,
 	DeployResult,
 	EnvInfo,
 	FsListing,
@@ -97,7 +99,14 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
-	markTime: () => request<AppConfig>("/api/config/mark-time", { method: "POST" }),
+	getCrossWorkerRuns: (since: string) =>
+		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
+	getCrossWorkerUsage: () => request<CrossWorkerUsagePayload>("/api/usage/cross-worker"),
+	markTime: (time?: string) =>
+		request<AppConfig>("/api/config/mark-time", {
+			method: "POST",
+			...(time ? { body: JSON.stringify({ time }) } : {}),
+		}),
 	clearTimeMarker: () =>
 		request<AppConfig>("/api/config/clear-time-marker", { method: "POST" }),
 	getLogs: (workerId: string, runId: string, verbose = false) =>
@@ -190,8 +199,38 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ files, message }),
 		}),
-	deployUpdatedWorkers: (verbose = false) =>
-		request<DeployResult>(`/api/workers/deploy-updated${verbose ? "?verbose=1" : ""}`, {
+	// Note: /api/workers/batch-actions streams NDJSON and is called directly
+	// via fetch() from DeployUpdatedWorkersModal, not through this helper —
+	// request<T>() only supports one-shot JSON responses.
+	inspectDeployNewPath: (path: string) =>
+		request<DeployNewInspection>(`/api/deploy-new/inspect?path=${encodeURIComponent(path)}`),
+	cleanDeployNewFiles: (path: string, files: Array<"workers.json" | ".env">) =>
+		request<{ ok: true }>("/api/deploy-new/clean", {
 			method: "POST",
+			body: JSON.stringify({ path, files }),
+		}),
+	deployNewWorker: (path: string, name: string) =>
+		request<DeployResult>("/api/deploy-new/deploy", {
+			method: "POST",
+			body: JSON.stringify({ path, name }),
+		}),
+	pnpmDeployNewWorker: (path: string, newName?: string) =>
+		request<DeployResult>("/api/deploy-new/pnpm-deploy", {
+			method: "POST",
+			body: JSON.stringify({ path, ...(newName ? { newName } : {}) }),
+		}),
+	oauthShowRedirectUrl: (verbose = false) =>
+		request<DeployResult>(`/api/oauth/show-redirect-url${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+		}),
+	oauthStart: (workerId: string, key: string, verbose = false) =>
+		request<DeployResult>(`/api/workers/${workerId}/oauth/start${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+			body: JSON.stringify({ key }),
+		}),
+	oauthToken: (workerId: string, key: string, verbose = false) =>
+		request<DeployResult>(`/api/workers/${workerId}/oauth/token${verbose ? "?verbose=1" : ""}`, {
+			method: "POST",
+			body: JSON.stringify({ key }),
 		}),
 };

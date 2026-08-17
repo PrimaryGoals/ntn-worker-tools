@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { api } from "../api";
+import type { RunsViewMode } from "./useUIState";
 
 // All read-only data for the app: whoami, config, workers, the selected
 // worker's runs/logs/details, and derived values computed from that data.
@@ -10,7 +11,9 @@ export function useWorkerData(
 	selectedWorkerId: string | null,
 	selectedRunId: string | null,
 	verboseLogs: boolean,
+	runsViewMode: RunsViewMode,
 ) {
+	const crossWorkerView = runsViewMode === "crossWorker";
 	const whoamiQ = useQuery({
 		queryKey: ["whoami"],
 		queryFn: () => api.getWhoami(true),
@@ -43,12 +46,32 @@ export function useWorkerData(
 	const runsQ = useQuery({
 		queryKey: ["runs", selectedWorkerId],
 		queryFn: () => api.getRuns(selectedWorkerId!),
-		enabled: !!selectedWorkerId,
+		enabled: !!selectedWorkerId && !crossWorkerView,
 	});
+	const timeMarker = configQ.data?.timeMarker;
+	const crossWorkerRunsQ = useQuery({
+		queryKey: ["crossWorkerRuns", timeMarker],
+		queryFn: () => api.getCrossWorkerRuns(timeMarker!),
+		enabled: crossWorkerView && !!timeMarker,
+	});
+	const crossWorkerUsageQ = useQuery({
+		queryKey: ["crossWorkerUsage"],
+		queryFn: () => api.getCrossWorkerUsage(),
+		enabled: runsViewMode === "usage",
+	});
+	const activeRunsData = crossWorkerView ? crossWorkerRunsQ.data : runsQ.data;
+	const selectedRun = useMemo(
+		() => activeRunsData?.runs.find((r) => r.runId === selectedRunId) ?? null,
+		[activeRunsData, selectedRunId],
+	);
+	// Use the run's own workerId (rather than the sidebar's selectedWorkerId)
+	// so a cross-worker run's logs load correctly even though selecting it
+	// doesn't change which worker is selected in the sidebar.
+	const logsWorkerId = selectedRun?.workerId ?? selectedWorkerId;
 	const logsQ = useQuery({
-		queryKey: ["logs", selectedWorkerId, selectedRunId, verboseLogs],
-		queryFn: () => api.getLogs(selectedWorkerId!, selectedRunId!, verboseLogs),
-		enabled: !!(selectedWorkerId && selectedRunId),
+		queryKey: ["logs", logsWorkerId, selectedRunId, verboseLogs],
+		queryFn: () => api.getLogs(logsWorkerId!, selectedRunId!, verboseLogs),
+		enabled: !!(logsWorkerId && selectedRunId),
 	});
 	const workerQ = useQuery({
 		queryKey: ["worker", selectedWorkerId, verboseLogs],
@@ -76,9 +99,9 @@ export function useWorkerData(
 		enabled: !!selectedWorkerId,
 	});
 
-	const selectedRun = useMemo(
-		() => runsQ.data?.runs.find((r) => r.runId === selectedRunId) ?? null,
-		[runsQ.data, selectedRunId],
+	const workerNamesById = useMemo(
+		() => Object.fromEntries((workersQ.data ?? []).map((w) => [w.workerId, w.name])),
+		[workersQ.data],
 	);
 	const sortedWorkers = useMemo(
 		() =>
@@ -87,19 +110,40 @@ export function useWorkerData(
 			),
 		[workersQ.data],
 	);
-	// workerId -> local files were modified more recently than the worker's
-	// last deploy (updatedAt). Only meaningful for workers with a registered
-	// local path — a null/missing mtime means "can't tell", not "up to date".
-	const outOfDateWorkerIds = useMemo(() => {
+	// workerId -> local code changed more recently than the last code deploy
+	// THIS APP recorded (see AppConfig.workerLastCodeDeployAt). Only
+	// meaningful for workers with a registered local path AND at least one
+	// recorded deploy — a missing mtime or missing record means "can't tell",
+	// not "up to date". Deliberately NOT compared against the worker's live
+	// `updatedAt`: that bumps on any mutation (including env pushes), which
+	// can mask an undeployed code change behind an unrelated secrets push.
+	const codeOutOfDateWorkerIds = useMemo(() => {
 		const mtimes = localMtimesQ.data;
-		if (!mtimes) return new Set<string>();
+		const lastDeploy = configQ.data?.workerLastCodeDeployAt;
+		if (!mtimes || !lastDeploy) return new Set<string>();
 		const ids = new Set<string>();
 		for (const w of workersQ.data ?? []) {
-			const mtime = mtimes[w.workerId];
-			if (mtime && new Date(mtime) > new Date(w.updatedAt)) ids.add(w.workerId);
+			const mtime = mtimes[w.workerId]?.code;
+			const last = lastDeploy[w.workerId];
+			if (mtime && last && new Date(mtime) > new Date(last)) ids.add(w.workerId);
 		}
 		return ids;
-	}, [workersQ.data, localMtimesQ.data]);
+	}, [workersQ.data, localMtimesQ.data, configQ.data?.workerLastCodeDeployAt]);
+
+	// Same idea for .env: local .env changed more recently than the last env
+	// push THIS APP recorded.
+	const envOutOfDateWorkerIds = useMemo(() => {
+		const mtimes = localMtimesQ.data;
+		const lastPush = configQ.data?.workerLastEnvPushAt;
+		if (!mtimes || !lastPush) return new Set<string>();
+		const ids = new Set<string>();
+		for (const w of workersQ.data ?? []) {
+			const mtime = mtimes[w.workerId]?.env;
+			const last = lastPush[w.workerId];
+			if (mtime && last && new Date(mtime) > new Date(last)) ids.add(w.workerId);
+		}
+		return ids;
+	}, [workersQ.data, localMtimesQ.data, configQ.data?.workerLastEnvPushAt]);
 
 	const capabilities = capabilitiesQ.data?.capabilities;
 	const syncCapabilities = useMemo(() => {
@@ -107,6 +151,16 @@ export function useWorkerData(
 		return capabilities.filter((c: { _tag?: string }) => c._tag === "sync") as Array<{ _tag: string; key: string }>;
 	}, [capabilities]);
 	const isSyncWorker = syncCapabilities.length > 0;
+
+	// The oauth capability's key (e.g. "googleDrive") — undefined/no entry
+	// means this worker has no oauth capability at all.
+	const oauthCapabilityKey = useMemo(() => {
+		if (!Array.isArray(capabilities)) return null;
+		const found = (capabilities as Array<{ _tag?: string; key?: string }>).find(
+			(c) => c._tag === "oauth",
+		);
+		return found?.key ?? null;
+	}, [capabilities]);
 
 	const syncStatusQ = useQuery({
 		queryKey: ["syncStatus", selectedWorkerId, verboseLogs],
@@ -127,6 +181,8 @@ export function useWorkerData(
 		workersQ,
 		localMtimesQ,
 		runsQ,
+		crossWorkerRunsQ,
+		crossWorkerUsageQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,
@@ -135,9 +191,12 @@ export function useWorkerData(
 		envQ,
 		selectedRun,
 		sortedWorkers,
-		outOfDateWorkerIds,
+		workerNamesById,
+		codeOutOfDateWorkerIds,
+		envOutOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
+		oauthCapabilityKey,
 	};
 }

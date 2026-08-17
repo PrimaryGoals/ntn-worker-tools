@@ -3,8 +3,6 @@ import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
-	workspaceName,
-	userName,
 	loading,
 	error,
 	workerId,
@@ -21,11 +19,17 @@ export function MenuBar({
 	onNtnDeploy,
 	onPnpmDeploy,
 	onDeployUpdatedWorkers,
+	onDeployToNewWorkspace,
 	onPushSecrets,
+	oauthCapabilityKey,
+	onOauthShowRedirectUrl,
+	onOauthStart,
+	onOauthToken,
 	onOpenGitCheckin,
 	onMarkTime,
 	hasTimeMarker,
 	onClearTimeMarker,
+	onAdjustTimeMarker,
 	onOpenTokenPush,
 	setLocalPathError,
 	isSyncWorker,
@@ -33,8 +37,6 @@ export function MenuBar({
 	onSyncResume,
 	onSyncStateReset,
 }: {
-	workspaceName?: string;
-	userName?: string;
 	loading: boolean;
 	error: Error | null;
 	workerId: string | null;
@@ -51,11 +53,19 @@ export function MenuBar({
 	onNtnDeploy: () => void;
 	onPnpmDeploy: () => void;
 	onDeployUpdatedWorkers: () => void;
+	onDeployToNewWorkspace: () => void;
 	onPushSecrets: () => void;
+	// The worker's oauth capability key (e.g. "googleDrive"), or null if it
+	// has no oauth capability — drives whether the OAuth submenu is enabled.
+	oauthCapabilityKey: string | null;
+	onOauthShowRedirectUrl: () => void;
+	onOauthStart: () => void;
+	onOauthToken: () => void;
 	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
+	onAdjustTimeMarker: () => void;
 	onOpenTokenPush: () => void;
 	setLocalPathError: Error | null;
 	isSyncWorker: boolean;
@@ -64,25 +74,17 @@ export function MenuBar({
 	onSyncStateReset: () => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const disabled = !workerId;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			<div className="relative">
 				<button
 					type="button"
-					disabled={disabled}
 					onClick={() => setOpen((v) => !v)}
-					title={disabled ? "Select a worker first" : undefined}
-					className={
-						"rounded border px-2 py-1 text-xs " +
-						(disabled
-							? "cursor-not-allowed border-neutral-200 text-neutral-400 dark:border-neutral-800 dark:text-neutral-600"
-							: "border-neutral-300 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900")
-					}
+					className="rounded border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
 				>
 					Worker{workerName ? `: ${workerName}` : ""} ▾
 				</button>
-				{open && workerId ? (
+				{open ? (
 					<div
 						className="absolute left-0 top-full z-10 mt-1 w-64 rounded border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-950"
 						onMouseLeave={() => setOpen(false)}
@@ -112,15 +114,15 @@ export function MenuBar({
 								onRenameWorker();
 							}}
 						/>
-						<MenuItemSubmenu
-							label="Deploy workers"
-							disabled={!localPath}
-							disabledReason="Requires a registered local folder."
-						>
+						<MenuItemSubmenu label="Deploy workers">
 							<MenuItem
 								label="ntn workers deploy"
-								disabled={hasDeployScript}
-								disabledReason="This project defines scripts.deploy in package.json — use pnpm run deploy."
+								disabled={!localPath || hasDeployScript}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "This project defines scripts.deploy in package.json — use pnpm run deploy."
+								}
 								onClick={() => {
 									setOpen(false);
 									onNtnDeploy();
@@ -128,43 +130,91 @@ export function MenuBar({
 							/>
 							<MenuItem
 								label="pnpm run deploy"
-								disabled={!hasDeployScript}
-								disabledReason="This project has no scripts.deploy in package.json — use ntn workers deploy."
+								disabled={!localPath || !hasDeployScript}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "This project has no scripts.deploy in package.json — use ntn workers deploy."
+								}
 								onClick={() => {
 									setOpen(false);
 									onPnpmDeploy();
 								}}
 							/>
 							<MenuItem
-								label="deploy updated workers"
+								label="Deploy updated workers"
 								onClick={() => {
 									setOpen(false);
 									onDeployUpdatedWorkers();
 								}}
 							/>
+							<MenuItem
+								label="Deploy to new workspace"
+								onClick={() => {
+									setOpen(false);
+									onDeployToNewWorkspace();
+								}}
+							/>
 						</MenuItemSubmenu>
-						<MenuItem
-							label="push secrets to Notion"
-							disabled={!localPath || !hasEnvFile}
+						<MenuItemSubmenu label="Secrets">
+							<MenuItem
+								label="push secrets to Notion"
+								disabled={!localPath || !hasEnvFile}
+								disabledReason={
+									!localPath
+										? "Requires a registered local folder."
+										: "No .env file found in the registered local folder."
+								}
+								onClick={() => {
+									setOpen(false);
+									onPushSecrets();
+								}}
+							/>
+							<MenuItem
+								label="push NOTION_API_TOKEN"
+								disabled={!workerId || !!localPath}
+								disabledReason={
+									!workerId
+										? "Select a worker first."
+										: "You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file."
+								}
+								onClick={() => {
+									setOpen(false);
+									onOpenTokenPush();
+								}}
+							/>
+						</MenuItemSubmenu>
+						<MenuItemSubmenu
+							label="OAuth"
+							disabled={!workerId || !oauthCapabilityKey}
 							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: "No .env file found in the registered local folder."
+								!workerId
+									? "Select a worker first."
+									: "This worker has no oauth capability."
 							}
-							onClick={() => {
-								setOpen(false);
-								onPushSecrets();
-							}}
-						/>
-						<MenuItem
-							label="push NOTION_API_TOKEN"
-							disabled={!!localPath}
-							disabledReason="You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file."
-							onClick={() => {
-								setOpen(false);
-								onOpenTokenPush();
-							}}
-						/>
+						>
+							<MenuItem
+								label="show redirect url"
+								onClick={() => {
+									setOpen(false);
+									onOauthShowRedirectUrl();
+								}}
+							/>
+							<MenuItem
+								label="start (authorize)"
+								onClick={() => {
+									setOpen(false);
+									onOauthStart();
+								}}
+							/>
+							<MenuItem
+								label="token"
+								onClick={() => {
+									setOpen(false);
+									onOauthToken();
+								}}
+							/>
+						</MenuItemSubmenu>
 						<MenuItem
 							label="local check-in"
 							disabled={!localPath || !gitAvailable || !isGitRepo}
@@ -180,22 +230,31 @@ export function MenuBar({
 								onOpenGitCheckin();
 							}}
 						/>
-						<MenuItem
-							label="Mark current time"
-							onClick={() => {
-								setOpen(false);
-								onMarkTime();
-							}}
-						/>
-						{hasTimeMarker ? (
+						<MenuItemSubmenu label="Time Markers">
 							<MenuItem
-								label="Clear Time Marker"
+								label="Mark current time"
 								onClick={() => {
 									setOpen(false);
-									onClearTimeMarker();
+									onMarkTime();
 								}}
 							/>
-						) : null}
+							{hasTimeMarker ? (
+								<MenuItem
+									label="Clear Time Marker"
+									onClick={() => {
+										setOpen(false);
+										onClearTimeMarker();
+									}}
+								/>
+							) : null}
+							<MenuItem
+								label="adjust time marker"
+								onClick={() => {
+									setOpen(false);
+									onAdjustTimeMarker();
+								}}
+							/>
+						</MenuItemSubmenu>
 						{isSyncWorker ? (
 							<>
 								<div className="border-t border-neutral-200 dark:border-neutral-800" />
@@ -262,18 +321,14 @@ export function MenuBar({
 						? "checking auth…"
 						: error
 							? "not signed in — run `ntn login` in a terminal"
-							: <>
-								<a
-									href="https://PrimaryGoals.com"
+							: <a
+									href="https://PrimaryGoals.com/ntn/"
 									target="_blank"
 									rel="noopener noreferrer"
-									className="hover:underline"
+									className="text-blue-600 underline hover:no-underline dark:text-blue-400"
 								>
-									{workspaceName}
-								</a>
-								{" · "}
-								{userName}
-							</>}
+									PrimaryGoals.com
+								</a>}
 				</span>
 			</div>
 		</header>

@@ -8,6 +8,23 @@ import type {
 } from "@ntn-worker-tools/shared";
 import type { ApiRequestError } from "./api";
 
+const VALID_WORKER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// Notion Workers names are kebab-case: lowercase letters, digits, hyphens.
+// Used both when renaming an existing worker and when proposing a name for a
+// fresh deploy (defaulted from the folder name, which may have spaces/casing).
+export function normalizeWorkerName(input: string): string {
+	return input
+		.toLowerCase()
+		.trim()
+		.replace(/\s+/g, "-")
+		.replace(/[^a-z0-9-]/g, "");
+}
+
+export function isValidWorkerName(name: string): boolean {
+	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
+}
+
 export function formatDuration(startedAt: string, endedAt: string | null): string {
 	if (!endedAt) return "running";
 	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
@@ -45,7 +62,7 @@ export function ntnCmd(args: string[]): string {
 
 export const SEPARATOR = "─".repeat(60);
 
-export function formatBytes(n: number): string {
+export function formatBytes(n: number, opts?: { compact?: boolean }): string {
 	if (!Number.isFinite(n)) return String(n);
 	if (n < 1024) return `${n} B`;
 	const units = ["KB", "MB", "GB", "TB"];
@@ -55,17 +72,22 @@ export function formatBytes(n: number): string {
 		v /= 1024;
 		i++;
 	}
-	return `${v.toFixed(v < 10 ? 2 : 1)} ${units[i]} (${n.toLocaleString()} B)`;
+	const human = `${v.toFixed(v < 10 ? 2 : 1)} ${units[i]}`;
+	return opts?.compact ? human : `${human} (${n.toLocaleString()} B)`;
 }
 
-export function formatMs(ms: number): string {
+export function formatMs(ms: number, opts?: { compact?: boolean }): string {
 	if (!Number.isFinite(ms)) return String(ms);
 	if (ms < 1000) return `${ms.toLocaleString()} ms`;
 	const s = ms / 1000;
-	if (s < 60) return `${s.toFixed(2)} s (${ms.toLocaleString()} ms)`;
+	if (s < 60) {
+		const human = `${s.toFixed(2)} s`;
+		return opts?.compact ? human : `${human} (${ms.toLocaleString()} ms)`;
+	}
 	const m = Math.floor(s / 60);
 	const rs = (s - m * 60).toFixed(1);
-	return `${m}m ${rs}s (${ms.toLocaleString()} ms)`;
+	const human = `${m}m ${rs}s`;
+	return opts?.compact ? human : `${human} (${ms.toLocaleString()} ms)`;
 }
 
 export function formatWhoami(w: Whoami): string {

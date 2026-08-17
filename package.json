@@ -1,6 +1,6 @@
 {
 	"name": "ntn-worker-tools",
-	"version": "0.8.0",
+	"version": "0.9.0",
 	"private": true,
 	"description": "Local web UI for the Notion Workers (ntn) CLI",
 	"license": "Apache-2.0",

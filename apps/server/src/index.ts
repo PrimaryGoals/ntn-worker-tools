@@ -6,7 +6,9 @@ import Fastify from "fastify";
 import { getConfigPath } from "./config.js";
 import { NtnError } from "./ntn.js";
 import configRoutes from "./routes/config.js";
+import deployNewRoutes from "./routes/deploy-new.js";
 import fsRoutes from "./routes/fs.js";
+import oauthRoutes from "./routes/oauth.js";
 import runsRoutes from "./routes/runs.js";
 import sessionRoutes from "./routes/session.js";
 import syncRoutes from "./routes/sync.js";
@@ -115,10 +117,12 @@ app.setErrorHandler((err, _req, reply) => {
 await app.register(sessionRoutes, { sessionToken });
 await app.register(configRoutes);
 await app.register(fsRoutes);
+await app.register(deployNewRoutes);
 await app.register(workersRoutes);
 await app.register(syncRoutes);
 await app.register(workerLocalRoutes);
 await app.register(webhookRoutes);
+await app.register(oauthRoutes);
 await app.register(runsRoutes);
 
 try {

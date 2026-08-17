@@ -8,12 +8,22 @@ import type {
 	GitStatus,
 	GitStatusEntry,
 	LocalInfo,
+	LocalMtimeInfo,
 	LocalMtimes,
 	Worker,
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
-import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, updateConfig } from "../state.js";
+import {
+	detectGitRoot,
+	envInfo,
+	getConfig,
+	recordCodeDeploy,
+	recordEnvPush,
+	resolveGitRoot,
+	resolveIsGitRepo,
+	updateConfig,
+} from "../state.js";
 
 // Directories skipped when scanning for the latest mtime — dependency/build
 // output churns constantly (installs, rebuilds) and isn't "local source
@@ -21,42 +31,104 @@ import { detectGitRoot, envInfo, getConfig, resolveGitRoot, resolveIsGitRepo, up
 // perpetually out of date.
 const SCAN_IGNORED_DIR_NAMES = new Set(["node_modules", "dist", "build", "coverage", "out"]);
 
-// Recursively finds the most recent file mtime under `dir`, skipping hidden
-// directories (incl. .git) and the build/dependency dirs above. VCS-agnostic
-// by design — some workers aren't in git, or use something else entirely.
-async function latestMtimeMs(dir: string): Promise<number | null> {
+// Recursively finds the most recent "code" file mtime under `dir` (used
+// against workerLastCodeDeployAt) and, separately, .env's own mtime (used
+// against workerLastEnvPushAt) — kept apart so a secrets sync touching only
+// .env can't mask an older, still-undeployed code change, and vice versa.
+// Skips hidden directories (incl. .git) and the build/dependency dirs above.
+// VCS-agnostic by design — some workers aren't in git, or use something else
+// entirely.
+async function scanLocalMtimes(dir: string): Promise<{ code: number | null; env: number | null }> {
 	let dirents;
 	try {
 		dirents = await readdir(dir, { withFileTypes: true });
 	} catch {
-		return null;
+		return { code: null, env: null };
 	}
-	let latest: number | null = null;
+	let code: number | null = null;
+	let env: number | null = null;
 	for (const d of dirents) {
+		if (d.name === ".env") {
+			try {
+				const s = await stat(join(dir, d.name));
+				if (env === null || s.mtimeMs > env) env = s.mtimeMs;
+			} catch {
+				/* file vanished mid-scan — skip */
+			}
+			continue;
+		}
 		if (d.name.startsWith(".") || SCAN_IGNORED_DIR_NAMES.has(d.name)) continue;
 		const full = join(dir, d.name);
 		if (d.isDirectory()) {
-			const sub = await latestMtimeMs(full);
-			if (sub !== null && (latest === null || sub > latest)) latest = sub;
+			const sub = await scanLocalMtimes(full);
+			if (sub.code !== null && (code === null || sub.code > code)) code = sub.code;
+			if (sub.env !== null && (env === null || sub.env > env)) env = sub.env;
 		} else if (d.isFile()) {
 			try {
 				const s = await stat(full);
-				if (latest === null || s.mtimeMs > latest) latest = s.mtimeMs;
+				if (code === null || s.mtimeMs > code) code = s.mtimeMs;
 			} catch {
 				/* file vanished mid-scan — skip */
 			}
 		}
 	}
-	return latest;
+	return { code, env };
+}
+
+// One-time backfill for any registered worker missing a local timestamp
+// record (pre-existing setups from before this tracking existed, or a
+// worker registered by an older version of this app). Seeds both maps from
+// the worker's current (live) `updatedAt` — a reasonable starting point that
+// avoids a flood of false "out of date" flags on rollout — then leaves them
+// alone; only recordCodeDeploy/recordEnvPush ever touch them again. Pass in
+// an already-fetched `workers` list when the caller has one (avoids a
+// redundant `ntn workers list` call); pass null to let it fetch its own,
+// but only when actually needed.
+async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<void> {
+	const cfg = getConfig();
+	const ids = Object.keys(cfg.workerLocalPaths ?? {});
+	const missing = ids.filter(
+		(id) => !cfg.workerLastCodeDeployAt?.[id] || !cfg.workerLastEnvPushAt?.[id],
+	);
+	if (missing.length === 0) return;
+	let list = workers;
+	if (!list) {
+		try {
+			list = await runNtnJson<Worker[]>(["workers", "list"]);
+		} catch {
+			return; // ntn unreachable right now — try again next call
+		}
+	}
+	const byId = new Map(list.map((w) => [w.workerId, w.updatedAt]));
+	const codeUpdates: Record<string, string> = {};
+	const envUpdates: Record<string, string> = {};
+	for (const id of missing) {
+		const updatedAt = byId.get(id);
+		if (!updatedAt) continue; // worker not found remotely (e.g. deleted) — leave unseeded
+		if (!cfg.workerLastCodeDeployAt?.[id]) codeUpdates[id] = updatedAt;
+		if (!cfg.workerLastEnvPushAt?.[id]) envUpdates[id] = updatedAt;
+	}
+	if (Object.keys(codeUpdates).length === 0 && Object.keys(envUpdates).length === 0) return;
+	await updateConfig({
+		workerLastCodeDeployAt: { ...(getConfig().workerLastCodeDeployAt ?? {}), ...codeUpdates },
+		workerLastEnvPushAt: { ...(getConfig().workerLastEnvPushAt ?? {}), ...envUpdates },
+	});
 }
 
 export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
+		await seedMissingWorkerTimestamps(null);
 		const paths = getConfig().workerLocalPaths ?? {};
 		const entries = await Promise.all(
-			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string | null]> => {
-				const latest = await latestMtimeMs(path);
-				return [workerId, latest !== null ? new Date(latest).toISOString() : null];
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, LocalMtimeInfo]> => {
+				const { code, env } = await scanLocalMtimes(path);
+				return [
+					workerId,
+					{
+						code: code !== null ? new Date(code).toISOString() : null,
+						env: env !== null ? new Date(env).toISOString() : null,
+					},
+				];
 			}),
 		);
 		return Object.fromEntries(entries);
@@ -240,6 +312,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				} catch {
 					/* stdout wasn't clean JSON; leave summary undefined */
 				}
+				await recordCodeDeploy(req.params.id);
 			}
 			return {
 				command: `ntn ${args.join(" ")}`,
@@ -403,6 +476,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				...(verbose ? ["-v"] : []),
 			];
 			const result = await runShellAllowingFailure("ntn", args, { logAs });
+			if (result.exitCode === 0) await recordEnvPush(req.params.id);
 			return {
 				command: `ntn ${logAs.join(" ")}`,
 				cwd: "",
@@ -429,6 +503,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const push = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
 			let followup: DeployResult["followup"];
 			if (push.exitCode === 0) {
+				await recordEnvPush(req.params.id);
 				const pullArgs = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
 				if (verbose) pullArgs.push("-v");
 				const pull = await runNtnRawAllowingFailure(pullArgs, { cwd: path });
@@ -465,6 +540,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				cwd: path,
 				shell: true,
 			});
+			if (result.exitCode === 0) await recordCodeDeploy(req.params.id);
 			return {
 				command: result.command,
 				cwd: path,
@@ -561,87 +637,120 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
-	app.post<{ Querystring: { verbose?: string } }>(
-		"/api/workers/deploy-updated",
-		async (req, reply): Promise<DeployResult> => {
+	// Drives the "deploy updated workers" modal: an explicit, user-reviewed
+	// list of per-worker actions (redeploy code and/or push secrets), rather
+	// than the old auto-detected-and-confirmed batch. Each worker's two
+	// actions are independent — redeploying doesn't push secrets on its own
+	// (they're genuinely separate ntn commands), so the client sends both
+	// explicitly when it wants both.
+	// Streams NDJSON ({"type":"chunk","text":...} per completed action, then
+	// {"type":"done",...}) instead of returning one JSON blob at the end —
+	// with multiple slow deploys/pushes in one batch, waiting for the whole
+	// thing before showing anything left the modal looking frozen.
+	app.post<{
+		Body: {
+			actions?: Array<{ workerId?: string; name?: string; redeploy?: boolean; pushSecrets?: boolean }>;
+		};
+		Querystring: { verbose?: string };
+	}>(
+		"/api/workers/batch-actions",
+		async (req, reply) => {
 			const verbose = isVerbose(req.query.verbose);
-			const config = getConfig();
-			const localPaths = config.workerLocalPaths ?? {};
-			const workers = await runNtnJson<Worker[]>(["workers", "list"]);
+			const localPaths = getConfig().workerLocalPaths ?? {};
+			const rawActions = req.body?.actions;
+			if (!Array.isArray(rawActions) || rawActions.length === 0) {
+				return reply.code(400).send({ error: "actions required" });
+			}
+			const actions = rawActions
+				.filter(
+					(a): a is { workerId: string; name?: string; redeploy?: boolean; pushSecrets?: boolean } =>
+						typeof a.workerId === "string" && !!a.workerId && (!!a.redeploy || !!a.pushSecrets),
+				)
+				.map((a) => ({ ...a, label: a.name?.trim() || a.workerId }));
 
-			const latestMtimes = await Promise.all(
-				Object.entries(localPaths).map(async ([workerId, path]): Promise<[string, number | null]> => {
-					const latest = await latestMtimeMs(path);
-					return [workerId, latest];
-				}),
-			);
-			const mtimeMap = Object.fromEntries(latestMtimes);
-
-			const outOfDateWorkers = workers.filter((w) => {
-				const mtime = mtimeMap[w.workerId];
-				if (!mtime) return false;
-				return new Date(mtime) > new Date(w.updatedAt);
+			reply.hijack();
+			reply.raw.writeHead(200, {
+				"Content-Type": "application/x-ndjson; charset=utf-8",
+				"Cache-Control": "no-cache",
 			});
-
-			if (outOfDateWorkers.length === 0) {
-				return {
-					command: "deploy updated workers",
-					cwd: "",
-					exitCode: 0,
-					stdout: "No out-of-date workers found.",
-					stderr: "",
-					durationMs: 0,
-				};
+			function send(event: { type: "chunk"; text: string } | { type: "done"; exitCode: number; durationMs: number }) {
+				reply.raw.write(JSON.stringify(event) + "\n");
 			}
 
-			const outputs: string[] = [];
+			if (actions.length === 0) {
+				send({ type: "chunk", text: "No workers selected — nothing to do." });
+				send({ type: "done", exitCode: 0, durationMs: 0 });
+				reply.raw.end();
+				return;
+			}
+
 			let totalDurationMs = 0;
 			let hasError = false;
 
-			for (const worker of outOfDateWorkers) {
-				const path = localPaths[worker.workerId];
-				if (!path) continue;
-
-				outputs.push(`\n--- Deploying ${worker.name} (${worker.workerId}) ---`);
-
-				let hasDeployScript = false;
-				try {
-					const pkgRaw = await readFile(join(path, "package.json"), "utf8");
-					const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
-					const raw = pkg.scripts?.deploy;
-					if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
-				} catch {
-					/* no package.json or unreadable — use ntn deploy */
+			for (const action of actions) {
+				const path = localPaths[action.workerId];
+				if (!path) {
+					send({ type: "chunk", text: `\n--- ${action.label} ---\nNo local path registered — skipped.` });
+					hasError = true;
+					continue;
 				}
 
-				let result;
-				if (hasDeployScript) {
-					result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
-						cwd: path,
-						shell: true,
-					});
-					outputs.push(`Command: ${result.command}`);
-				} else {
-					const args = ["workers", "deploy", "--json"];
-					if (verbose) args.push("-v");
-					result = await runNtnRawAllowingFailure(args, { cwd: path });
-					outputs.push(`Command: ntn ${args.join(" ")}`);
+				if (action.redeploy) {
+					send({ type: "chunk", text: `\n--- Deploying ${action.label} ---` });
+					let hasDeployScript = false;
+					try {
+						const pkgRaw = await readFile(join(path, "package.json"), "utf8");
+						const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
+						const raw = pkg.scripts?.deploy;
+						if (typeof raw === "string" && raw.trim()) hasDeployScript = true;
+					} catch {
+						/* no package.json or unreadable — use ntn deploy */
+					}
+
+					let result;
+					if (hasDeployScript) {
+						result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+							cwd: path,
+							shell: true,
+						});
+						send({ type: "chunk", text: `Command: ${result.command}` });
+					} else {
+						const args = ["workers", "deploy", "--json"];
+						if (verbose) args.push("-v");
+						result = await runNtnRawAllowingFailure(args, { cwd: path });
+						send({ type: "chunk", text: `Command: ntn ${args.join(" ")}` });
+					}
+
+					totalDurationMs += result.durationMs;
+					if (result.exitCode !== 0) {
+						hasError = true;
+					} else {
+						await recordCodeDeploy(action.workerId);
+					}
+					if (result.stdout) send({ type: "chunk", text: result.stdout });
+					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
 				}
 
-				totalDurationMs += result.durationMs;
-				if (result.exitCode !== 0) hasError = true;
-				if (result.stdout) outputs.push(result.stdout);
-				if (result.stderr) outputs.push(`stderr: ${result.stderr}`);
+				if (action.pushSecrets) {
+					send({ type: "chunk", text: `\n--- Pushing secrets for ${action.label} ---` });
+					const pushArgs = ["workers", "env", "push", "--yes"];
+					if (verbose) pushArgs.push("-v");
+					const result = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
+					send({ type: "chunk", text: `Command: ntn ${pushArgs.join(" ")}` });
+
+					totalDurationMs += result.durationMs;
+					if (result.exitCode !== 0) {
+						hasError = true;
+					} else {
+						await recordEnvPush(action.workerId);
+					}
+					if (result.stdout) send({ type: "chunk", text: result.stdout });
+					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
+				}
 			}
 
-			return {
-				command: "deploy updated workers",
-				cwd: "",
-				exitCode: hasError ? 1 : 0,
-				stdout: outputs.join("\n"),
-				stderr: "",
-				durationMs: totalDurationMs,
-			};
+			send({ type: "done", exitCode: hasError ? 1 : 0, durationMs: totalDurationMs });
+			reply.raw.end();
 		},
 	);
 }

@@ -5,13 +5,18 @@ import { api, type ApiRequestError } from "./api";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
-import { Empty, Panel } from "./components/ui/Panel";
+import { Panel } from "./components/ui/Panel";
 import { MenuBar } from "./components/MenuBar";
+import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
+import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
+import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
+import { UsageList } from "./components/UsageList";
+import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
 import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
 import { WorkersList } from "./components/WorkersList";
@@ -150,6 +155,7 @@ function SessionGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+	const qc = useQueryClient();
 	const {
 		selectedWorkerId,
 		setSelectedWorkerId,
@@ -165,18 +171,28 @@ function AppContent() {
 		setTokenPushOpen,
 		renameWorkerOpen,
 		setRenameWorkerOpen,
+		adjustTimeMarkerOpen,
+		setAdjustTimeMarkerOpen,
+		deployNewWorkerOpen,
+		setDeployNewWorkerOpen,
+		deployUpdatedWorkersOpen,
+		setDeployUpdatedWorkersOpen,
+		runsViewMode,
+		setRunsViewMode,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
 		deployWorker,
 		pnpmDeployWorker,
-		deployUpdatedWorkers,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,
 		syncPause,
 		syncResume,
 		syncStateReset,
+		oauthShowRedirectUrl,
+		oauthStart,
+		oauthToken,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,
@@ -204,6 +220,8 @@ function AppContent() {
 		isGitRepo,
 		workersQ,
 		runsQ,
+		crossWorkerRunsQ,
+		crossWorkerUsageQ,
 		logsQ,
 		workerQ,
 		workerUsageQ,
@@ -212,11 +230,15 @@ function AppContent() {
 		envQ,
 		selectedRun,
 		sortedWorkers,
-		outOfDateWorkerIds,
+		workerNamesById,
+		codeOutOfDateWorkerIds,
+		envOutOfDateWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
-	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs);
+		oauthCapabilityKey,
+	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
+	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
 		setLocalPath,
 		clearLocalPath,
@@ -228,12 +250,21 @@ function AppContent() {
 		schedulePanelSave,
 	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
 
+	function openAdjustTimeMarker() {
+		markTime.reset();
+		setAdjustTimeMarkerOpen(true);
+	}
+
+	function switchRunsViewMode(mode: typeof runsViewMode) {
+		clearTransientOutputs();
+		setSelectedRunId(null);
+		setRunsViewMode(mode);
+	}
+
 	return (
 		<>
 		<div className="flex h-screen flex-col">
 			<MenuBar
-				workspaceName={whoamiQ.data?.spaceName}
-				userName={whoamiQ.data?.userName}
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				workerId={selectedWorkerId}
@@ -288,22 +319,8 @@ function AppContent() {
 						pnpmDeployWorker.mutate(selectedWorkerId);
 					}
 				}}
-				onDeployUpdatedWorkers={() => {
-					const outOfDateWorkerNames = sortedWorkers
-						.filter((w) => outOfDateWorkerIds.has(w.workerId))
-						.map((w) => w.name);
-
-					if (outOfDateWorkerNames.length === 0) {
-						alert("No out-of-date workers found.");
-						return;
-					}
-
-					const message = `Deploy ${outOfDateWorkerNames.length} worker${outOfDateWorkerNames.length === 1 ? "" : "s"} with local code newer than their last deploy?\n\nWorkers to deploy:\n${outOfDateWorkerNames.map((n) => `  • ${n}`).join("\n")}\n\nThis will run ntn deploy or pnpm deploy for each.`;
-					if (window.confirm(message)) {
-						clearTransientOutputs();
-						deployUpdatedWorkers.mutate(verboseLogs);
-					}
-				}}
+				onDeployUpdatedWorkers={() => setDeployUpdatedWorkersOpen(true)}
+				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
 				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
 				onPushSecrets={() => {
 					if (!selectedWorkerId || !localPath) return;
@@ -316,10 +333,47 @@ function AppContent() {
 						pushSecrets.mutate(selectedWorkerId);
 					}
 				}}
+				oauthCapabilityKey={oauthCapabilityKey}
+				onOauthShowRedirectUrl={() => {
+					clearTransientOutputs();
+					oauthShowRedirectUrl.mutate();
+				}}
+				onOauthStart={() => {
+					if (!selectedWorkerId || !oauthCapabilityKey) return;
+					if (
+						window.confirm(
+							`Start the OAuth flow for "${oauthCapabilityKey}"?\nThis opens your browser to the provider's consent screen.`,
+						)
+					) {
+						clearTransientOutputs();
+						// `ntn workers oauth start` only prints the authorization URL —
+						// it doesn't launch a browser itself when run non-interactively
+						// (which is how the server always spawns it). Pre-open a blank
+						// tab synchronously, in the same click, so navigating it once the
+						// URL comes back isn't blocked as an unsolicited popup.
+						const authWindow = window.open("", "_blank");
+						oauthStart.mutate(
+							{ workerId: selectedWorkerId, key: oauthCapabilityKey },
+							{
+								onSuccess: (data) => {
+									const match = data.stdout.match(/https:\/\/\S+/);
+									if (match && authWindow) authWindow.location.href = match[0];
+									else authWindow?.close();
+								},
+							},
+						);
+					}
+				}}
+				onOauthToken={() => {
+					if (!selectedWorkerId || !oauthCapabilityKey) return;
+					clearTransientOutputs();
+					oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
+				}}
 				onOpenGitCheckin={() => setGitCheckinOpen(true)}
-				onMarkTime={() => markTime.mutate()}
+				onMarkTime={() => markTime.mutate(undefined)}
 				hasTimeMarker={!!configQ.data?.timeMarker}
 				onClearTimeMarker={() => clearTimeMarker.mutate()}
+				onAdjustTimeMarker={openAdjustTimeMarker}
 				onOpenTokenPush={() => {
 					setEnvVar.reset();
 					setTokenPushOpen(true);
@@ -369,10 +423,12 @@ function AppContent() {
 										workers={sortedWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
-										outOfDateWorkerIds={outOfDateWorkerIds}
+										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
+										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
+											setRunsViewMode("worker");
 											clearTransientOutputs();
 										}}
 										onRevealPath={(id) => revealWorker.mutate(id)}
@@ -383,16 +439,40 @@ function AppContent() {
 						<PanelResizeHandle className="w-1 cursor-col-resize bg-neutral-200 hover:bg-neutral-400 dark:bg-neutral-800 dark:hover:bg-neutral-600" />
 						<RPanel defaultSize={100 - (persistedPanelSizes.workersRuns ?? 30)} minSize={30}>
 							<div className="h-full p-2">
-								<Panel title="Runs">
-									{!selectedWorkerId ? (
+								<Panel
+									title="Runs"
+									headerRight={
+										<RunsViewModeSwitch
+											mode={runsViewMode}
+											onModeChange={switchRunsViewMode}
+											markerTime={configQ.data?.timeMarker ?? null}
+											onAdjustTimeMarker={openAdjustTimeMarker}
+										/>
+									}
+								>
+									{runsViewMode === "usage" ? (
+										<UsageList
+											loading={crossWorkerUsageQ.isLoading}
+											error={crossWorkerUsageQ.error as Error | null}
+											usages={crossWorkerUsageQ.data?.usages ?? []}
+										/>
+									) : !selectedWorkerId ? (
 										<BrandingSplash />
 									) : (
 										<RunsList
-											loading={runsQ.isLoading}
-											error={runsQ.error as Error | null}
-											runs={runsQ.data?.runs ?? []}
+											loading={
+												crossWorkerView ? crossWorkerRunsQ.isLoading : runsQ.isLoading
+											}
+											error={
+												(crossWorkerView ? crossWorkerRunsQ.error : runsQ.error) as Error | null
+											}
+											runs={
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.runs ?? []
+											}
 											selectedId={selectedRunId}
 											markerTime={configQ.data?.timeMarker ?? null}
+											workerNames={workerNamesById}
+											showWorkerColumn={crossWorkerView}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -436,6 +516,14 @@ function AppContent() {
 							<>
 								<span className="font-mono text-xs text-neutral-500">{selectedRun.runId}</span>
 								<span className="font-medium">{selectedRun.name}</span>
+								{crossWorkerView ? (
+									<span>
+										<span className="text-neutral-500">Worker:</span>{" "}
+										{selectedRun.workerName ??
+											workerNamesById[selectedRun.workerId] ??
+											selectedRun.workerId}
+									</span>
+								) : null}
 								<span>
 									<span className="text-neutral-500">Actor:</span> {selectedRun.actorName}
 								</span>
@@ -501,9 +589,14 @@ function AppContent() {
 						Firing POST to {fireWebhook.variables?.url}…
 					</div>
 				) : fireWebhook.error ? (
-					<div className="p-3 text-sm text-red-400">
-						Webhook failed: {(fireWebhook.error as Error).message}
-					</div>
+					<OutputWithCommands
+						commands={[`POST ${fireWebhook.variables?.url ?? "(unknown url)"}`]}
+						body={
+							<span className="text-red-400">
+								Webhook failed: {(fireWebhook.error as Error).message}
+							</span>
+						}
+					/>
 				) : webhookResult ? (
 					<OutputWithCommands
 						commands={[webhookResult.command]}
@@ -581,9 +674,21 @@ function AppContent() {
 						<CommandOutputList
 							items={[
 								{
+									command: ntnCmd(["workers", "runs", "list", selectedWorkerId]),
+									output: runsQ.isLoading
+										? "Fetching runs…"
+										: runsQ.error
+											? (runsQ.error as Error).message
+											: `${runsQ.data?.runs.length ?? 0} run${runsQ.data?.runs.length === 1 ? "" : "s"} retrieved.`,
+								},
+								{
 									command: ntnCmd(["workers", "get", selectedWorkerId, ...(verboseLogs ? ["-v"] : [])]),
 									output: (
-										<WorkerDetailsBody worker={workerQ.data} />
+										<WorkerDetailsBody
+											worker={workerQ.data}
+											lastCodeDeployAt={configQ.data?.workerLastCodeDeployAt?.[selectedWorkerId]}
+											lastEnvPushAt={configQ.data?.workerLastEnvPushAt?.[selectedWorkerId]}
+										/>
 									),
 									trace: workerQ.data._trace,
 								},
@@ -749,6 +854,52 @@ function AppContent() {
 						} else {
 							deployWorker.mutate(selectedWorkerId);
 						}
+					}}
+				/>
+			) : null}
+			{deployNewWorkerOpen ? (
+				<DeployNewWorkerModal
+					startPath={localPath}
+					whoami={whoamiQ.data ?? null}
+					existingWorkers={workersQ.data ?? []}
+					onClose={() => setDeployNewWorkerOpen(false)}
+					onDeployed={(result) => {
+						setDeployNewWorkerOpen(false);
+						clearTransientOutputs();
+						setDeployResult(result);
+					}}
+				/>
+			) : null}
+			{deployUpdatedWorkersOpen ? (
+				<DeployUpdatedWorkersModal
+					workers={sortedWorkers}
+					localPaths={configQ.data?.workerLocalPaths ?? {}}
+					codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
+					envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+					verbose={verboseLogs}
+					onClose={() => setDeployUpdatedWorkersOpen(false)}
+					onFinished={(result) => {
+						clearTransientOutputs();
+						setDeployResult(result);
+						qc.invalidateQueries({ queryKey: ["workers"] });
+						qc.invalidateQueries({ queryKey: ["config"] });
+						qc.invalidateQueries({ queryKey: ["localMtimes"] });
+					}}
+				/>
+			) : null}
+			{adjustTimeMarkerOpen ? (
+				<AdjustTimeMarkerModal
+					currentMarkerTime={configQ.data?.timeMarker ?? null}
+					submitting={markTime.isPending}
+					error={markTime.error as Error | null}
+					onClose={() => {
+						setAdjustTimeMarkerOpen(false);
+						markTime.reset();
+					}}
+					onSubmit={(isoTime) => {
+						markTime.mutate(isoTime, {
+							onSuccess: () => setAdjustTimeMarkerOpen(false),
+						});
 					}}
 				/>
 			) : null}

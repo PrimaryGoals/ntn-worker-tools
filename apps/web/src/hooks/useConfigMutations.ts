@@ -34,7 +34,7 @@ export function useConfigMutations(
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
 	});
 	const markTime = useMutation({
-		mutationFn: () => api.markTime(),
+		mutationFn: (time?: string) => api.markTime(time),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["config"] });
 			// Marker is global — refresh runs for every worker, not just the selected one.
