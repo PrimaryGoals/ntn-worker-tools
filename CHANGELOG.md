@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-17
+
+### Added
+- "Deploy updated workers" flow made interactive: pushing multiple workers' code and env/secrets to Notion now walks through a guided, per-worker selection instead of a single blind bulk action; bulk selection extended to cover code deploys as well as secrets
+- Usage view: click a column header to sort by it (descending first, ascending on a second click); new "C/E" column showing credits per execution
+
+### Changed
+- Menu/branding links now go to a dedicated redirect page on primarygoals.com/ntn
+- Usage view no longer requires a worker to be selected to display — it only depends on the "Usage" mode being active
+
 ## [0.8.0] - 2026-08-12
 
 ### Added
