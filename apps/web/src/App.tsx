@@ -18,6 +18,7 @@ import { UsageList } from "./components/UsageList";
 import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
 import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
+import { WorkerSearchBox } from "./components/WorkerSearchBox";
 import { WorkersList } from "./components/WorkersList";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useConfigMutations } from "./hooks/useConfigMutations";
@@ -176,6 +177,8 @@ function AppContent() {
 		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
+		workerFilter,
+		setWorkerFilter,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
@@ -254,6 +257,12 @@ function AppContent() {
 		setSelectedRunId(null);
 		setRunsViewMode(mode);
 	}
+
+	const filteredWorkers = useMemo(() => {
+		const q = workerFilter.trim().toLowerCase();
+		if (!q) return sortedWorkers;
+		return sortedWorkers.filter((w) => w.name.toLowerCase().includes(q));
+	}, [sortedWorkers, workerFilter]);
 
 	return (
 		<>
@@ -407,15 +416,23 @@ function AppContent() {
 					>
 						<RPanel defaultSize={persistedPanelSizes.workersRuns ?? 30} minSize={15}>
 							<div className="h-full p-2">
-								<Panel title="Workers">
+								<Panel
+									title="Workers"
+									headerRight={
+										sortedWorkers.length > 10 ? (
+											<WorkerSearchBox value={workerFilter} onChange={setWorkerFilter} />
+										) : null
+									}
+								>
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
-										workers={sortedWorkers}
+										workers={filteredWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										filtered={!!workerFilter.trim()}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);

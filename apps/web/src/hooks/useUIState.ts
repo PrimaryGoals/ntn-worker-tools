@@ -19,6 +19,7 @@ export function useUIState() {
 	const [deployNewWorkerOpen, setDeployNewWorkerOpen] = useState(false);
 	const [deployUpdatedWorkersOpen, setDeployUpdatedWorkersOpen] = useState(false);
 	const [runsViewMode, setRunsViewMode] = useState<RunsViewMode>("worker");
+	const [workerFilter, setWorkerFilter] = useState("");
 
 	return {
 		selectedWorkerId,
@@ -41,5 +42,7 @@ export function useUIState() {
 		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
+		workerFilter,
+		setWorkerFilter,
 	};
 }
