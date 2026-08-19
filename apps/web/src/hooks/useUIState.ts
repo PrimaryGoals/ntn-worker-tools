@@ -12,7 +12,6 @@ export function useUIState() {
 	const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 	const [verboseLogs, setVerboseLogs] = useState(false);
-	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
@@ -28,8 +27,6 @@ export function useUIState() {
 		setSelectedRunId,
 		verboseLogs,
 		setVerboseLogs,
-		gitCheckinOpen,
-		setGitCheckinOpen,
 		folderPickerOpen,
 		setFolderPickerOpen,
 		tokenPushOpen,

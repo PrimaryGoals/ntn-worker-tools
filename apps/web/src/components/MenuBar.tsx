@@ -10,8 +10,6 @@ export function MenuBar({
 	localPath,
 	hasDeployScript,
 	hasEnvFile,
-	gitAvailable,
-	isGitRepo,
 	onSetLocalPath,
 	onClearLocalPath,
 	onReveal,
@@ -25,7 +23,6 @@ export function MenuBar({
 	onOauthShowRedirectUrl,
 	onOauthStart,
 	onOauthToken,
-	onOpenGitCheckin,
 	onMarkTime,
 	hasTimeMarker,
 	onClearTimeMarker,
@@ -44,8 +41,6 @@ export function MenuBar({
 	localPath: string | null;
 	hasDeployScript: boolean;
 	hasEnvFile: boolean;
-	gitAvailable: boolean;
-	isGitRepo: boolean;
 	onSetLocalPath: () => void;
 	onClearLocalPath: () => void;
 	onReveal: () => void;
@@ -61,7 +56,6 @@ export function MenuBar({
 	onOauthShowRedirectUrl: () => void;
 	onOauthStart: () => void;
 	onOauthToken: () => void;
-	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
@@ -215,21 +209,6 @@ export function MenuBar({
 								}}
 							/>
 						</MenuItemSubmenu>
-						<MenuItem
-							label="local check-in"
-							disabled={!localPath || !gitAvailable || !isGitRepo}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: !gitAvailable
-										? "git is not installed on this machine — install git to enable this."
-										: "The registered local folder is not a git repository."
-							}
-							onClick={() => {
-								setOpen(false);
-								onOpenGitCheckin();
-							}}
-						/>
 						<MenuItemSubmenu label="Time Markers">
 							<MenuItem
 								label="Mark current time"

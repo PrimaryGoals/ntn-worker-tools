@@ -21,8 +21,6 @@ export function useWorkerData(
 	});
 	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
 	const persistedPanelSizes = configQ.data?.ui?.panelSizes ?? {};
-	const envInfoQ = useQuery({ queryKey: ["envInfo"], queryFn: api.getEnvInfo, staleTime: Infinity });
-	const gitAvailable = envInfoQ.data?.gitAvailable ?? false;
 	const localPath = selectedWorkerId
 		? (configQ.data?.workerLocalPaths?.[selectedWorkerId] ?? null)
 		: null;
@@ -32,7 +30,6 @@ export function useWorkerData(
 		enabled: !!(selectedWorkerId && localPath),
 	});
 	const hasDeployScript = localInfoQ.data?.hasDeployScript ?? false;
-	const isGitRepo = localInfoQ.data?.isGitRepo ?? false;
 	const workersQ = useQuery({
 		queryKey: ["workers"],
 		queryFn: api.getWorkers,
@@ -172,12 +169,9 @@ export function useWorkerData(
 		whoamiQ,
 		configQ,
 		persistedPanelSizes,
-		envInfoQ,
-		gitAvailable,
 		localPath,
 		localInfoQ,
 		hasDeployScript,
-		isGitRepo,
 		workersQ,
 		localMtimesQ,
 		runsQ,

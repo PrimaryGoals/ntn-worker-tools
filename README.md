@@ -97,7 +97,7 @@ ntn-worker-tools/
 │   │       │                         deploy/sync mutations, webhook mutations, config mutations
 │   │       └── components/
 │   │           ├── ui/              Presentational primitives (Panel, MenuItem, ExitCodeBadge, ...)
-│   │           ├── modals/          TokenPushModal, FolderPickerModal, GitCheckinModal, ...
+│   │           ├── modals/          TokenPushModal, FolderPickerModal, RenameWorkerModal, ...
 │   │           └── *.tsx            Feature components (MenuBar, WorkersList, RunsList, ...)
 │   └── server/              Fastify server that shells out to ntn CLI
 └── packages/

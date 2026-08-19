@@ -11,7 +11,6 @@ import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
-import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
@@ -163,8 +162,6 @@ function AppContent() {
 		setSelectedRunId,
 		verboseLogs,
 		setVerboseLogs,
-		gitCheckinOpen,
-		setGitCheckinOpen,
 		folderPickerOpen,
 		setFolderPickerOpen,
 		tokenPushOpen,
@@ -212,12 +209,9 @@ function AppContent() {
 		whoamiQ,
 		configQ,
 		persistedPanelSizes,
-		envInfoQ,
-		gitAvailable,
 		localPath,
 		localInfoQ,
 		hasDeployScript,
-		isGitRepo,
 		workersQ,
 		runsQ,
 		crossWorkerRunsQ,
@@ -273,8 +267,6 @@ function AppContent() {
 				}
 				localPath={localPath}
 				hasDeployScript={hasDeployScript}
-				gitAvailable={gitAvailable}
-				isGitRepo={isGitRepo}
 				setLocalPathError={friendlySetPathError(
 					setLocalPath.error as ApiRequestError | null,
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
@@ -369,7 +361,6 @@ function AppContent() {
 					clearTransientOutputs();
 					oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
 				}}
-				onOpenGitCheckin={() => setGitCheckinOpen(true)}
 				onMarkTime={() => markTime.mutate(undefined)}
 				hasTimeMarker={!!configQ.data?.timeMarker}
 				onClearTimeMarker={() => clearTimeMarker.mutate()}
@@ -456,7 +447,7 @@ function AppContent() {
 											error={crossWorkerUsageQ.error as Error | null}
 											usages={crossWorkerUsageQ.data?.usages ?? []}
 										/>
-									) : !selectedWorkerId ? (
+									) : !selectedWorkerId && !crossWorkerView ? (
 										<BrandingSplash />
 									) : (
 										<RunsList
@@ -774,18 +765,6 @@ function AppContent() {
 			</RPanel>
 		</PanelGroup>
 		</div>
-		{gitCheckinOpen && selectedWorkerId && localPath ? (
-			<GitCheckinModal
-				workerId={selectedWorkerId}
-				localPath={localPath}
-				onClose={() => setGitCheckinOpen(false)}
-				onCommitted={(result) => {
-					setGitCheckinOpen(false);
-					clearTransientOutputs();
-					setDeployResult(result);
-				}}
-			/>
-		) : null}
 			{tokenPushOpen && selectedWorkerId ? (
 				<TokenPushModal
 					workerName={
