@@ -8,14 +8,6 @@ Status: **Feature Complete.** Ready for external testing.
 
 [![Watch the demo](https://img.youtube.com/vi/Ifbj0BLvW-s/hqdefault.jpg)](https://www.youtube.com/watch?v=Ifbj0BLvW-s)
 
-## Screenshots
-![Screenshot](images/01-Registered-Workers.png)
-![Screenshot](images/02-Worker-Inspection.png)
-![Screenshot](images/03-Worker-Runs.png)
-![Screenshot](images/04-Run-Logs.png)
-![Screenshot](images/05-POST-Results.png)
-![Screenshot](images/06-Quick-Actions.png)
-
 
 
 ## Prerequisites
@@ -92,30 +84,14 @@ If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/
 ![Overview of the main window](images/manual/ui-overview.png)
 
 1. All workers already registered on your Notion workspace. Each worker's row shows:
-   1. The worker's name (renameable)
-   2. The worker's ID (used in other `ntn` commands)
-   3. The local directory where its code lives, if one is registered
+   - The worker's name (renameable)
+   - The worker's ID (used in other `ntn` commands)
+   - The local directory where its code lives, if one is registered
 2. All executions (runs) of the selected worker. Times are shown in local time rather than UTC.
 3. Any interaction with ntn-worker-tools displays the exact command that was fired and its results.
 4. The default view — selecting a worker shows its runs.
-5. A cross-worker view. It shows all runs from all workers up to a fixed point in time.
-
-   <details>
-   <summary>This aids in debugging when one worker calls another, or when one may be interacting with another</summary>
-
-   ![Cross-worker runs view](images/manual/ui-cross-worker-view.png)
-
-   </details>
-
-6. An interactive view of credit usage that you can sort by column.
-
-   <details>
-   <summary>It adds the calculated credits per execution (C/E) so that you can see which workers are more expensive per-run.</summary>
-
-   ![Usage view sorted by cost per execution](images/manual/ui-usage-view.png)
-
-   </details>
-
+5. A cross-worker view. It shows all runs from all workers up to a fixed point in time. This aids in debugging when one worker calls another, or when one may be interacting with another
+6. An interactive view of credit usage that you can sort by column.  It adds the calculated credits per execution (C/E) so that you can see which workers are more expensive per-run.
 7. Menu options — see [Menu Options](#menu-options) below.
 8. The webhook URL. Clicking it fires a POST request:
    - If the worker requires a `WEBHOOK_SECRET`, it's added to the request header automatically.
@@ -132,7 +108,7 @@ All options are shown below, but some are only enabled when conditions are met, 
 
 <table>
 <tr>
-<td width="31%">
+<td width="31%" valign="top">
 
 When you select a worker that's already deployed to your Notion workspace, you can choose the local folder containing its code. The association is stored in an application profile on disk. Once made, the other menu items that depend on a local folder become active.
 
@@ -152,7 +128,7 @@ When you select a worker that's already deployed to your Notion workspace, you c
 
 <table>
 <tr>
-<td width="25%">
+<td width="25%" valign="top">
 
 With any worker selected, you can reveal its code in your file explorer from the menu, or click its path shown next to the worker in the list.
 
@@ -172,7 +148,7 @@ With any worker selected, you can reveal its code in your file explorer from the
 
 <table>
 <tr>
-<td width="19%">
+<td width="19%" valign="top">
 
 Renaming a worker renames both the directory containing its code and its name on the server. Its ID and webhook URL do not change.
 
@@ -195,16 +171,10 @@ Renaming a worker renames both the directory containing its code and its name on
 
 <table>
 <tr>
-<td width="20%">
-
+<td width="45%" valign="top">
 For simple workers created with <code>ntn workers new</code>, this runs the corresponding <code>ntn</code> command to deploy them to Notion. Be patient — deployment can take 30 seconds or more, with no visible progress until it completes or errors.
-
 </td>
-<td width="25%">
 
-![ntn workers deploy — menu](images/manual/menu-ntn-deploy-1.png)
-
-</td>
 <td width="55%">
 
 ![ntn workers deploy — result](images/manual/menu-ntn-deploy-2.png)
@@ -220,7 +190,7 @@ For simple workers created with <code>ntn workers new</code>, this runs the corr
 
 <table>
 <tr>
-<td width="19%">
+<td width="19%" valign="top">
 
 Enabled when the project defines its own <code>scripts.deploy</code> in <code>package.json</code>. This is more typical when working with a series of workers in a monorepo that needs a custom local bundling step first.
 
@@ -240,7 +210,7 @@ Enabled when the project defines its own <code>scripts.deploy</code> in <code>pa
 
 <table>
 <tr>
-<td width="25%">
+<td width="25%" valign="top">
 
 ntn-worker-tools keeps track of the last time you deployed code or pushed secrets to Notion. That information is shown next to each worker, and **Deploy updated workers** lets you choose, per worker, whether to push secrets, code, or both.
 
@@ -267,7 +237,7 @@ ntn-worker-tools keeps track of the last time you deployed code or pushed secret
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
 You'll only use this option when you develop your workers on one workspace and then deploy them on other workspaces. **ntn-worker-tools** handles the administrative plumbing to make this work.
 
@@ -300,7 +270,7 @@ You may optionally change the name of the worker on the new workspace, which wil
 
 <table>
 <tr>
-<td width="56%">
+<td width="56%" valign="top">
 
 This takes the contents of your local <code>.env</code> file and updates all variables for the worker on Notion. The two most common and important variables include:
 
@@ -408,26 +378,18 @@ ntn-worker-tools/
 
 Start in `App.tsx` to see how a screen is assembled, then follow the hook/component names — each hook or component file is scoped to one concern, so the file name tells you what you'll find inside.
 
-## Roadmap
-
-MVP:
-
-- [X] Sync status (live), preview, trigger, state reset
-- [X] Runs list + logs viewer
-- [X] Capabilities list + enable/disable
-
-Later:
-
-- [ ] Fetch code from deployed agents that you did not write yourself
 
 ## Advanced Automation
 
-As a business owner, you want the trust and reliability of your existing tools, along with the ease of use and a central view of how everything fits together. The problem is that different systems don't talk to each other by default. You know it's possible, but it's too much work, or too complicated, to do on your own.
+As a business owner, you want the trust and reliability of your existing tools, along with the ease of use and a central view of how everything fits together. <br>
+The problem is that different systems don't talk to each other by default. <br>
+You know it's possible, but it's too much work, or too complicated, to do on your own.<br>
 
-At [Primary Goals](https://PrimaryGoals.com/ntn/), we specialize in systems integration with Notion. Notion Workers are the perfect blend of powerful automation, deep integration with Notion, and cost-effectiveness — that's because Workers execute your business process deterministically, with code, rather than probabilistically, using AI or agents. You get all the benefits of AI at a fraction of the cost.
-
-[![Talk to Primary Goals about your automation](images/manual/advanced-automation-banner.gif)](https://PrimaryGoals.com/ntn/)
-
+At [Primary Goals](https://PrimaryGoals.com/), we specialize in systems integration with Notion. <br>
+Notion Workers are the perfect blend of powerful automation, deep integration with Notion, and cost-effectiveness.<br>
+Workers execute your business process deterministically, with code, rather than probabilistically, using AI or agents.<br>
+You get all the benefits of AI at a fraction of the cost.<br>
+We can help you build a fleet of workers that interoperate seamlessly.
 <p>
   <img src="images/manual/consulting-partner-badge.png" alt="Notion Consulting Partner" height="120">
   <img src="images/manual/notion-certified-admin-badge.png" alt="Notion Certified Admin" height="120">

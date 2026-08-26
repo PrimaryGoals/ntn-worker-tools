@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PRIMARY_GOALS_URL } from "../constants";
 import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
@@ -285,6 +286,14 @@ export function MenuBar({
 								{setLocalPathError.message}
 							</div>
 						) : null}
+						<div className="border-t border-neutral-200 dark:border-neutral-800" />
+						<MenuItem
+							label="Help"
+							onClick={() => {
+								setOpen(false);
+								window.open(PRIMARY_GOALS_URL, "_blank", "noopener,noreferrer");
+							}}
+						/>
 					</div>
 				) : null}
 			</div>
@@ -301,7 +310,7 @@ export function MenuBar({
 						: error
 							? "not signed in — run `ntn login` in a terminal"
 							: <a
-									href="https://PrimaryGoals.com/ntn/"
+									href={PRIMARY_GOALS_URL}
 									target="_blank"
 									rel="noopener noreferrer"
 									className="text-blue-600 underline hover:no-underline dark:text-blue-400"
