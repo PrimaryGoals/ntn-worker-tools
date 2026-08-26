@@ -1,8 +1,10 @@
+import { PRIMARY_GOALS_URL } from "../../constants";
+
 export function BrandingSplash() {
 	return (
 		<div className="flex h-full min-h-0 flex-col items-center justify-center gap-6 overflow-auto p-6 text-center">
 			<a
-				href="https://PrimaryGoals.com/ntn/"
+				href={PRIMARY_GOALS_URL}
 				target="_blank"
 				rel="noopener noreferrer"
 				className="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80"

@@ -11,6 +11,7 @@ export function WorkersList({
 	envOutOfDateWorkerIds,
 	onSelect,
 	onRevealPath,
+	filtered,
 }: {
 	loading: boolean;
 	error: Error | null;
@@ -21,10 +22,16 @@ export function WorkersList({
 	envOutOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
 	onRevealPath: (id: string) => void;
+	// True when `workers` has already been narrowed by a search filter —
+	// changes the empty-state message so "no matches" isn't confused with
+	// "no workers at all".
+	filtered?: boolean;
 }) {
 	if (loading) return <Empty>Loading workers…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (workers.length === 0) return <Empty>No workers in this workspace.</Empty>;
+	if (workers.length === 0) {
+		return <Empty>{filtered ? "No workers match your filter." : "No workers in this workspace."}</Empty>;
+	}
 	return (
 		<ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
 			{workers.map((w) => {

@@ -11,8 +11,6 @@ const configTempFile = join(paths.config, "config.tmp.json");
 const defaultConfig: AppConfig = {
 	ui: { theme: "system" },
 	workerLocalPaths: {},
-	workerIsGitRepo: {},
-	workerGitRoot: {},
 };
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -24,8 +22,6 @@ export async function loadConfig(): Promise<AppConfig> {
 			...parsed,
 			ui: { ...defaultConfig.ui, ...(parsed.ui ?? {}) },
 			workerLocalPaths: { ...defaultConfig.workerLocalPaths, ...(parsed.workerLocalPaths ?? {}) },
-			workerIsGitRepo: { ...defaultConfig.workerIsGitRepo, ...(parsed.workerIsGitRepo ?? {}) },
-			workerGitRoot: { ...defaultConfig.workerGitRoot, ...(parsed.workerGitRoot ?? {}) },
 		};
 	} catch (err) {
 		const nodeErr = err as NodeJS.ErrnoException;
@@ -45,14 +41,6 @@ export async function loadConfig(): Promise<AppConfig> {
 					workerLocalPaths: {
 						...defaultConfig.workerLocalPaths,
 						...(backupParsed.workerLocalPaths ?? {}),
-					},
-					workerIsGitRepo: {
-						...defaultConfig.workerIsGitRepo,
-						...(backupParsed.workerIsGitRepo ?? {}),
-					},
-					workerGitRoot: {
-						...defaultConfig.workerGitRoot,
-						...(backupParsed.workerGitRoot ?? {}),
 					},
 				};
 			} catch {

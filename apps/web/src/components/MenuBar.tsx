@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PRIMARY_GOALS_URL } from "../constants";
 import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
@@ -10,8 +11,6 @@ export function MenuBar({
 	localPath,
 	hasDeployScript,
 	hasEnvFile,
-	gitAvailable,
-	isGitRepo,
 	onSetLocalPath,
 	onClearLocalPath,
 	onReveal,
@@ -25,7 +24,6 @@ export function MenuBar({
 	onOauthShowRedirectUrl,
 	onOauthStart,
 	onOauthToken,
-	onOpenGitCheckin,
 	onMarkTime,
 	hasTimeMarker,
 	onClearTimeMarker,
@@ -44,8 +42,6 @@ export function MenuBar({
 	localPath: string | null;
 	hasDeployScript: boolean;
 	hasEnvFile: boolean;
-	gitAvailable: boolean;
-	isGitRepo: boolean;
 	onSetLocalPath: () => void;
 	onClearLocalPath: () => void;
 	onReveal: () => void;
@@ -61,7 +57,6 @@ export function MenuBar({
 	onOauthShowRedirectUrl: () => void;
 	onOauthStart: () => void;
 	onOauthToken: () => void;
-	onOpenGitCheckin: () => void;
 	onMarkTime: () => void;
 	hasTimeMarker: boolean;
 	onClearTimeMarker: () => void;
@@ -215,21 +210,6 @@ export function MenuBar({
 								}}
 							/>
 						</MenuItemSubmenu>
-						<MenuItem
-							label="local check-in"
-							disabled={!localPath || !gitAvailable || !isGitRepo}
-							disabledReason={
-								!localPath
-									? "Requires a registered local folder."
-									: !gitAvailable
-										? "git is not installed on this machine — install git to enable this."
-										: "The registered local folder is not a git repository."
-							}
-							onClick={() => {
-								setOpen(false);
-								onOpenGitCheckin();
-							}}
-						/>
 						<MenuItemSubmenu label="Time Markers">
 							<MenuItem
 								label="Mark current time"
@@ -306,6 +286,14 @@ export function MenuBar({
 								{setLocalPathError.message}
 							</div>
 						) : null}
+						<div className="border-t border-neutral-200 dark:border-neutral-800" />
+						<MenuItem
+							label="Help"
+							onClick={() => {
+								setOpen(false);
+								window.open(PRIMARY_GOALS_URL, "_blank", "noopener,noreferrer");
+							}}
+						/>
 					</div>
 				) : null}
 			</div>
@@ -322,7 +310,7 @@ export function MenuBar({
 						: error
 							? "not signed in — run `ntn login` in a terminal"
 							: <a
-									href="https://PrimaryGoals.com/ntn/"
+									href={PRIMARY_GOALS_URL}
 									target="_blank"
 									rel="noopener noreferrer"
 									className="text-blue-600 underline hover:no-underline dark:text-blue-400"

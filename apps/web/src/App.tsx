@@ -11,7 +11,6 @@ import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
-import { GitCheckinModal } from "./components/modals/GitCheckinModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
@@ -19,6 +18,7 @@ import { UsageList } from "./components/UsageList";
 import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
 import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
+import { WorkerSearchBox } from "./components/WorkerSearchBox";
 import { WorkersList } from "./components/WorkersList";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useConfigMutations } from "./hooks/useConfigMutations";
@@ -163,8 +163,6 @@ function AppContent() {
 		setSelectedRunId,
 		verboseLogs,
 		setVerboseLogs,
-		gitCheckinOpen,
-		setGitCheckinOpen,
 		folderPickerOpen,
 		setFolderPickerOpen,
 		tokenPushOpen,
@@ -179,6 +177,8 @@ function AppContent() {
 		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
+		workerFilter,
+		setWorkerFilter,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const {
@@ -212,12 +212,9 @@ function AppContent() {
 		whoamiQ,
 		configQ,
 		persistedPanelSizes,
-		envInfoQ,
-		gitAvailable,
 		localPath,
 		localInfoQ,
 		hasDeployScript,
-		isGitRepo,
 		workersQ,
 		runsQ,
 		crossWorkerRunsQ,
@@ -261,6 +258,12 @@ function AppContent() {
 		setRunsViewMode(mode);
 	}
 
+	const filteredWorkers = useMemo(() => {
+		const q = workerFilter.trim().toLowerCase();
+		if (!q) return sortedWorkers;
+		return sortedWorkers.filter((w) => w.name.toLowerCase().includes(q));
+	}, [sortedWorkers, workerFilter]);
+
 	return (
 		<>
 		<div className="flex h-screen flex-col">
@@ -273,8 +276,6 @@ function AppContent() {
 				}
 				localPath={localPath}
 				hasDeployScript={hasDeployScript}
-				gitAvailable={gitAvailable}
-				isGitRepo={isGitRepo}
 				setLocalPathError={friendlySetPathError(
 					setLocalPath.error as ApiRequestError | null,
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
@@ -369,7 +370,6 @@ function AppContent() {
 					clearTransientOutputs();
 					oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
 				}}
-				onOpenGitCheckin={() => setGitCheckinOpen(true)}
 				onMarkTime={() => markTime.mutate(undefined)}
 				hasTimeMarker={!!configQ.data?.timeMarker}
 				onClearTimeMarker={() => clearTimeMarker.mutate()}
@@ -416,15 +416,23 @@ function AppContent() {
 					>
 						<RPanel defaultSize={persistedPanelSizes.workersRuns ?? 30} minSize={15}>
 							<div className="h-full p-2">
-								<Panel title="Workers">
+								<Panel
+									title="Workers"
+									headerRight={
+										sortedWorkers.length > 10 ? (
+											<WorkerSearchBox value={workerFilter} onChange={setWorkerFilter} />
+										) : null
+									}
+								>
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
-										workers={sortedWorkers}
+										workers={filteredWorkers}
 										selectedId={selectedWorkerId}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										filtered={!!workerFilter.trim()}
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
@@ -456,7 +464,7 @@ function AppContent() {
 											error={crossWorkerUsageQ.error as Error | null}
 											usages={crossWorkerUsageQ.data?.usages ?? []}
 										/>
-									) : !selectedWorkerId ? (
+									) : !selectedWorkerId && !crossWorkerView ? (
 										<BrandingSplash />
 									) : (
 										<RunsList
@@ -774,18 +782,6 @@ function AppContent() {
 			</RPanel>
 		</PanelGroup>
 		</div>
-		{gitCheckinOpen && selectedWorkerId && localPath ? (
-			<GitCheckinModal
-				workerId={selectedWorkerId}
-				localPath={localPath}
-				onClose={() => setGitCheckinOpen(false)}
-				onCommitted={(result) => {
-					setGitCheckinOpen(false);
-					clearTransientOutputs();
-					setDeployResult(result);
-				}}
-			/>
-		) : null}
 			{tokenPushOpen && selectedWorkerId ? (
 				<TokenPushModal
 					workerName={
