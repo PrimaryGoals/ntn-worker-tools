@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-25
+
+### Added
+- Worker search/filter box in the Workers panel header (shown once there are more than 10 workers), case-insensitive match on worker name with a one-click clear (#35)
+- "Help" menu item linking to the Primary Goals support page
+
+### Changed
+- Consolidated the Primary Goals redirect URL into a single `PRIMARY_GOALS_URL` constant, used by the Help menu item, the header link, and the branding splash
+- README overhaul: added a demo video, and "User Interface" and "Menu Options" sections illustrated with screenshots
+
+### Fixed
+- Cross-worker "All workers since" runs view no longer requires a worker to be selected first (#37)
+
+### Removed
+- "Local check-in" menu feature (git status/commit UI) and the git-detection plumbing that existed only to support it
+
 ## [0.9.0] - 2026-08-17
 
 ### Added

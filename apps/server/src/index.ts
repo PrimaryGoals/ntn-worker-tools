@@ -16,7 +16,6 @@ import webhookRoutes from "./routes/webhook.js";
 import workerLocalRoutes from "./routes/worker-local.js";
 import workersRoutes from "./routes/workers.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
-import { envInfo } from "./state.js";
 
 // Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
 // one unambiguous place to be set, rather than shell-specific environment
@@ -52,7 +51,7 @@ function printPortInUseMessageAndExit(): never {
 }
 
 // Probe the port before any of the slower startup work below (session token
-// I/O, git version check, config load) — otherwise `pnpm dev`'s
+// I/O, config load) — otherwise `pnpm dev`'s
 // --kill-others-on-fail can SIGTERM this process, because the web dev server
 // fails near-instantly on its own port conflict, before we'd ever reach the
 // real app.listen() and report *our* port conflict.
@@ -103,7 +102,6 @@ app.addHook("preHandler", async (req, reply) => {
 });
 
 app.log.info({ configPath: getConfigPath() }, "config loaded");
-app.log.info(envInfo, "env info");
 
 app.setErrorHandler((err, _req, reply) => {
 	if (err instanceof NtnError) {

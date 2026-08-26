@@ -4,9 +4,7 @@ import type {
 	CrossWorkerUsagePayload,
 	DeployNewInspection,
 	DeployResult,
-	EnvInfo,
 	FsListing,
-	GitStatus,
 	LocalInfo,
 	LocalMtimes,
 	LogsPayload,
@@ -91,7 +89,6 @@ export const api = {
 			method: "PATCH",
 			body: JSON.stringify(patch),
 		}),
-	getEnvInfo: () => request<EnvInfo>("/api/env-info"),
 	getFsHome: () => request<{ path: string }>("/api/fs/home"),
 	getFsListing: (path: string) =>
 		request<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
@@ -192,13 +189,6 @@ export const api = {
 			`/api/workers/${workerId}/env/set${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ key, value }) },
 		),
-	getGitStatus: (workerId: string) =>
-		request<GitStatus>(`/api/workers/${workerId}/git-status`),
-	gitCommit: (workerId: string, files: string[], message: string) =>
-		request<DeployResult>(`/api/workers/${workerId}/git-commit`, {
-			method: "POST",
-			body: JSON.stringify({ files, message }),
-		}),
 	// Note: /api/workers/batch-actions streams NDJSON and is called directly
 	// via fetch() from DeployUpdatedWorkersModal, not through this helper —
 	// request<T>() only supports one-shot JSON responses.

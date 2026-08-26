@@ -12,7 +12,6 @@ export function useUIState() {
 	const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 	const [verboseLogs, setVerboseLogs] = useState(false);
-	const [gitCheckinOpen, setGitCheckinOpen] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
@@ -20,6 +19,7 @@ export function useUIState() {
 	const [deployNewWorkerOpen, setDeployNewWorkerOpen] = useState(false);
 	const [deployUpdatedWorkersOpen, setDeployUpdatedWorkersOpen] = useState(false);
 	const [runsViewMode, setRunsViewMode] = useState<RunsViewMode>("worker");
+	const [workerFilter, setWorkerFilter] = useState("");
 
 	return {
 		selectedWorkerId,
@@ -28,8 +28,6 @@ export function useUIState() {
 		setSelectedRunId,
 		verboseLogs,
 		setVerboseLogs,
-		gitCheckinOpen,
-		setGitCheckinOpen,
 		folderPickerOpen,
 		setFolderPickerOpen,
 		tokenPushOpen,
@@ -44,5 +42,7 @@ export function useUIState() {
 		setDeployUpdatedWorkersOpen,
 		runsViewMode,
 		setRunsViewMode,
+		workerFilter,
+		setWorkerFilter,
 	};
 }

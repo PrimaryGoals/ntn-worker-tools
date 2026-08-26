@@ -1,12 +1,10 @@
 import { spawn } from "node:child_process";
 import { readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
 	AppConfig,
 	DeployResult,
-	GitStatus,
-	GitStatusEntry,
 	LocalInfo,
 	LocalMtimeInfo,
 	LocalMtimes,
@@ -14,16 +12,7 @@ import type {
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
-import {
-	detectGitRoot,
-	envInfo,
-	getConfig,
-	recordCodeDeploy,
-	recordEnvPush,
-	resolveGitRoot,
-	resolveIsGitRepo,
-	updateConfig,
-} from "../state.js";
+import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
 // Directories skipped when scanning for the latest mtime — dependency/build
 // output churns constantly (installs, rebuilds) and isn't "local source
@@ -192,12 +181,8 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					selectedWorkerId: req.params.id,
 				}) as unknown as AppConfig;
 			}
-			// Detect git root for this folder, then register path and git info in a single atomic update
-			const gitRoot = await detectGitRoot(abs);
 			const updated = await updateConfig({
 				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
-				workerIsGitRepo: { ...(getConfig().workerIsGitRepo ?? {}), [req.params.id]: gitRoot !== null },
-				workerGitRoot: gitRoot ? { ...(getConfig().workerGitRoot ?? {}), [req.params.id]: gitRoot } : getConfig().workerGitRoot ?? {},
 			});
 			return updated;
 		},
@@ -230,14 +215,12 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			} catch {
 				/* no .env — leave false */
 			}
-			const isGitRepo = await resolveIsGitRepo(req.params.id, path);
 			return {
 				path,
 				hasPackageJson,
 				hasDeployScript: deployScript !== null,
 				deployScript,
 				hasEnvFile,
-				isGitRepo,
 			};
 		},
 	);
@@ -247,15 +230,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		async (req): Promise<AppConfig> => {
 			const nextPaths = { ...(getConfig().workerLocalPaths ?? {}) };
 			delete nextPaths[req.params.id];
-			const nextRepo = { ...(getConfig().workerIsGitRepo ?? {}) };
-			delete nextRepo[req.params.id];
-			const nextRoot = { ...(getConfig().workerGitRoot ?? {}) };
-			delete nextRoot[req.params.id];
-			return updateConfig({
-				workerLocalPaths: nextPaths,
-				workerIsGitRepo: nextRepo,
-				workerGitRoot: nextRoot,
-			});
+			return updateConfig({ workerLocalPaths: nextPaths });
 		},
 	);
 
@@ -322,121 +297,6 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				stderr,
 				durationMs,
 				summary,
-			};
-		},
-	);
-
-	app.get<{ Params: { id: string } }>(
-		"/api/workers/:id/git-status",
-		async (req, reply): Promise<GitStatus> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
-			if (!path) {
-				return reply
-					.code(400)
-					.send({ error: "no local path registered for this worker" }) as unknown as GitStatus;
-			}
-			if (!envInfo.gitAvailable) {
-				return reply
-					.code(400)
-					.send({ error: "git is not installed on this machine" }) as unknown as GitStatus;
-			}
-			const gitRoot = await resolveGitRoot(req.params.id, path);
-			if (!gitRoot) {
-				return {
-					isGitRepo: false,
-					files: [],
-					diff: "",
-					gitRoot: "",
-					workerPathRelToRoot: "",
-				};
-			}
-			const workerPathRelToRoot = relative(gitRoot, path).replace(/\\/g, "/");
-			const status = await runShellAllowingFailure("git", ["status", "--porcelain=v1"], {
-				cwd: gitRoot,
-			});
-			const files: GitStatusEntry[] = [];
-			for (const line of status.stdout.split(/\r?\n/)) {
-				if (!line) continue;
-				// Porcelain v1: first 2 chars are status codes, char 3 is a space, rest is path.
-				const statusCode = line.slice(0, 2);
-				const rest = line.slice(3);
-				// Rename entries look like "R  old -> new" — take the destination.
-				const arrow = rest.indexOf(" -> ");
-				const p = arrow >= 0 ? rest.slice(arrow + 4) : rest;
-				files.push({ statusCode, path: p });
-			}
-			const diff = await runShellAllowingFailure("git", ["diff", "HEAD"], { cwd: gitRoot });
-			return {
-				isGitRepo: true,
-				files,
-				diff: diff.exitCode === 0 ? diff.stdout : "",
-				gitRoot,
-				workerPathRelToRoot,
-			};
-		},
-	);
-
-	app.post<{ Params: { id: string }; Body: { files: string[]; message: string } }>(
-		"/api/workers/:id/git-commit",
-		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
-			if (!path) {
-				return reply
-					.code(400)
-					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
-			}
-			const { files, message } = req.body ?? {};
-			if (!Array.isArray(files) || files.length === 0) {
-				return reply.code(400).send({ error: "no files selected" }) as unknown as DeployResult;
-			}
-			if (!files.every((f): f is string => typeof f === "string" && f.length > 0)) {
-				return reply.code(400).send({ error: "invalid files list" }) as unknown as DeployResult;
-			}
-			if (typeof message !== "string" || !message.trim()) {
-				return reply
-					.code(400)
-					.send({ error: "commit message required" }) as unknown as DeployResult;
-			}
-			// All git ops must run from the repo's top-level, since porcelain paths
-			// (which files[] echoes back) are relative to that root, not to `path`.
-			const gitRoot = await resolveGitRoot(req.params.id, path);
-			if (!gitRoot) {
-				return reply
-					.code(400)
-					.send({ error: "not a git repository" }) as unknown as DeployResult;
-			}
-			// `--` prevents any path that starts with `-` from being interpreted as a flag.
-			const add = await runShellAllowingFailure("git", ["add", "--", ...files], { cwd: gitRoot });
-			if (add.exitCode !== 0) {
-				return {
-					command: add.command,
-					cwd: gitRoot,
-					exitCode: add.exitCode,
-					stdout: add.stdout,
-					stderr: add.stderr,
-					durationMs: add.durationMs,
-				};
-			}
-			const commit = await runShellAllowingFailure(
-				"git",
-				["commit", "-m", message.trim()],
-				{ cwd: gitRoot },
-			);
-			return {
-				command: `${add.command}\n${commit.command}`,
-				cwd: gitRoot,
-				exitCode: commit.exitCode,
-				stdout: commit.stdout,
-				stderr: commit.stderr,
-				durationMs: add.durationMs + commit.durationMs,
-				followup: {
-					command: "git log --oneline -3",
-					exitCode: 0,
-					stdout: (await runShellAllowingFailure("git", ["log", "--oneline", "-3"], { cwd: gitRoot }))
-						.stdout,
-					stderr: "",
-					durationMs: 0,
-				},
 			};
 		},
 	);

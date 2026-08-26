@@ -3,7 +3,7 @@ import { basename, join, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { DeployNewInspection, DeployResult } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
-import { detectGitRoot, getConfig, recordCodeDeploy, updateConfig } from "../state.js";
+import { getConfig, recordCodeDeploy, updateConfig } from "../state.js";
 
 // The only two files this flow is ever allowed to delete, and only inside
 // whatever directory the caller already told us they're inspecting — never
@@ -253,16 +253,8 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				}
 
 				if (newWorkerId) {
-					const gitRoot = await detectGitRoot(abs);
 					await updateConfig({
 						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-						workerIsGitRepo: {
-							...(getConfig().workerIsGitRepo ?? {}),
-							[newWorkerId]: gitRoot !== null,
-						},
-						workerGitRoot: gitRoot
-							? { ...(getConfig().workerGitRoot ?? {}), [newWorkerId]: gitRoot }
-							: (getConfig().workerGitRoot ?? {}),
 					});
 					await recordCodeDeploy(newWorkerId);
 				}
@@ -378,16 +370,8 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 					/* the script may write workers.json somewhere else — nothing to register here */
 				}
 				if (newWorkerId) {
-					const gitRoot = await detectGitRoot(abs);
 					await updateConfig({
 						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-						workerIsGitRepo: {
-							...(getConfig().workerIsGitRepo ?? {}),
-							[newWorkerId]: gitRoot !== null,
-						},
-						workerGitRoot: gitRoot
-							? { ...(getConfig().workerGitRoot ?? {}), [newWorkerId]: gitRoot }
-							: (getConfig().workerGitRoot ?? {}),
 					});
 					await recordCodeDeploy(newWorkerId);
 				}

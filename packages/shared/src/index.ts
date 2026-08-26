@@ -150,13 +150,6 @@ export interface AppConfig {
 	};
 	// workerId -> absolute path of the local source directory
 	workerLocalPaths?: Record<string, string>;
-	// workerId -> whether the local folder is a git repo (cached; only positive
-	// results are stored — a `git init` after the fact is picked up next check).
-	workerIsGitRepo?: Record<string, boolean>;
-	// workerId -> absolute path of the git repo top-level (may be an ancestor of
-	// the worker's local path). All git commands run from this directory so
-	// porcelain-relative paths resolve correctly.
-	workerGitRoot?: Record<string, string>;
 	// workerId -> ISO timestamp of the last successful code deploy THIS APP
 	// initiated (ntn workers deploy / pnpm run deploy / deploy-updated /
 	// deploy-new). Deliberately not re-derived from the worker's live
@@ -179,12 +172,6 @@ export interface AppConfig {
 	// per-worker) — shown in the runs panel for every worker to split runs
 	// into before/after the marker.
 	timeMarker?: string;
-}
-
-export interface EnvInfo {
-	// Whether the machine running the server has git on PATH.
-	gitAvailable: boolean;
-	gitVersion: string | null;
 }
 
 export interface LocalPathPayload {
@@ -214,13 +201,6 @@ export interface LocalInfo {
 	hasDeployScript: boolean;
 	deployScript: string | null;
 	hasEnvFile: boolean;
-	isGitRepo: boolean;
-}
-
-export interface GitStatusEntry {
-	// Two-char porcelain code, e.g. " M", "M ", "??", "AM".
-	statusCode: string;
-	path: string;
 }
 
 export interface LocalMtimeInfo {
@@ -238,20 +218,6 @@ export interface LocalMtimes {
 	// workerId -> {code, env} mtimes. Works regardless of VCS (or no VCS at
 	// all). Only includes workers with a registered local path.
 	[workerId: string]: LocalMtimeInfo;
-}
-
-export interface GitStatus {
-	isGitRepo: boolean;
-	files: GitStatusEntry[];
-	// Combined diff of staged + unstaged changes vs HEAD.
-	// Empty string when there are no committed refs to diff against.
-	diff: string;
-	// Absolute path of the git repo top-level. Same as the worker's registered
-	// path for a standalone worker; an ancestor for a worker inside a monorepo.
-	gitRoot: string;
-	// Worker's registered path relative to gitRoot, forward-slashed. "" when
-	// the worker sits at the repo root (standalone case).
-	workerPathRelToRoot: string;
 }
 
 export interface DeployResult {
