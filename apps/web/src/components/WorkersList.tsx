@@ -1,11 +1,13 @@
-import type { Worker } from "@ntn-worker-tools/shared";
+import type { RunHealth, Worker } from "@ntn-worker-tools/shared";
 import { Empty } from "./ui/Panel";
+import { WorkerStatusDot } from "./ui/WorkerStatusDot";
 
 export function WorkersList({
 	loading,
 	error,
 	workers,
 	selectedId,
+	runHealth,
 	localPaths,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
@@ -17,6 +19,9 @@ export function WorkersList({
 	error: Error | null;
 	workers: Worker[];
 	selectedId: string | null;
+	// workerId -> recent-run health, from the run-health query. A worker with
+	// no entry (still loading, or added since the last refresh) gets a hollow dot.
+	runHealth: Record<string, RunHealth>;
 	localPaths: Record<string, string>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
@@ -48,6 +53,7 @@ export function WorkersList({
 							className="block w-full px-3 pt-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
 						>
 							<div>
+								<WorkerStatusDot health={runHealth[w.workerId]} />
 								<span className="font-medium">{w.name}</span>
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
 								{codeOutOfDateWorkerIds.has(w.workerId) && (

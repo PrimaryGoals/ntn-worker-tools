@@ -6,6 +6,7 @@ import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { Panel } from "./components/ui/Panel";
+import { RefreshButton } from "./components/ui/RefreshButton";
 import { MenuBar } from "./components/MenuBar";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
@@ -216,6 +217,8 @@ function AppContent() {
 		localInfoQ,
 		hasDeployScript,
 		workersQ,
+		runHealthQ,
+		workerHealth,
 		runsQ,
 		crossWorkerRunsQ,
 		crossWorkerUsageQ,
@@ -270,6 +273,7 @@ function AppContent() {
 			<MenuBar
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
+				spaceName={whoamiQ.data?.spaceName ?? null}
 				workerId={selectedWorkerId}
 				workerName={
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
@@ -418,6 +422,13 @@ function AppContent() {
 							<div className="h-full p-2">
 								<Panel
 									title="Workers"
+									titleAfter={
+										<RefreshButton
+											title="Refresh success rate"
+											spinning={runHealthQ.isFetching}
+											onClick={() => runHealthQ.refetch()}
+										/>
+									}
 									headerRight={
 										sortedWorkers.length > 10 ? (
 											<WorkerSearchBox value={workerFilter} onChange={setWorkerFilter} />
@@ -429,6 +440,7 @@ function AppContent() {
 										error={workersQ.error as Error | null}
 										workers={filteredWorkers}
 										selectedId={selectedWorkerId}
+										runHealth={workerHealth}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
@@ -768,8 +780,7 @@ function AppContent() {
 					)
 				) : whoamiQ.data ? (
 					<OutputWithCommands
-						commands={[ntnCmd(["whoami", "-v"])]}
-						trace={whoamiQ.data._trace}
+						commands={[ntnCmd(["whoami"])]}
 						body={formatWhoami(whoamiQ.data)}
 					/>
 				) : whoamiQ.error ? (
