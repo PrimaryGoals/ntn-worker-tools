@@ -273,6 +273,7 @@ function AppContent() {
 			<MenuBar
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
+				spaceName={whoamiQ.data?.spaceName ?? null}
 				workerId={selectedWorkerId}
 				workerName={
 					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null

@@ -6,6 +6,7 @@ import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 export function MenuBar({
 	loading,
 	error,
+	spaceName,
 	workerId,
 	workerName,
 	localPath,
@@ -37,6 +38,8 @@ export function MenuBar({
 }: {
 	loading: boolean;
 	error: Error | null;
+	// The workspace `ntn whoami` reports; null until that call resolves.
+	spaceName: string | null;
 	workerId: string | null;
 	workerName: string | null;
 	localPath: string | null;
@@ -298,7 +301,15 @@ export function MenuBar({
 				) : null}
 			</div>
 			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
+				<h1 className="text-sm font-semibold">
+					{spaceName ? (
+						<>
+							NTN Worker Tools <span className="font-normal text-neutral-500">({spaceName})</span>
+						</>
+					) : (
+						"NTN Worker Tools"
+					)}
+				</h1>
 				<span
 					className={
 						"text-xs " +
