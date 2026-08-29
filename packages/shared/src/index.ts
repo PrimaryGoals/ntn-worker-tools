@@ -43,6 +43,51 @@ export interface RunsPayload {
 	nextCursor?: string;
 }
 
+// A worker's recent-run health, shown as a colored dot in the workers list.
+// "none" = the worker has never run; "unknown" = its run history couldn't be
+// read. See computeRunHealth below for how the colors are derived.
+export type RunHealth = "green" | "yellow" | "orange" | "red" | "none" | "unknown";
+
+export interface RunHealthPayload {
+	// workerId -> health. Every worker in the workspace gets an entry.
+	health: Record<string, RunHealth>;
+}
+
+// How many recent runs a health score looks at, and the cutoff between the
+// "recent" window (orange) and the older half (yellow).
+export const RUN_HEALTH_WINDOW = 10;
+const RECENT_WINDOW = 5;
+
+// Scores a worker's runs into a single traffic-light value. Lives here rather
+// than in either app because both score the same runs: the server sweeps every
+// worker for the sidebar, and the client re-derives one worker's dot from run
+// lists it already fetched (selecting a worker, firing its webhook).
+//
+// `runs` must be newest-first, as every `ntn workers runs list` payload is. Only
+// the first RUN_HEALTH_WINDOW are considered, and in-flight runs (null exit
+// code) are dropped from those, so the positions below count completed runs:
+//   red    - the most recent completed run failed
+//   orange - the newest failure sits in positions 2-5
+//   yellow - the newest failure sits in positions 6-10
+//   green  - nothing failed in the window
+//   none   - no completed runs in the window
+// Any non-zero exit code counts as a failure, not just 1.
+export function computeRunHealth(runs: Run[]): RunHealth {
+	const completed = runs.slice(0, RUN_HEALTH_WINDOW).filter((run) => run.exitCode != null);
+	if (completed.length === 0) return "none";
+	const newestFailure = completed.findIndex((run) => run.exitCode !== 0);
+	if (newestFailure === -1) return "green";
+	if (newestFailure === 0) return "red";
+	return newestFailure < RECENT_WINDOW ? "orange" : "yellow";
+}
+
+export interface CrossWorkerRunsPayload extends RunsPayload {
+	// Recent-run health for every worker, scored from the first (unfiltered)
+	// page of each worker's runs — the same page this endpoint already fetches
+	// to find runs since the marker, so it costs no additional CLI calls.
+	health: Record<string, RunHealth>;
+}
+
 export interface LogsPayload {
 	logs: string;
 	// populated only when the request set ?verbose=1

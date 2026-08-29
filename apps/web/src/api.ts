@@ -1,6 +1,7 @@
 import type {
 	ApiError,
 	AppConfig,
+	CrossWorkerRunsPayload,
 	CrossWorkerUsagePayload,
 	DeployNewInspection,
 	DeployResult,
@@ -8,6 +9,7 @@ import type {
 	LocalInfo,
 	LocalMtimes,
 	LogsPayload,
+	RunHealthPayload,
 	RunsPayload,
 	SyncStatus,
 	WebhookFireResult,
@@ -96,8 +98,9 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
+	getRunHealth: () => request<RunHealthPayload>("/api/workers/run-health"),
 	getCrossWorkerRuns: (since: string) =>
-		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
+		request<CrossWorkerRunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
 	getCrossWorkerUsage: () => request<CrossWorkerUsagePayload>("/api/usage/cross-worker"),
 	markTime: (time?: string) =>
 		request<AppConfig>("/api/config/mark-time", {

@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { RunHealth } from "@ntn-worker-tools/shared";
+import { computeRunHealth } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import type { RunsViewMode } from "./useUIState";
 
@@ -16,7 +18,7 @@ export function useWorkerData(
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const whoamiQ = useQuery({
 		queryKey: ["whoami"],
-		queryFn: () => api.getWhoami(true),
+		queryFn: () => api.getWhoami(),
 		retry: false,
 	});
 	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
@@ -33,6 +35,14 @@ export function useWorkerData(
 	const workersQ = useQuery({
 		queryKey: ["workers"],
 		queryFn: api.getWorkers,
+		enabled: !!whoamiQ.data,
+	});
+	// Colors the status dot next to each worker in the sidebar. Fans out one
+	// `ntn workers runs list` call per worker server-side, so it is kept in its
+	// own query the refresh button can invalidate on its own.
+	const runHealthQ = useQuery({
+		queryKey: ["runHealth"],
+		queryFn: api.getRunHealth,
 		enabled: !!whoamiQ.data,
 	});
 	const localMtimesQ = useQuery({
@@ -95,6 +105,45 @@ export function useWorkerData(
 		queryFn: () => api.getWorkerEnv(selectedWorkerId!, verboseLogs),
 		enabled: !!selectedWorkerId,
 	});
+
+	// Colors derived from run lists the app fetched for other reasons —
+	// selecting a worker, firing its webhook, the cross-worker sweep. They are
+	// strictly fresher than the last full sweep, so they win over it, and they
+	// persist after you select something else rather than reverting a dot to
+	// older data. A new full sweep clears them (see below): it is newer still,
+	// and it covers every worker.
+	const [derivedHealth, setDerivedHealth] = useState<Record<string, RunHealth>>({});
+
+	useEffect(() => {
+		setDerivedHealth({});
+	}, [runHealthQ.dataUpdatedAt]);
+
+	// The selected worker's own run list. Also covers a webhook fire: its poll
+	// writes each fetched page into this same query, so the dot re-scores as
+	// soon as the triggered run reports an exit code.
+	useEffect(() => {
+		const runs = runsQ.data?.runs;
+		if (!selectedWorkerId || !runs) return;
+		const health = computeRunHealth(runs);
+		setDerivedHealth((prev) =>
+			prev[selectedWorkerId] === health ? prev : { ...prev, [selectedWorkerId]: health },
+		);
+	}, [selectedWorkerId, runsQ.data]);
+
+	// The cross-worker sweep scores every worker server-side while it is already
+	// paging their runs, so it lands as a batch of overrides.
+	useEffect(() => {
+		const health = crossWorkerRunsQ.data?.health;
+		if (!health) return;
+		setDerivedHealth((prev) => ({ ...prev, ...health }));
+	}, [crossWorkerRunsQ.data]);
+
+	// What the sidebar dots actually read: the last full sweep, with any fresher
+	// per-worker derivations layered on top.
+	const workerHealth = useMemo(
+		() => ({ ...(runHealthQ.data?.health ?? {}), ...derivedHealth }),
+		[runHealthQ.data, derivedHealth],
+	);
 
 	const workerNamesById = useMemo(
 		() => Object.fromEntries((workersQ.data ?? []).map((w) => [w.workerId, w.name])),
@@ -173,6 +222,8 @@ export function useWorkerData(
 		localInfoQ,
 		hasDeployScript,
 		workersQ,
+		runHealthQ,
+		workerHealth,
 		localMtimesQ,
 		runsQ,
 		crossWorkerRunsQ,
