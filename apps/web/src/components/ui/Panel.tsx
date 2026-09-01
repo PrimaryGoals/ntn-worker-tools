@@ -4,7 +4,9 @@ export function Panel({
 	headerRight,
 	children,
 }: {
-	title: string;
+	// A node rather than a string so a panel can put a tab strip where its
+	// title goes (see PanelTabs) while keeping the same header chrome.
+	title: React.ReactNode;
 	// Rendered immediately after the title text, inside the header's left
 	// group (headerRight stays pinned to the far edge).
 	titleAfter?: React.ReactNode;

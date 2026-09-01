@@ -1,4 +1,9 @@
 import type {
+	AgentHealthPayload,
+	AgentStatus,
+	AgentSessionsPayload,
+	AgentSummary,
+	AgentUsagePayload,
 	ApiError,
 	AppConfig,
 	CrossWorkerRunsPayload,
@@ -11,6 +16,7 @@ import type {
 	LogsPayload,
 	RunHealthPayload,
 	RunsPayload,
+	SessionEventsPayload,
 	SyncStatus,
 	WebhookFireResult,
 	WebhooksPayload,
@@ -226,4 +232,34 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ key }),
 		}),
+	getAgents: () => request<AgentSummary[]>("/api/agents"),
+	getAgentHealth: () => request<AgentHealthPayload>("/api/agents/health"),
+	getAgentInsights: (agentId: string, verbose = false) =>
+		request<DeployResult>(`/api/agents/${agentId}/insights${verbose ? "?verbose=1" : ""}`),
+	getAgentSessions: (agentId: string) =>
+		request<AgentSessionsPayload>(`/api/agents/${agentId}/sessions`),
+	getSessionEvents: (sessionId: string) =>
+		request<SessionEventsPayload>(`/api/sessions/${sessionId}/events`),
+	getCrossAgentSessions: (since: string) =>
+		request<AgentSessionsPayload>(
+			`/api/sessions/cross-agent?since=${encodeURIComponent(since)}`,
+		),
+	// No start/end means the API reports the current billing period.
+	setAgentStatus: (agentId: string, status: AgentStatus) =>
+		request<DeployResult>(`/api/agents/${agentId}/status`, {
+			method: "PATCH",
+			body: JSON.stringify({ status }),
+		}),
+	// null clears the limit.
+	setAgentCreditLimit: (agentId: string, creditLimit: number | null) =>
+		request<DeployResult>(`/api/agents/${agentId}/credit-limit`, {
+			method: "PATCH",
+			body: JSON.stringify({ creditLimit }),
+		}),
+	getAgentUsage: (start?: string, end?: string) =>
+		request<AgentUsagePayload>(
+			start && end
+				? `/api/agents/usage?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+				: "/api/agents/usage",
+		),
 };

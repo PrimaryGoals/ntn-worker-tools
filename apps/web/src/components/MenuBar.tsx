@@ -4,6 +4,7 @@ import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
+	leftMenu,
 	loading,
 	error,
 	spaceName,
@@ -36,6 +37,10 @@ export function MenuBar({
 	onSyncResume,
 	onSyncStateReset,
 }: {
+	// When supplied, replaces the Worker dropdown in the header's left slot.
+	// The Agents tab passes its own menu here; the rest of the header (title,
+	// workspace name, auth status) is context-independent and stays put.
+	leftMenu?: React.ReactNode;
 	loading: boolean;
 	error: Error | null;
 	// The workspace `ntn whoami` reports; null until that call resolves.
@@ -74,6 +79,7 @@ export function MenuBar({
 	const [open, setOpen] = useState(false);
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
+			{leftMenu ?? (
 			<div className="relative">
 				<button
 					type="button"
@@ -300,6 +306,7 @@ export function MenuBar({
 					</div>
 				) : null}
 			</div>
+			)}
 			<div className="flex items-center gap-3">
 				<h1 className="text-sm font-semibold">
 					{spaceName ? (
