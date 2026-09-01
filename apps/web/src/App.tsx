@@ -2,19 +2,28 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api, type ApiRequestError } from "./api";
+import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
 import { ExitCodeBadge } from "./components/ui/ExitCodeBadge";
 import { Panel } from "./components/ui/Panel";
+import { PanelTabs } from "./components/ui/PanelTabs";
 import { RefreshButton } from "./components/ui/RefreshButton";
 import { MenuBar } from "./components/MenuBar";
+import { AgentMenuBar } from "./components/AgentMenuBar";
+import { AgentsList } from "./components/AgentsList";
+import { AgentsViewModeSwitch } from "./components/AgentsViewModeSwitch";
+import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
+import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
+import { AgentStatusModal } from "./components/modals/AgentStatusModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
+import { SessionsList } from "./components/SessionsList";
 import { UsageList } from "./components/UsageList";
 import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
@@ -22,6 +31,7 @@ import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
 import { WorkerSearchBox } from "./components/WorkerSearchBox";
 import { WorkersList } from "./components/WorkersList";
 import { useCommandMutations } from "./hooks/useCommandMutations";
+import { useAgentData } from "./hooks/useAgentData";
 import { useConfigMutations } from "./hooks/useConfigMutations";
 import { useUIState } from "./hooks/useUIState";
 import { useWebhookMutations } from "./hooks/useWebhookMutations";
@@ -32,6 +42,7 @@ import {
 	formatDateTime,
 	formatDeployResult,
 	formatDuration,
+	formatSessionEvents,
 	formatSyncStatuses,
 	formatWebhookResult,
 	formatWebhookUrls,
@@ -180,8 +191,20 @@ function AppContent() {
 		setRunsViewMode,
 		workerFilter,
 		setWorkerFilter,
+		browserTab,
+		setBrowserTab,
+		agentsTabVisited,
+		setAgentsTabVisited,
+		selectedAgentId,
+		setSelectedAgentId,
+		selectedSessionId,
+		setSelectedSessionId,
+		agentsViewMode,
+		setAgentsViewMode,
 	} = useUIState();
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
+	const [agentCreditLimitOpen, setAgentCreditLimitOpen] = useState(false);
+	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
 	const {
 		deployWorker,
 		pnpmDeployWorker,
@@ -194,6 +217,8 @@ function AppContent() {
 		oauthShowRedirectUrl,
 		oauthStart,
 		oauthToken,
+		setAgentStatus,
+		setAgentCreditLimit,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,
@@ -238,6 +263,32 @@ function AppContent() {
 		syncStatusQ,
 		oauthCapabilityKey,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
+	const {
+		agentsQ,
+		agentHealthQ,
+		agentInsightsQ,
+		agentSessionsQ,
+		sessionEventsQ,
+		crossAgentSessionsQ,
+		agentUsageQ,
+	} = useAgentData(
+		selectedAgentId,
+		selectedSessionId,
+		agentsViewMode,
+		configQ.data?.timeMarker ?? null,
+		agentsTabVisited,
+	);
+	const selectedAgent = agentsQ.data?.find((a) => a.id === selectedAgentId) ?? null;
+	const agentNamesById = useMemo(
+		() => Object.fromEntries((agentsQ.data ?? []).map((a) => [a.id, a.name])),
+		[agentsQ.data],
+	);
+	// The selected session can come from either list — the per-agent one, or
+	// the cross-agent one when that view is active.
+	const selectedSession =
+		agentSessionsQ.data?.sessions.find((x) => x.id === selectedSessionId) ??
+		crossAgentSessionsQ.data?.sessions.find((x) => x.id === selectedSessionId) ??
+		null;
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
 		setLocalPath,
@@ -261,6 +312,30 @@ function AppContent() {
 		setRunsViewMode(mode);
 	}
 
+	function switchAgentsViewMode(mode: typeof agentsViewMode) {
+		clearTransientOutputs();
+		setSelectedSessionId(null);
+		setAgentsViewMode(mode);
+	}
+
+	// Workers and Agents are exclusive contexts, so leaving a tab drops that
+	// tab's selection. Without this, a leftover selectedAgentId keeps the Runs
+	// panel in session mode — and its view-mode switch hidden — until you click
+	// an individual worker.
+	function switchBrowserTab(tab: typeof browserTab) {
+		clearTransientOutputs();
+		setBrowserTab(tab);
+		// Latches the health fetch on first visit; a no-op on every later switch.
+		if (tab === "agents") setAgentsTabVisited(true);
+		if (tab === "workers") {
+			setSelectedAgentId(null);
+			setSelectedSessionId(null);
+		} else {
+			setSelectedWorkerId(null);
+			setSelectedRunId(null);
+		}
+	}
+
 	const filteredWorkers = useMemo(() => {
 		const q = workerFilter.trim().toLowerCase();
 		if (!q) return sortedWorkers;
@@ -271,6 +346,26 @@ function AppContent() {
 		<>
 		<div className="flex h-screen flex-col">
 			<MenuBar
+				leftMenu={
+					browserTab === "agents" ? (
+						<AgentMenuBar
+							agentName={selectedAgent?.name ?? null}
+							agentId={selectedAgentId}
+							onSetCreditLimit={() => {
+								setAgentCreditLimit.reset();
+								setAgentCreditLimitOpen(true);
+							}}
+							onSetStatus={() => {
+								setAgentStatus.reset();
+								setAgentStatusOpen(true);
+							}}
+							onMarkTime={() => markTime.mutate(undefined)}
+							hasTimeMarker={!!configQ.data?.timeMarker}
+							onClearTimeMarker={() => clearTimeMarker.mutate()}
+							onAdjustTimeMarker={openAdjustTimeMarker}
+						/>
+					) : undefined
+				}
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
@@ -421,20 +516,85 @@ function AppContent() {
 						<RPanel defaultSize={persistedPanelSizes.workersRuns ?? 30} minSize={15}>
 							<div className="h-full p-2">
 								<Panel
-									title="Workers"
-									titleAfter={
-										<RefreshButton
-											title="Refresh success rate"
-											spinning={runHealthQ.isFetching}
-											onClick={() => runHealthQ.refetch()}
+									title={
+										<PanelTabs
+											tabs={[
+												{
+													id: "workers" as const,
+													label: "Workers",
+													// Each tab carries its own refresh, scoped to that
+													// tab's health sweep. Clicking one also moves you to
+													// that tab — refreshing a view you can't see would
+													// be a no-op from the user's side.
+													after: (
+														<RefreshButton
+															title="Refresh worker health"
+															spinning={runHealthQ.isFetching}
+															onClick={() => {
+																// Only switch when needed: switchBrowserTab
+																// clears the output panel, which would be a
+																// surprising side effect of a refresh click.
+																if (browserTab !== "workers") switchBrowserTab("workers");
+																runHealthQ.refetch();
+															}}
+														/>
+													),
+												},
+												{
+													id: "agents" as const,
+													label: "Agents",
+													after: (
+														<RefreshButton
+															title="Refresh agent health"
+															spinning={agentHealthQ.isFetching || agentsQ.isFetching}
+															onClick={() => {
+																const firstVisit = !agentsTabVisited;
+																if (browserTab !== "agents") switchBrowserTab("agents");
+																// On the very first visit switchBrowserTab latches
+																// the health query on and it fetches by itself;
+																// refetching too would just double the sweep.
+																if (!firstVisit) {
+																	agentsQ.refetch();
+																	agentHealthQ.refetch();
+																}
+															}}
+														/>
+													),
+												},
+											]}
+											active={browserTab}
+											onChange={switchBrowserTab}
 										/>
 									}
 									headerRight={
-										sortedWorkers.length > 10 ? (
+										browserTab === "workers" && sortedWorkers.length > 10 ? (
 											<WorkerSearchBox value={workerFilter} onChange={setWorkerFilter} />
 										) : null
 									}
 								>
+									{browserTab === "agents" ? (
+										<AgentsList
+											loading={agentsQ.isLoading}
+											error={agentsQ.error as Error | null}
+											agents={agentsQ.data ?? []}
+											selectedId={selectedAgentId}
+											health={agentHealthQ.data?.health ?? {}}
+											onSelect={(id) => {
+												// Exclusive with the worker context: picking an
+												// agent drops the worker selection, so worker-scoped
+												// chrome (Worker menu, webhook line) goes inert.
+												setSelectedAgentId(id);
+												setSelectedSessionId(null);
+												setSelectedWorkerId(null);
+												setSelectedRunId(null);
+												// Picking a specific agent means you want that
+												// agent's sessions, not the cross-agent or usage
+												// view you may have been looking at.
+												setAgentsViewMode("agent");
+												clearTransientOutputs();
+											}}
+										/>
+									) : (
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
@@ -448,11 +608,14 @@ function AppContent() {
 										onSelect={(id) => {
 											setSelectedWorkerId(id);
 											setSelectedRunId(null);
+											setSelectedAgentId(null);
+											setSelectedSessionId(null);
 											setRunsViewMode("worker");
 											clearTransientOutputs();
 										}}
 										onRevealPath={(id) => revealWorker.mutate(id)}
 									/>
+									)}
 								</Panel>
 							</div>
 						</RPanel>
@@ -460,17 +623,64 @@ function AppContent() {
 						<RPanel defaultSize={100 - (persistedPanelSizes.workersRuns ?? 30)} minSize={30}>
 							<div className="h-full p-2">
 								<Panel
-									title="Runs"
+									title={browserTab === "agents" ? "Sessions" : "Runs"}
 									headerRight={
-										<RunsViewModeSwitch
-											mode={runsViewMode}
-											onModeChange={switchRunsViewMode}
-											markerTime={configQ.data?.timeMarker ?? null}
-											onAdjustTimeMarker={openAdjustTimeMarker}
-										/>
+										// Each tab gets its own switch: the two sets of metrics
+										// don't merge (agents have no CPU/duration/network, workers
+										// have no credit limit or pause reason), so they stay apart.
+										browserTab === "agents" ? (
+											<AgentsViewModeSwitch
+												mode={agentsViewMode}
+												onModeChange={switchAgentsViewMode}
+												markerTime={configQ.data?.timeMarker ?? null}
+												onAdjustTimeMarker={openAdjustTimeMarker}
+											/>
+										) : (
+											<RunsViewModeSwitch
+												mode={runsViewMode}
+												onModeChange={switchRunsViewMode}
+												markerTime={configQ.data?.timeMarker ?? null}
+												onAdjustTimeMarker={openAdjustTimeMarker}
+											/>
+										)
 									}
 								>
-									{runsViewMode === "usage" ? (
+									{browserTab === "agents" ? (
+										agentsViewMode === "usage" ? (
+											<AgentUsageList
+												loading={agentUsageQ.isLoading}
+												error={agentUsageQ.error as Error | null}
+												usages={agentUsageQ.data?.usages ?? []}
+												windowStart={agentUsageQ.data?.windowStart ?? null}
+												windowEnd={agentUsageQ.data?.windowEnd ?? null}
+											/>
+										) : agentsViewMode === "crossAgent" ? (
+											<SessionsList
+												loading={crossAgentSessionsQ.isLoading}
+												error={crossAgentSessionsQ.error as Error | null}
+												sessions={crossAgentSessionsQ.data?.sessions ?? []}
+												hasMore={crossAgentSessionsQ.data?.hasMore ?? false}
+												selectedId={selectedSessionId}
+												agentNames={agentNamesById}
+												onSelect={(id) =>
+													setSelectedSessionId((prev) => (prev === id ? null : id))
+												}
+											/>
+										) : !selectedAgentId ? (
+											<BrandingSplash />
+										) : (
+											<SessionsList
+												loading={agentSessionsQ.isLoading}
+												error={agentSessionsQ.error as Error | null}
+												sessions={agentSessionsQ.data?.sessions ?? []}
+												hasMore={agentSessionsQ.data?.hasMore ?? false}
+												selectedId={selectedSessionId}
+												onSelect={(id) =>
+													setSelectedSessionId((prev) => (prev === id ? null : id))
+												}
+											/>
+										)
+									) : runsViewMode === "usage" ? (
 										<UsageList
 											loading={crossWorkerUsageQ.isLoading}
 											error={crossWorkerUsageQ.error as Error | null}
@@ -509,6 +719,22 @@ function AppContent() {
 					<div className="flex h-full flex-col">
 			<div className="flex gap-4 border-b border-neutral-200 bg-neutral-100 px-3 py-2 text-sm dark:border-neutral-800 dark:bg-neutral-900">
 				<div className="flex flex-1 flex-col gap-1">
+					{selectedAgent ? (
+						<div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+							<span className="font-medium">{selectedAgent.name}</span>
+							<a
+								href={agentDefinitionUrl(selectedAgent.id)}
+								target="_blank"
+								rel="noopener noreferrer"
+								className="text-blue-600 underline hover:no-underline dark:text-blue-400"
+							>
+								Open agent definition ↗
+							</a>
+							{selectedAgent.description ? (
+								<span className="text-neutral-500">{selectedAgent.description}</span>
+							) : null}
+						</div>
+					) : null}
 					{selectedWorkerId ? (
 						<WebhookLine
 							loading={webhooksQ.isLoading}
@@ -560,9 +786,42 @@ function AppContent() {
 									{formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
 								</span>
 							</>
+						) : selectedSession ? (
+							<>
+								<span className="font-mono text-xs text-neutral-500">{selectedSession.id}</span>
+								<span>
+									<span className="text-neutral-500">Trigger:</span>{" "}
+									{selectedSession.triggerType}
+								</span>
+								<span>
+									<span className="text-neutral-500">Status:</span> {selectedSession.status}
+									{selectedSession.agentReportedFailure ? " (agent reported failure)" : ""}
+								</span>
+								<span>
+									<span className="text-neutral-500">Credits:</span>{" "}
+									{selectedSession.creditsUsed}
+								</span>
+								<span>
+									<span className="text-neutral-500">Started:</span>{" "}
+									{formatDateTime(selectedSession.createdAt)}
+								</span>
+								<span>
+									<span className="text-neutral-500">Duration:</span>{" "}
+									{formatDuration(selectedSession.createdAt, selectedSession.updatedAt)}
+								</span>
+								{selectedSession.error ? (
+									<span className="text-red-600 dark:text-red-400">
+										{selectedSession.error.code}: {selectedSession.error.message}
+									</span>
+								) : null}
+							</>
 						) : (
 							<span className="text-neutral-500">
-								{selectedWorkerId ? "Select a run to see its details." : "Select a worker."}
+								{selectedAgentId
+									? "Select a session to see its transcript."
+									: selectedWorkerId
+										? "Select a run to see its details."
+										: "Select a worker or an agent."}
 							</span>
 						)}
 					</div>
@@ -649,6 +908,37 @@ function AppContent() {
 							</>
 						}
 					/>
+				) : selectedSessionId ? (
+					sessionEventsQ.isLoading ? (
+						<div className="p-3 text-sm text-neutral-400">Fetching session transcript…</div>
+					) : sessionEventsQ.error ? (
+						<div className="p-3 text-sm text-red-400">
+							{(sessionEventsQ.error as Error).message}
+						</div>
+					) : (
+						<OutputWithCommands
+							commands={[
+								ntnCmd(["api", `/v1/sessions/${selectedSessionId}/events/query`, "-d", "{}"]),
+							]}
+							body={formatSessionEvents(
+								sessionEventsQ.data?.events ?? [],
+								sessionEventsQ.data?.hasMore ?? false,
+							)}
+						/>
+					)
+				) : selectedAgentId ? (
+					agentInsightsQ.isLoading ? (
+						<div className="p-3 text-sm text-neutral-400">Running ntn api agents insights…</div>
+					) : agentInsightsQ.error ? (
+						<div className="p-3 text-sm text-red-400">
+							{(agentInsightsQ.error as Error).message}
+						</div>
+					) : agentInsightsQ.data ? (
+						<OutputWithCommands
+							commands={[agentInsightsQ.data.command]}
+							body={formatDeployResult(agentInsightsQ.data)}
+						/>
+					) : null
 				) : selectedRunId ? (
 					logsQ.isLoading ? (
 						<div className="p-3 text-sm text-neutral-400">Fetching logs…</div>
@@ -891,6 +1181,45 @@ function AppContent() {
 						qc.invalidateQueries({ queryKey: ["workers"] });
 						qc.invalidateQueries({ queryKey: ["config"] });
 						qc.invalidateQueries({ queryKey: ["localMtimes"] });
+					}}
+				/>
+			) : null}
+			{agentCreditLimitOpen && selectedAgent ? (
+				<AgentCreditLimitModal
+					agentName={selectedAgent.name}
+					currentLimit={selectedAgent.creditLimit}
+					submitting={setAgentCreditLimit.isPending}
+					error={setAgentCreditLimit.error as Error | null}
+					onClose={() => {
+						setAgentCreditLimitOpen(false);
+						setAgentCreditLimit.reset();
+					}}
+					onSubmit={(creditLimit) => {
+						clearTransientOutputs();
+						setAgentCreditLimit.mutate(
+							{ agentId: selectedAgent.id, creditLimit },
+							{ onSuccess: () => setAgentCreditLimitOpen(false) },
+						);
+					}}
+				/>
+			) : null}
+			{agentStatusOpen && selectedAgent ? (
+				<AgentStatusModal
+					agentName={selectedAgent.name}
+					currentStatus={selectedAgent.status}
+					pauseReason={selectedAgent.pauseReason}
+					submitting={setAgentStatus.isPending}
+					error={setAgentStatus.error as Error | null}
+					onClose={() => {
+						setAgentStatusOpen(false);
+						setAgentStatus.reset();
+					}}
+					onSubmit={(status) => {
+						clearTransientOutputs();
+						setAgentStatus.mutate(
+							{ agentId: selectedAgent.id, status },
+							{ onSuccess: () => setAgentStatusOpen(false) },
+						);
 					}}
 				/>
 			) : null}

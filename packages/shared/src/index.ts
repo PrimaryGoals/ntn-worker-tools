@@ -54,9 +54,10 @@ export interface RunHealthPayload {
 }
 
 // How many recent runs a health score looks at, and the cutoff between the
-// "recent" window (orange) and the older half (yellow).
-export const RUN_HEALTH_WINDOW = 10;
-const RECENT_WINDOW = 5;
+// "recent" window and the older half. Position 1 is red on its own, so
+// RECENT_WINDOW = 3 means orange covers positions 2-3 and yellow the rest.
+export const RUN_HEALTH_WINDOW = 5;
+const RECENT_WINDOW = 3;
 
 // Scores a worker's runs into a single traffic-light value. Lives here rather
 // than in either app because both score the same runs: the server sweeps every
@@ -67,15 +68,28 @@ const RECENT_WINDOW = 5;
 // the first RUN_HEALTH_WINDOW are considered, and in-flight runs (null exit
 // code) are dropped from those, so the positions below count completed runs:
 //   red    - the most recent completed run failed
-//   orange - the newest failure sits in positions 2-5
-//   yellow - the newest failure sits in positions 6-10
+//   orange - the newest failure sits in positions 2-3
+//   yellow - the newest failure sits in positions 4-5
 //   green  - nothing failed in the window
 //   none   - no completed runs in the window
 // Any non-zero exit code counts as a failure, not just 1.
 export function computeRunHealth(runs: Run[]): RunHealth {
-	const completed = runs.slice(0, RUN_HEALTH_WINDOW).filter((run) => run.exitCode != null);
+	// Any non-zero exit code is a failure; a null exit code means still running.
+	return scoreHealth(
+		runs.map((run) => (run.exitCode == null ? "pending" : run.exitCode === 0 ? "ok" : "failed")),
+	);
+}
+
+// One execution's outcome, reduced to what scoring cares about. "pending" is
+// dropped from the window rather than counted either way.
+export type HealthOutcome = "ok" | "failed" | "pending";
+
+// The scoring itself, shared by workers and agents so the two can never drift
+// apart when these thresholds change. Takes outcomes newest-first.
+export function scoreHealth(outcomes: HealthOutcome[]): RunHealth {
+	const completed = outcomes.slice(0, RUN_HEALTH_WINDOW).filter((o) => o !== "pending");
 	if (completed.length === 0) return "none";
-	const newestFailure = completed.findIndex((run) => run.exitCode !== 0);
+	const newestFailure = completed.indexOf("failed");
 	if (newestFailure === -1) return "green";
 	if (newestFailure === 0) return "red";
 	return newestFailure < RECENT_WINDOW ? "orange" : "yellow";
@@ -321,4 +335,148 @@ export interface ApiError {
 	folderWorkerId?: string;
 	folderWorkerName?: string;
 	selectedWorkerId?: string;
+}
+
+export interface AgentSummary {
+	id: string;
+	name: string;
+	description: string | null;
+	agentType: string;
+	// "active" | "disabled" | "deleted"
+	status: string;
+	// The pinned model id, or "auto" when the agent picks per run.
+	model: string;
+	versionNumber: number;
+	lastRunAt: string | null;
+	createdTime: string;
+	// Both come back on the query response, so the list shows them without a
+	// second call. creditLimit is a number, null when unset, or the literal
+	// "hidden" when the token lacks full access to the agent.
+	creditLimit: number | "hidden" | null;
+	pauseReason: string | null;
+	// An agent can be `status: "active"` with every trigger disabled, which
+	// means it can never fire on its own. Both counts are kept so the list
+	// can say so.
+	triggerCount: number;
+	enabledTriggerCount: number;
+}
+
+// One execution of an agent — the closest analogue to a worker Run.
+export interface AgentSession {
+	id: string;
+	agentId: string;
+	// "queued" | "in_progress" | "requires_action" | "completed" | "failed"
+	// | "canceled" | "terminated"
+	status: string;
+	triggerType: string;
+	title: string;
+	createdAt: string;
+	updatedAt: string;
+	messageCount: number;
+	toolCallCount: number;
+	creditsUsed: number;
+	// Null on some failed sessions — the run never completed enough to count.
+	runsCompleted: number | null;
+	typeLabels: string[];
+	toolTypes: string[];
+	// Present only when status is "failed" — an infrastructure-level failure
+	// (rate limit, inference error) that the platform itself recorded.
+	error?: { code: string; message: string; retryable: boolean };
+	// True when the agent called markSessionFailed. This is the *other*
+	// failure mode: the session still reports status "completed", so this is
+	// the only signal that the agent's own work didn't land.
+	agentReportedFailure: boolean;
+}
+
+// The only two values PATCH /v1/agents/{id}/status accepts. "deleted" appears
+// in an agent's status field but cannot be set through this endpoint.
+export const AGENT_STATUS_VALUES = ["active", "disabled"] as const;
+export type AgentStatus = (typeof AGENT_STATUS_VALUES)[number];
+
+// Scores an agent's sessions with the exact same rules as worker runs, via
+// scoreHealth. Sessions must be newest-first, as the API returns them.
+//
+// Mapping sessions onto outcomes takes two judgement calls, both deliberate:
+//   - A session the agent itself abandoned (markSessionFailed) counts as a
+//     failure even though its status stays "completed" — otherwise the most
+//     common agent failure would score green.
+//   - "canceled" counts as ok, not a failure: it means somebody stopped the
+//     session on purpose. "terminated" counts as a failure.
+export function computeAgentHealth(sessions: AgentSession[]): RunHealth {
+	return scoreHealth(
+		sessions.map((s) => {
+			if (s.status === "queued" || s.status === "in_progress" || s.status === "requires_action") {
+				return "pending";
+			}
+			if (s.status === "failed" || s.status === "terminated" || s.agentReportedFailure) {
+				return "failed";
+			}
+			return "ok";
+		}),
+	);
+}
+
+export interface AgentHealthPayload {
+	// agentId -> health. Every visible agent gets an entry.
+	health: Record<string, RunHealth>;
+}
+
+export interface AgentSessionsPayload {
+	sessions: AgentSession[];
+	// The API caps a page at 100 and we don't auto-page; true means there are
+	// older sessions this list isn't showing.
+	hasMore: boolean;
+}
+
+// One entry in a session transcript.
+export interface SessionEvent {
+	sequence: number;
+	// "user.message" | "agent.message" | "agent.thinking" | "agent.tool_use"
+	// | "agent.tool_result" | "session.status"
+	type: string;
+	createdAt: string;
+	toolName?: string;
+	// Set on tool_result events. Note the API exposes no error text alongside
+	// it — a failed tool call is detectable but not diagnosable.
+	isError?: boolean;
+	status?: string;
+	// Flattened message text. Only message events carry content; tool_use and
+	// tool_result events expose neither arguments nor results.
+	text?: string;
+	// Per-message model, which can differ from the session's reported model.
+	model?: string;
+}
+
+export interface SessionEventsPayload {
+	events: SessionEvent[];
+	hasMore: boolean;
+}
+
+// Per-agent usage, from GET /v1/agents/{id}/insights. Deliberately NOT merged
+// with WorkerUsage: the only metric the two share is credits — agents have no
+// sandbox count, CPU, wall duration, or network bytes, and workers have no
+// credit limit or pause reason.
+export interface AgentUsage {
+	agentId: string;
+	agentName: string;
+	// Both figures cover the requested window only.
+	runsCompleted: number;
+	totalCreditsUsed: number;
+	// A number, null when no limit is set, or the literal "hidden" when the
+	// calling token lacks full access to the agent.
+	creditLimit: number | "hidden" | null;
+	status: string;
+	// Why the agent is paused, when it is. Several values are quota-driven
+	// (run_limit, credit_limit, runaway_credit_usage, workspace_credit_limit,
+	// failure_limit, mark_session_failed_autopause), which is why this belongs
+	// in the usage view rather than only on the agent record.
+	pauseReason: string | null;
+}
+
+export interface AgentUsagePayload {
+	usages: AgentUsage[];
+	// Echoes the window the figures cover. Null bounds mean no explicit window
+	// was requested, so the API used the current billing period.
+	windowStart: string | null;
+	windowEnd: string | null;
 }

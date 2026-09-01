@@ -1,5 +1,6 @@
 import type {
 	DeployResult,
+	SessionEvent,
 	SyncStatus,
 	WebhookEntry,
 	WebhookFireResult,
@@ -290,4 +291,38 @@ export function friendlySetPathError(
 		return new Error("This is not a worker folder");
 	}
 	return err;
+}
+
+// Renders a session transcript as plain text for the output panel, mirroring
+// how formatSyncStatuses shapes CLI JSON client-side.
+//
+// Only message events carry text: the API exposes neither tool arguments nor
+// tool results, so a tool call shows as its name plus, on failure, a bare
+// ERROR marker with no reason attached. That is a limitation of the endpoint,
+// not of this formatter.
+export function formatSessionEvents(events: SessionEvent[], hasMore: boolean): string {
+	if (events.length === 0) {
+		return "(no events — the session recorded no transcript)";
+	}
+	const lines: string[] = [];
+	for (const e of events) {
+		const time = e.createdAt.slice(11, 19);
+		const label = e.type.replace("agent.", "").replace("session.", "");
+		const head = `${String(e.sequence).padStart(3)} ${time}  ${label.padEnd(12)}`;
+		if (e.type === "agent.tool_use") {
+			lines.push(`${head}${e.toolName ?? ""}`);
+		} else if (e.type === "agent.tool_result") {
+			lines.push(`${head}${e.toolName ?? ""}${e.isError ? "   *** ERROR (no detail available)" : ""}`);
+		} else if (e.type === "session.status") {
+			lines.push(`${head}${e.status ?? ""}`);
+		} else {
+			lines.push(`${head}${e.model ? `[${e.model}]` : ""}`);
+			const body = (e.text ?? "").trim();
+			// Indent wrapped message text under its header so the sequence
+			// column stays scannable.
+			if (body) for (const line of body.split("\n")) lines.push(`         ${line}`);
+		}
+	}
+	if (hasMore) lines.push("", "Showing the first 100 events — this session has more.");
+	return lines.join("\n");
 }

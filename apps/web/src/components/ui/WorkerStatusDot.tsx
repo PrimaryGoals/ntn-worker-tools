@@ -4,9 +4,9 @@ import type { RunHealth } from "@ntn-worker-tools/shared";
 // computeRunHealth on the server, which decides which value a worker gets.
 const DOT: Record<RunHealth, { fill: string; label: string }> = {
 	red: { fill: "bg-red-600", label: "Most recent run failed" },
-	orange: { fill: "bg-orange-500", label: "A run failed within the last 5 runs" },
-	yellow: { fill: "bg-yellow-400", label: "A run failed 6-10 runs ago" },
-	green: { fill: "bg-emerald-500", label: "No failures in the last 10 runs" },
+	orange: { fill: "bg-orange-500", label: "A run failed 2-3 runs ago" },
+	yellow: { fill: "bg-yellow-400", label: "A run failed 4-5 runs ago" },
+	green: { fill: "bg-emerald-500", label: "No failures in the last 5 runs" },
 	none: { fill: "bg-white dark:bg-neutral-50", label: "No runs yet" },
 	// Grey, not hollow: an unread/unreadable worker has to stay distinct from
 	// the white "never ran" dot. Also the state before the first refresh lands.

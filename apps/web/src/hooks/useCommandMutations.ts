@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { DeployResult } from "@ntn-worker-tools/shared";
+import type { AgentStatus, DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import { formatSyncStatuses, ntnCmd } from "../format";
 
@@ -145,6 +145,24 @@ export function useCommandMutations(
 			api.oauthToken(workerId, key, verboseLogs),
 		onSuccess: (data) => setDeployResult(data),
 	});
+	const setAgentStatus = useMutation({
+		mutationFn: ({ agentId, status }: { agentId: string; status: AgentStatus }) =>
+			api.setAgentStatus(agentId, status),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["agents"] });
+			qc.invalidateQueries({ queryKey: ["agentUsage"] });
+		},
+	});
+	const setAgentCreditLimit = useMutation({
+		mutationFn: ({ agentId, creditLimit }: { agentId: string; creditLimit: number | null }) =>
+			api.setAgentCreditLimit(agentId, creditLimit),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["agents"] });
+			qc.invalidateQueries({ queryKey: ["agentUsage"] });
+		},
+	});
 
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
@@ -168,7 +186,11 @@ export function useCommandMutations(
 											? "ntn workers oauth start"
 											: oauthToken.isPending
 												? "ntn workers oauth token"
-												: null;
+												: setAgentStatus.isPending
+													? "ntn api /v1/agents/{id}/status"
+													: setAgentCreditLimit.isPending
+														? "ntn api /v1/agents/{id}/credit_limit"
+														: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
@@ -180,7 +202,9 @@ export function useCommandMutations(
 		(syncStateReset.error as Error | null) ??
 		(oauthShowRedirectUrl.error as Error | null) ??
 		(oauthStart.error as Error | null) ??
-		(oauthToken.error as Error | null);
+		(oauthToken.error as Error | null) ??
+		(setAgentStatus.error as Error | null) ??
+		(setAgentCreditLimit.error as Error | null);
 
 	function resetAll() {
 		followupTokenRef.current++;
@@ -197,6 +221,8 @@ export function useCommandMutations(
 		oauthShowRedirectUrl.reset();
 		oauthStart.reset();
 		oauthToken.reset();
+		setAgentStatus.reset();
+		setAgentCreditLimit.reset();
 	}
 
 	return {
@@ -211,6 +237,8 @@ export function useCommandMutations(
 		oauthShowRedirectUrl,
 		oauthStart,
 		oauthToken,
+		setAgentStatus,
+		setAgentCreditLimit,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,
