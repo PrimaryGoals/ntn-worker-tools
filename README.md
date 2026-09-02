@@ -13,7 +13,7 @@ Status: **Feature Complete.** Ready for external testing.
 ## Prerequisites
 
 - Node.js >= 22
-- pnpm >= 11 (repo pins `pnpm@11.18.0` via `packageManager`)
+- pnpm >= 11 (repo pins `pnpm@11.25.0` via `packageManager`)
 - The `ntn` CLI installed and on your `PATH` (`ntn --version` should work from a terminal)
 - At least one Notion Workers on your Notion workspace
 
@@ -45,10 +45,10 @@ Then close and reopen PowerShell.
 
 ### 2. Install pnpm
 
-Node 25+ no longer bundles Corepack, so install pnpm directly with npm (which ships with Node):
+Install pnpm with npm, which ships with Node:
 
 ```bash
-npm install -g pnpm@11.18.0
+npm install -g pnpm@11.25.0
 ```
 
 Verify:
@@ -57,9 +57,13 @@ Verify:
 pnpm --version
 ```
 
-Should print `11.18.0`.
+Should print `11.25.0`.
 
-> If you are on Node <= 24, you can alternatively use Corepack: `corepack enable; corepack prepare pnpm@11.18.0 --activate`. Corepack reads the pinned version from `packageManager` in `package.json` automatically.
+> This repo pins its pnpm version in `packageManager` (`package.json`), and pnpm
+> reads that field and self-manages. Inside the project directory
+> `pnpm --version` therefore reports the pinned version rather than the one you
+> installed globally — that is expected, and it means every contributor runs the
+> same pnpm no matter how they installed it.
 
 ### 3. Clone and install dependencies
 
