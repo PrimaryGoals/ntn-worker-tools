@@ -11,14 +11,10 @@ import type {
 	Worker,
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
+import { SCAN_IGNORED_DIR_NAMES } from "../scan-ignore.js";
 import { isVerbose } from "../route-helpers.js";
 import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
-// Directories skipped when scanning for the latest mtime — dependency/build
-// output churns constantly (installs, rebuilds) and isn't "local source
-// changed since deploy", so including it would make every worker look
-// perpetually out of date.
-const SCAN_IGNORED_DIR_NAMES = new Set(["node_modules", "dist", "build", "coverage", "out"]);
 
 // Recursively finds the most recent "code" file mtime under `dir` (used
 // against workerLastCodeDeployAt) and, separately, .env's own mtime (used
@@ -265,7 +261,12 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
-	app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+	// `assumeYes` maps to `ntn workers deploy --yes`, which skips the prompt
+	// shown for a worker with linked databases. That prompt is the checkpoint
+	// before a managed-database schema migration, and it can never be answered
+	// here (the CLI is always spawned non-interactively), so the caller has to
+	// decide deliberately — it is never assumed.
+	app.post<{ Params: { id: string }; Querystring: { verbose?: string; yes?: string } }>(
 		"/api/workers/:id/deploy",
 		async (req, reply): Promise<DeployResult> => {
 			const path = getConfig().workerLocalPaths?.[req.params.id];
@@ -275,6 +276,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 			}
 			const args = ["workers", "deploy", "--json"];
+			if (isVerbose(req.query.yes)) args.push("--yes");
 			const verbose = isVerbose(req.query.verbose);
 			if (verbose) args.push("-v");
 			const { exitCode, stdout, stderr, durationMs } = await runNtnRawAllowingFailure(args, {
@@ -387,7 +389,10 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
-	app.post<{ Params: { id: string } }>(
+	// A project's deploy script decides for itself what `--yes` means; this
+	// forwards it after `--` so the script sees it in argv, and sends nothing
+	// at all unless the caller asked.
+	app.post<{ Params: { id: string }; Querystring: { yes?: string } }>(
 		"/api/workers/:id/pnpm-deploy",
 		async (req, reply): Promise<DeployResult> => {
 			const path = getConfig().workerLocalPaths?.[req.params.id];
@@ -396,7 +401,13 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 			}
-			const result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+			const args = ["run", "deploy"];
+			// pnpm forwards a flag placed after the script name straight into the
+			// script's argv. A `--` separator would be forwarded literally too
+			// (verified on pnpm 11.25.0), leaving a stray argument a strict script
+			// could reject — so pass the flag on its own.
+			if (isVerbose(req.query.yes)) args.push("--yes");
+			const result = await runShellAllowingFailure("pnpm", args, {
 				cwd: path,
 				shell: true,
 			});
@@ -509,7 +520,16 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	// thing before showing anything left the modal looking frozen.
 	app.post<{
 		Body: {
-			actions?: Array<{ workerId?: string; name?: string; redeploy?: boolean; pushSecrets?: boolean }>;
+			actions?: Array<{
+			workerId?: string;
+			name?: string;
+			redeploy?: boolean;
+			pushSecrets?: boolean;
+			// Send `--yes` with this worker's deploy. The client sets it for a
+			// worker that declares a sync, whose managed database `ntn` always
+			// stops to confirm — a stop nothing here can answer.
+			assumeYes?: boolean;
+		}>;
 		};
 		Querystring: { verbose?: string };
 	}>(
@@ -523,7 +543,15 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			}
 			const actions = rawActions
 				.filter(
-					(a): a is { workerId: string; name?: string; redeploy?: boolean; pushSecrets?: boolean } =>
+					(
+					a,
+					): a is {
+						workerId: string;
+						name?: string;
+						redeploy?: boolean;
+						pushSecrets?: boolean;
+						assumeYes?: boolean;
+					} =>
 						typeof a.workerId === "string" && !!a.workerId && (!!a.redeploy || !!a.pushSecrets),
 				)
 				.map((a) => ({ ...a, label: a.name?.trim() || a.workerId }));
@@ -569,13 +597,16 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 
 					let result;
 					if (hasDeployScript) {
-						result = await runShellAllowingFailure("pnpm", ["run", "deploy"], {
+						const pnpmArgs = ["run", "deploy"];
+						if (action.assumeYes) pnpmArgs.push("--yes");
+						result = await runShellAllowingFailure("pnpm", pnpmArgs, {
 							cwd: path,
 							shell: true,
 						});
 						send({ type: "chunk", text: `Command: ${result.command}` });
 					} else {
 						const args = ["workers", "deploy", "--json"];
+						if (action.assumeYes) args.push("--yes");
 						if (verbose) args.push("-v");
 						result = await runNtnRawAllowingFailure(args, { cwd: path });
 						send({ type: "chunk", text: `Command: ntn ${args.join(" ")}` });

@@ -17,10 +17,12 @@ import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
 import { AgentStatusModal } from "./components/modals/AgentStatusModal";
+import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
+import { SyncScheduleModal } from "./components/modals/SyncScheduleModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
 import { SessionsList } from "./components/SessionsList";
@@ -187,6 +189,10 @@ function AppContent() {
 		setDeployNewWorkerOpen,
 		deployUpdatedWorkersOpen,
 		setDeployUpdatedWorkersOpen,
+		syncScheduleOpen,
+		setSyncScheduleOpen,
+		deployConfirmKind,
+		setDeployConfirmKind,
 		runsViewMode,
 		setRunsViewMode,
 		workerFilter,
@@ -258,6 +264,8 @@ function AppContent() {
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		syncSchedulesQ,
+		syncWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,
@@ -399,25 +407,11 @@ function AppContent() {
 				}}
 				onNtnDeploy={() => {
 					if (!selectedWorkerId || !localPath) return;
-					if (
-						window.confirm(
-							`Deploy from ${localPath}?\nThis runs \`ntn workers deploy\` and pushes local changes to Notion.`,
-						)
-					) {
-						clearTransientOutputs();
-						deployWorker.mutate(selectedWorkerId);
-					}
+					setDeployConfirmKind("ntn");
 				}}
 				onPnpmDeploy={() => {
 					if (!selectedWorkerId || !localPath) return;
-					if (
-						window.confirm(
-							`Run \`pnpm run deploy\` in ${localPath}?\nThis executes whatever the project's package.json defines under scripts.deploy.`,
-						)
-					) {
-						clearTransientOutputs();
-						pnpmDeployWorker.mutate(selectedWorkerId);
-					}
+					setDeployConfirmKind("pnpm");
 				}}
 				onDeployUpdatedWorkers={() => setDeployUpdatedWorkersOpen(true)}
 				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
@@ -496,6 +490,10 @@ function AppContent() {
 						clearTransientOutputs();
 						syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
 					}
+				}}
+				onUpdatePollingInterval={() => {
+					if (!selectedWorkerId || !localPath) return;
+					setSyncScheduleOpen(true);
 				}}
 			/>
 
@@ -602,6 +600,7 @@ function AppContent() {
 										selectedId={selectedWorkerId}
 										runHealth={workerHealth}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
+									syncSchedules={syncSchedulesQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										filtered={!!workerFilter.trim()}
@@ -1147,9 +1146,66 @@ function AppContent() {
 						if (!selectedWorkerId) return;
 						clearTransientOutputs();
 						if (hasDeployScript) {
-							pnpmDeployWorker.mutate(selectedWorkerId);
+							pnpmDeployWorker.mutate({ workerId: selectedWorkerId });
 						} else {
-							deployWorker.mutate(selectedWorkerId);
+							deployWorker.mutate({ workerId: selectedWorkerId });
+						}
+					}}
+				/>
+			) : null}
+			{syncScheduleOpen && selectedWorkerId ? (
+				<SyncScheduleModal
+					workerId={selectedWorkerId}
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					syncStatuses={syncStatusQ.data?.statuses ?? []}
+					creditsPerExecution={
+						workerUsageQ.data && workerUsageQ.data.usage.sandboxCount > 0
+							? workerUsageQ.data.usage.credits / workerUsageQ.data.usage.sandboxCount
+							: null
+					}
+					hasDeployScript={hasDeployScript}
+					deploying={deployWorker.isPending || pnpmDeployWorker.isPending}
+					onClose={() => setSyncScheduleOpen(false)}
+					onSaved={(result) => {
+						clearTransientOutputs();
+						setDeployResult(result);
+						// The edit changes source mtimes, which drives the
+						// "code out of date" flag and the deploy-updated-workers list,
+						// and the intervals shown beside each worker's name.
+						qc.invalidateQueries({ queryKey: ["localMtimes"] });
+						qc.invalidateQueries({ queryKey: ["allSyncSchedules"] });
+					}}
+					onDeploy={() => {
+						if (!selectedWorkerId) return;
+						clearTransientOutputs();
+						if (hasDeployScript) {
+							pnpmDeployWorker.mutate({ workerId: selectedWorkerId, assumeYes: isSyncWorker });
+						} else {
+							deployWorker.mutate({ workerId: selectedWorkerId, assumeYes: isSyncWorker });
+						}
+					}}
+				/>
+			) : null}
+			{deployConfirmKind && selectedWorkerId && localPath ? (
+				<DeployConfirmModal
+					kind={deployConfirmKind}
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					localPath={localPath}
+					isSyncWorker={isSyncWorker}
+					submitting={deployWorker.isPending || pnpmDeployWorker.isPending}
+					onClose={() => setDeployConfirmKind(null)}
+					onConfirm={() => {
+						const kind = deployConfirmKind;
+						setDeployConfirmKind(null);
+						clearTransientOutputs();
+						if (kind === "pnpm") {
+							pnpmDeployWorker.mutate({ workerId: selectedWorkerId, assumeYes: isSyncWorker });
+						} else {
+							deployWorker.mutate({ workerId: selectedWorkerId, assumeYes: isSyncWorker });
 						}
 					}}
 				/>
@@ -1173,6 +1229,7 @@ function AppContent() {
 					localPaths={configQ.data?.workerLocalPaths ?? {}}
 					codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 					envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+					syncWorkerIds={syncWorkerIds}
 					verbose={verboseLogs}
 					onClose={() => setDeployUpdatedWorkersOpen(false)}
 					onFinished={(result) => {

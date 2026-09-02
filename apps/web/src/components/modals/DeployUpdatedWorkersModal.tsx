@@ -23,6 +23,7 @@ export function DeployUpdatedWorkersModal({
 	localPaths,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
+	syncWorkerIds,
 	verbose,
 	onClose,
 	onFinished,
@@ -31,6 +32,11 @@ export function DeployUpdatedWorkersModal({
 	localPaths: Record<string, string>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
+	// Workers whose local source declares a `worker.sync()`. Their managed
+	// database makes `ntn` stop for confirmation on every deploy, and that stop
+	// can't be answered from here — so their deploy carries `--yes` or it can
+	// only fail. Not a per-worker choice, just a fact about the worker.
+	syncWorkerIds: Set<string>;
 	verbose: boolean;
 	onClose: () => void;
 	// Called once the stream completes (success or per-action failure — this
@@ -179,11 +185,18 @@ export function DeployUpdatedWorkersModal({
 		);
 	}
 
+	// How many of the selected redeploys are sync workers — drives the note
+	// above the list, so the extra flag isn't a surprise in the output.
+	const syncRedeployCount = eligible.filter(
+		(w) => actions[w.workerId]?.redeploy && syncWorkerIds.has(w.workerId),
+	).length;
+
 	async function handleSubmit() {
 		const list = eligible
 			.map((w) => ({
 				workerId: w.workerId,
 				name: w.name,
+				assumeYes: syncWorkerIds.has(w.workerId),
 				...(actions[w.workerId] ?? { redeploy: false, pushSecrets: false }),
 			}))
 			.filter((a) => a.redeploy || a.pushSecrets);
@@ -302,6 +315,13 @@ export function DeployUpdatedWorkersModal({
 										select all secrets
 									</label>
 								</div>
+								{syncRedeployCount > 0 ? (
+									<div className="border-b border-neutral-100 px-3 py-1.5 text-[11px] text-neutral-500 dark:border-neutral-900">
+										{syncRedeployCount} selected worker{syncRedeployCount === 1 ? " has" : "s have"} a
+										sync, so {syncRedeployCount === 1 ? "its" : "their"} deploy includes{" "}
+										<span className="font-mono">--yes</span> to confirm the managed database.
+									</div>
+								) : null}
 								<ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
 									{needsUpdate.map(renderRow)}
 									{needsUpdate.length > 0 && upToDate.length > 0 ? (

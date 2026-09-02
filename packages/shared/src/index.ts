@@ -480,3 +480,150 @@ export interface AgentUsagePayload {
 	windowStart: string | null;
 	windowEnd: string | null;
 }
+
+// --- Sync polling interval (schedule) editing -------------------------------
+// A sync's polling interval lives in the worker's SOURCE (`schedule:` on the
+// `worker.sync()` config), not in anything `ntn` can report or change — the
+// capabilities list only carries `_tag`/`key`. So reading and changing it means
+// parsing and rewriting the registered local folder's TypeScript, which is why
+// these operations require a local path.
+
+// The interval a sync gets when its config omits `schedule:` entirely.
+export const DEFAULT_SYNC_SCHEDULE = "30m";
+
+// Offered in the dropdown. Deliberately a short set of common intervals, not
+// an exhaustive one — the control is an editable combobox, so any interval
+// within the 1m..7d bounds (and "continuous"/"manual") can be typed instead.
+export const SYNC_SCHEDULE_PRESETS = ["5m", "30m", "1h", "1d", "7d"] as const;
+
+const SYNC_INTERVAL_RE = /^(\d+)(m|h|d)$/;
+const SYNC_INTERVAL_UNIT_MINUTES: Record<string, number> = { m: 1, h: 60, d: 1440 };
+const MIN_SYNC_INTERVAL_MINUTES = 1; // "1m"
+const MAX_SYNC_INTERVAL_MINUTES = 7 * 1440; // "7d"
+
+// Minutes an interval string represents, or null if it isn't one (including
+// the non-interval "continuous"/"manual" keywords).
+export function syncScheduleMinutes(value: string): number | null {
+	const m = SYNC_INTERVAL_RE.exec(value.trim());
+	if (!m) return null;
+	const unit = SYNC_INTERVAL_UNIT_MINUTES[m[2]!];
+	if (unit === undefined) return null;
+	return Number(m[1]) * unit;
+}
+
+// Why `value` isn't an acceptable schedule, or null if it is. Returning the
+// reason (rather than a bare boolean) lets the dialog explain the bound that
+// was crossed instead of just refusing.
+export function syncScheduleError(value: string): string | null {
+	const v = value.trim();
+	if (!v) return "Enter an interval, or pick continuous / manual.";
+	if (v === "continuous" || v === "manual") return null;
+	const minutes = syncScheduleMinutes(v);
+	if (minutes === null) {
+		return 'Use a number followed by m, h, or d (e.g. "37m", "6h", "2d") — or continuous / manual.';
+	}
+	if (minutes < MIN_SYNC_INTERVAL_MINUTES) return "Minimum interval is 1m.";
+	if (minutes > MAX_SYNC_INTERVAL_MINUTES) return "Maximum interval is 7d.";
+	return null;
+}
+
+export function isValidSyncSchedule(value: string): boolean {
+	return syncScheduleError(value) === null;
+}
+
+// Rough running cost of a sync at a given interval, from the worker's observed
+// credits-per-execution. Null for a schedule with no fixed cadence
+// ("continuous", "manual") or when there's no usage to divide — an estimate
+// nobody can act on is worse than none.
+export function creditsForIntervalMinutes(
+	minutes: number | null,
+	creditsPerExecution: number | null,
+): { perDay: number; perMonth: number } | null {
+	if (creditsPerExecution === null || !Number.isFinite(creditsPerExecution)) return null;
+	if (minutes === null || !Number.isFinite(minutes) || minutes <= 0) return null;
+	const perDay = (1440 / minutes) * creditsPerExecution;
+	// Unrounded — the caller formats, so a monthly figure is never 30x a
+	// rounding error in the daily one.
+	return { perDay, perMonth: perDay * 30 };
+}
+
+export function syncScheduleCredits(
+	schedule: string,
+	creditsPerExecution: number | null,
+): { perDay: number; perMonth: number } | null {
+	return creditsForIntervalMinutes(syncScheduleMinutes(schedule), creditsPerExecution);
+}
+
+// Credit figures at a readable precision: whole numbers once they're large
+// enough for a fraction not to matter, and more decimals as they shrink, so a
+// slow schedule reads "0.22/day" instead of a useless "0/day".
+export function formatCredits(n: number): string {
+	if (n >= 10) return Math.round(n).toLocaleString();
+	if (n >= 1) return n.toFixed(1);
+	return n.toFixed(2);
+}
+
+// "5m — credits: 63/day, 1901/month", or just "5m" when there's nothing to
+// estimate from.
+export function formatScheduleWithCredits(
+	schedule: string,
+	creditsPerExecution: number | null,
+): string {
+	const est = syncScheduleCredits(schedule, creditsPerExecution);
+	if (!est) return schedule;
+	return `${schedule} — credits: ${formatCredits(est.perDay)}/day, ${formatCredits(est.perMonth)}/month`;
+}
+
+export interface SyncScheduleEntry {
+	// The sync capability key, i.e. the first argument to `worker.sync()`.
+	key: string;
+	// Source file holding the declaration, relative to the worker's local
+	// folder and always posix-separated so it renders the same everywhere.
+	file: string;
+	// 1-based line of the `worker.sync(` call, for display.
+	line: number;
+	// The literal `schedule:` value in source. Null means either the property
+	// is absent (effective interval is DEFAULT_SYNC_SCHEDULE, and saving
+	// inserts it) or that it holds a non-literal expression — `expression`
+	// tells those two apart.
+	schedule: string | null;
+	// Set when `schedule:` names a module-level constant that resolved to a
+	// string literal: the constant's name. The row stays editable — the edit
+	// lands on the constant's declaration — but every sync sharing that
+	// constant moves with it.
+	via: string | null;
+	// Raw source of a `schedule:` value that couldn't be resolved to a literal
+	// at all (an imported constant, a ternary). Present means the row can't be
+	// edited here: overwriting it would discard the author's indirection.
+	expression: string | null;
+}
+
+export interface SyncSchedulesPayload {
+	// The registered local folder the entries were read from.
+	path: string;
+	entries: SyncScheduleEntry[];
+	// Files that contain a `.sync(` call this parser couldn't read (unbalanced
+	// braces, unusual formatting). Surfaced rather than swallowed so a sync
+	// missing from `entries` is explainable instead of mysterious.
+	unparsed: string[];
+}
+
+// Polling intervals per worker, for the workers list: workerId -> the
+// distinct `schedule:` labels of that worker's syncs, in declaration order.
+// Only workers with a registered local folder appear — the interval lives in
+// source, so without the code there's nothing to read. A worker whose folder
+// declares no syncs is present with an empty array.
+export type SyncSchedulesByWorker = Record<string, string[]>;
+
+export interface SyncScheduleUpdate {
+	key: string;
+	file: string;
+	schedule: string;
+}
+
+// Extends DeployResult so the outcome renders in the ordinary command-output
+// panel alongside deploys and `ntn` sync actions, while still carrying the
+// structured per-sync changes the dialog reports back.
+export interface SyncScheduleUpdateResult extends DeployResult {
+	updates: Array<{ key: string; file: string; from: string | null; to: string }>;
+}

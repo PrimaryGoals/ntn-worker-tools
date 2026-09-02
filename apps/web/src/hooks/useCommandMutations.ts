@@ -62,23 +62,45 @@ export function useCommandMutations(
 		}, 5000);
 	}
 
+	// The "redeploy" badge compares each folder's newest source mtime against
+	// the deploy timestamp the server records, so a successful deploy has to
+	// refetch config (which holds that timestamp) and the mtimes alongside the
+	// worker itself — invalidating only ["workers"] leaves the badge stuck
+	// until something else refreshes them.
+	function invalidateAfterDeploy(): void {
+		qc.invalidateQueries({ queryKey: ["workers"] });
+		qc.invalidateQueries({ queryKey: ["config"] });
+		qc.invalidateQueries({ queryKey: ["localMtimes"] });
+		// A deploy can change a sync's schedule, so the live interval the
+		// polling-interval dialog reports would otherwise keep showing the one
+		// the deploy just replaced.
+		qc.invalidateQueries({ queryKey: ["syncStatus"] });
+	}
+
 	const deployWorker = useMutation({
-		mutationFn: (workerId: string) => api.deployWorker(workerId, verboseLogs),
+		mutationFn: ({ workerId, assumeYes }: { workerId: string; assumeYes?: boolean }) =>
+			api.deployWorker(workerId, verboseLogs, assumeYes),
 		onSuccess: (data) => {
 			setDeployResult(data);
-			qc.invalidateQueries({ queryKey: ["workers"] });
+			invalidateAfterDeploy();
 		},
 	});
 	const pnpmDeployWorker = useMutation({
-		mutationFn: api.pnpmDeployWorker,
+		mutationFn: ({ workerId, assumeYes }: { workerId: string; assumeYes?: boolean }) =>
+			api.pnpmDeployWorker(workerId, assumeYes),
 		onSuccess: (data) => {
 			setDeployResult(data);
-			qc.invalidateQueries({ queryKey: ["workers"] });
+			invalidateAfterDeploy();
 		},
 	});
 	const pushSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
-		onSuccess: (data) => setDeployResult(data),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// Same staleness as a deploy: the "push secrets" badge is .env's mtime
+			// against the recorded push time, and this refreshed neither.
+			invalidateAfterDeploy();
+		},
 	});
 	const setEnvVar = useMutation({
 		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>

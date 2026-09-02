@@ -191,6 +191,26 @@ export function useWorkerData(
 		return ids;
 	}, [workersQ.data, localMtimesQ.data, configQ.data?.workerLastEnvPushAt]);
 
+	// Sync polling intervals for every worker with a registered local folder.
+	// Read from source, so it needs no `ntn` call and covers the whole list at
+	// once rather than only the selected worker.
+	const syncSchedulesQ = useQuery({
+		queryKey: ["allSyncSchedules"],
+		queryFn: () => api.getAllSyncSchedules(),
+	});
+
+	// Which workers declare a sync, derived from the same source scan that
+	// feeds the interval badge — `ntn` can't answer this for every worker
+	// without a capabilities call each, and the batch deploy needs it for all
+	// of them at once.
+	const syncWorkerIds = useMemo(() => {
+		const ids = new Set<string>();
+		for (const [workerId, labels] of Object.entries(syncSchedulesQ.data ?? {})) {
+			if (labels.length > 0) ids.add(workerId);
+		}
+		return ids;
+	}, [syncSchedulesQ.data]);
+
 	const capabilities = capabilitiesQ.data?.capabilities;
 	const syncCapabilities = useMemo(() => {
 		if (!Array.isArray(capabilities)) return [];
@@ -239,6 +259,8 @@ export function useWorkerData(
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		syncSchedulesQ,
+		syncWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
 		syncStatusQ,

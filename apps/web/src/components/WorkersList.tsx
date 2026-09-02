@@ -9,6 +9,7 @@ export function WorkersList({
 	selectedId,
 	runHealth,
 	localPaths,
+	syncSchedules,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
 	onSelect,
@@ -23,6 +24,11 @@ export function WorkersList({
 	// no entry (still loading, or added since the last refresh) gets a hollow dot.
 	runHealth: Record<string, RunHealth>;
 	localPaths: Record<string, string>;
+	// workerId -> the distinct polling intervals of that worker's syncs,
+	// read from its local source. Absent for workers with no registered
+	// folder (nothing to read) and empty for folders declaring no syncs —
+	// either way, no badge.
+	syncSchedules: Record<string, string[]>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
@@ -55,6 +61,16 @@ export function WorkersList({
 							<div>
 								<WorkerStatusDot health={runHealth[w.workerId]} />
 								<span className="font-medium">{w.name}</span>
+				{syncSchedules[w.workerId]?.length ? (
+					<span
+						className="font-mono text-xs text-neutral-500"
+						title={`Sync polling interval${
+							syncSchedules[w.workerId]!.length > 1 ? "s" : ""
+							}, from this worker’s source`}
+					>
+						{" "}({syncSchedules[w.workerId]!.join(" / ")})
+					</span>
+				) : null}
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
 								{codeOutOfDateWorkerIds.has(w.workerId) && (
 									<span className="font-medium text-red-600 dark:text-red-400"> - redeploy</span>
