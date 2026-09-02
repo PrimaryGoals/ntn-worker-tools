@@ -17,6 +17,10 @@ import type {
 	RunHealthPayload,
 	RunsPayload,
 	SessionEventsPayload,
+	SyncScheduleUpdate,
+	SyncScheduleUpdateResult,
+	SyncSchedulesByWorker,
+	SyncSchedulesPayload,
 	SyncStatus,
 	WebhookFireResult,
 	WebhooksPayload,
@@ -154,6 +158,18 @@ export const api = {
 			`/api/workers/${workerId}/sync/resume${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ syncKey }) },
 		),
+	// Read/write the `schedule:` values in the worker's local source. Both
+	// require a registered local path — the CLI has no notion of a sync's
+	// polling interval, it only exists in code.
+	// Every registered worker's intervals at once, for the workers list.
+	getAllSyncSchedules: () => request<SyncSchedulesByWorker>(`/api/workers/sync-schedules`),
+	getSyncSchedules: (workerId: string) =>
+		request<SyncSchedulesPayload>(`/api/workers/${workerId}/sync/schedules`),
+	updateSyncSchedules: (workerId: string, updates: SyncScheduleUpdate[]) =>
+		request<SyncScheduleUpdateResult>(`/api/workers/${workerId}/sync/schedules`, {
+			method: "POST",
+			body: JSON.stringify({ updates }),
+		}),
 	syncStateReset: (workerId: string, syncKey: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/sync/state-reset${verbose ? "?verbose=1" : ""}`,
@@ -176,13 +192,21 @@ export const api = {
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
-	deployWorker: (workerId: string, verbose = false) =>
+	// `assumeYes` adds `--yes`, confirming a deploy that touches linked
+	// databases. Never defaulted on — the caller opts in.
+	deployWorker: (workerId: string, verbose = false, assumeYes = false) =>
 		request<DeployResult>(
-			`/api/workers/${workerId}/deploy${verbose ? "?verbose=1" : ""}`,
+			`/api/workers/${workerId}/deploy?${new URLSearchParams({
+				...(verbose ? { verbose: "1" } : {}),
+				...(assumeYes ? { yes: "1" } : {}),
+			})}`,
 			{ method: "POST" },
 		),
-	pnpmDeployWorker: (workerId: string) =>
-		request<DeployResult>(`/api/workers/${workerId}/pnpm-deploy`, { method: "POST" }),
+	pnpmDeployWorker: (workerId: string, assumeYes = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/pnpm-deploy${assumeYes ? "?yes=1" : ""}`,
+			{ method: "POST" },
+		),
 	renameWorker: (workerId: string, newName: string) =>
 		request<DeployResult>(`/api/workers/${workerId}/rename`, {
 			method: "POST",

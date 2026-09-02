@@ -28,6 +28,9 @@ export function useUIState() {
 	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
 	const [deployNewWorkerOpen, setDeployNewWorkerOpen] = useState(false);
 	const [deployUpdatedWorkersOpen, setDeployUpdatedWorkersOpen] = useState(false);
+	const [syncScheduleOpen, setSyncScheduleOpen] = useState(false);
+	// Which Deploy menu item is awaiting confirmation, or null when none is.
+	const [deployConfirmKind, setDeployConfirmKind] = useState<"ntn" | "pnpm" | null>(null);
 	const [runsViewMode, setRunsViewMode] = useState<RunsViewMode>("worker");
 	const [workerFilter, setWorkerFilter] = useState("");
 	const [browserTab, setBrowserTab] = useState<BrowserTab>("workers");
@@ -58,6 +61,10 @@ export function useUIState() {
 		setDeployNewWorkerOpen,
 		deployUpdatedWorkersOpen,
 		setDeployUpdatedWorkersOpen,
+		syncScheduleOpen,
+		setSyncScheduleOpen,
+		deployConfirmKind,
+		setDeployConfirmKind,
 		runsViewMode,
 		setRunsViewMode,
 		workerFilter,

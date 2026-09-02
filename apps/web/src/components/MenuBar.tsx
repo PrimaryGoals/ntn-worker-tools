@@ -36,6 +36,7 @@ export function MenuBar({
 	onSyncPause,
 	onSyncResume,
 	onSyncStateReset,
+	onUpdatePollingInterval,
 }: {
 	// When supplied, replaces the Worker dropdown in the header's left slot.
 	// The Agents tab passes its own menu here; the rest of the header (title,
@@ -75,6 +76,7 @@ export function MenuBar({
 	onSyncPause: () => void;
 	onSyncResume: () => void;
 	onSyncStateReset: () => void;
+	onUpdatePollingInterval: () => void;
 }) {
 	const [open, setOpen] = useState(false);
 	return (
@@ -267,6 +269,17 @@ export function MenuBar({
 										onClick={() => {
 											setOpen(false);
 											onSyncStateReset();
+										}}
+									/>
+									<MenuItem
+										label="Update polling interval…"
+										disabled={!localPath}
+										// The interval lives in the worker's source, not in
+										// anything ntn can report — so this one needs the files.
+										disabledReason="Requires a registered local folder — use Set local folder… first."
+										onClick={() => {
+											setOpen(false);
+											onUpdatePollingInterval();
 										}}
 									/>
 								</MenuItemSubmenu>
