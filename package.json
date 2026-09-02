@@ -9,7 +9,7 @@
 		"node": ">=22",
 		"pnpm": ">=11"
 	},
-	"packageManager": "pnpm@11.18.0",
+	"packageManager": "pnpm@11.25.0",
 	"scripts": {
 		"dev": "concurrently -n server,web -c blue,magenta --kill-others-on-fail \"pnpm dev:server\" \"pnpm dev:web\"",
 		"dev:server": "node --import tsx apps/server/src/index.ts",
