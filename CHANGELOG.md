@@ -4,6 +4,30 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-02
+
+### Added
+- Agents tab alongside Workers, with agent list, session list, per-agent usage, and an agent menu bar — bringing agent views to parity with the worker views (#43)
+- Agent credit-limit and status modals, backed by a new `agents` route module (#43)
+- Colored health-check indicators for every worker, keyed to how recently it last failed (#41)
+- The connected workspace name, from the `whoami` call, shown in the header (#41)
+- "Update polling interval…" dialog under Worker → Sync Options: lists every `worker.sync()` found in the registered local folder and edits its `schedule:` in place. A sync's interval exists only in the worker's source — `ntn workers capabilities` reports just `{_tag, key}` — so this reads and rewrites the project's TypeScript (#45)
+- Polling-interval editing resolves `schedule: SCHEDULE` to a module-level constant and rewrites that declaration, preserving the author's indirection; imported constants stay read-only, and a sync with no `schedule:` shows its effective `30m` default and has the property inserted on save (#45)
+- Credit cost estimates per interval, from `usage.credits / usage.sandboxCount`, showing what the deployed schedule costs and what an edited one would (#45)
+- Sync workers show their polling interval beside the name in the workers list (#45)
+- Deploy confirmation dialog, replacing the plain `window.confirm` on both Deploy menu items (#45)
+
+### Changed
+- Deploying a sync worker now passes `ntn workers deploy --yes`. A sync worker owns a managed database, so `ntn` stops to confirm before deploying it, and that prompt cannot be answered from a non-interactively spawned CLI — without the flag such a deploy can only fail. As a result, a schema migration pending on a sync worker now proceeds without a review step when deploying from this app (#45)
+- pnpm bumped to 11.25.0; Corepack dropped from the setup docs (#44)
+
+### Fixed
+- The "redeploy" badge stayed lit after a successful deploy until a manual refresh — the deploy mutations invalidated only the workers query, not the config timestamp and local mtimes the badge is derived from. They now also refresh sync status, so a deployed schedule change is reflected immediately (#45)
+- The "push secrets" badge had the same defect in a worse form: pushing secrets invalidated nothing at all (#45)
+
+### Security
+- Bumped `fastify` 5.11.0 → 5.12.1 and `fast-uri` 4.1.2 → 4.1.3, clearing 5 Dependabot alerts: 4 high (`fast-uri` SSRF and host confusion in URI parsing) and 1 moderate (`fastify` `X-Forwarded-*` spoofing under `trustProxy`) (#46)
+
 ## [1.0.0] - 2026-08-25
 
 ### Added
@@ -99,7 +123,11 @@ Initial test release.
 - Apache 2.0 license with a trademark clause protecting Primary Goals branding
 - Branding: PrimaryGoals.com splash, Notion Consulting Partner / Certified Admin badges
 
-[Unreleased]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.9.0...v1.0.0
+[0.9.0]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.5.2...v0.8.0
 [0.5.2]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/PrimaryGoals/ntn-worker-tools/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/PrimaryGoals/ntn-worker-tools/releases/tag/v0.5.0
