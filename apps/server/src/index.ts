@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { getConfigPath } from "./config.js";
 import { NtnError } from "./ntn.js";
+import agentsRoutes from "./routes/agents.js";
 import configRoutes from "./routes/config.js";
 import deployNewRoutes from "./routes/deploy-new.js";
 import fsRoutes from "./routes/fs.js";
@@ -122,6 +123,7 @@ await app.register(workerLocalRoutes);
 await app.register(webhookRoutes);
 await app.register(oauthRoutes);
 await app.register(runsRoutes);
+await app.register(agentsRoutes);
 
 try {
 	await app.listen({ port: PORT, host: HOST });

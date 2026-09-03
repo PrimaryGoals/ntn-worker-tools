@@ -4,8 +4,10 @@ import { MenuItem } from "./ui/MenuItem";
 import { MenuItemSubmenu } from "./ui/MenuItemSubmenu";
 
 export function MenuBar({
+	leftMenu,
 	loading,
 	error,
+	spaceName,
 	workerId,
 	workerName,
 	localPath,
@@ -34,9 +36,16 @@ export function MenuBar({
 	onSyncPause,
 	onSyncResume,
 	onSyncStateReset,
+	onUpdatePollingInterval,
 }: {
+	// When supplied, replaces the Worker dropdown in the header's left slot.
+	// The Agents tab passes its own menu here; the rest of the header (title,
+	// workspace name, auth status) is context-independent and stays put.
+	leftMenu?: React.ReactNode;
 	loading: boolean;
 	error: Error | null;
+	// The workspace `ntn whoami` reports; null until that call resolves.
+	spaceName: string | null;
 	workerId: string | null;
 	workerName: string | null;
 	localPath: string | null;
@@ -67,10 +76,12 @@ export function MenuBar({
 	onSyncPause: () => void;
 	onSyncResume: () => void;
 	onSyncStateReset: () => void;
+	onUpdatePollingInterval: () => void;
 }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
+			{leftMenu ?? (
 			<div className="relative">
 				<button
 					type="button"
@@ -260,6 +271,17 @@ export function MenuBar({
 											onSyncStateReset();
 										}}
 									/>
+									<MenuItem
+										label="Update polling interval…"
+										disabled={!localPath}
+										// The interval lives in the worker's source, not in
+										// anything ntn can report — so this one needs the files.
+										disabledReason="Requires a registered local folder — use Set local folder… first."
+										onClick={() => {
+											setOpen(false);
+											onUpdatePollingInterval();
+										}}
+									/>
 								</MenuItemSubmenu>
 							</>
 						) : null}
@@ -297,8 +319,17 @@ export function MenuBar({
 					</div>
 				) : null}
 			</div>
+			)}
 			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">NTN Worker Tools</h1>
+				<h1 className="text-sm font-semibold">
+					{spaceName ? (
+						<>
+							NTN Worker Tools <span className="font-normal text-neutral-500">({spaceName})</span>
+						</>
+					) : (
+						"NTN Worker Tools"
+					)}
+				</h1>
 				<span
 					className={
 						"text-xs " +

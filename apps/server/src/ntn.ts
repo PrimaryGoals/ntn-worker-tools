@@ -49,6 +49,16 @@ export interface RunOptions {
 	// through cmd.exe's parsing, which is unsafe for user-supplied values
 	// (see the `ntn workers env set` call, which must never set this).
 	shell?: boolean;
+	// Extra environment variables for the child, merged over the server's own.
+	// Used to pass NOTION_API_VERSION to `ntn api` so the CLI skips its own
+	// spec fetch (see notion-version.ts).
+	env?: Record<string, string>;
+	// Close the child's stdin immediately after spawn. `ntn api` accepts the
+	// request body on stdin, so with an open (but never-written) pipe it waits
+	// there forever instead of using the -d argument it was given. Every spawn
+	// here is non-interactive, so this is always safe; it's opt-in only so the
+	// commands that work today keep their exact current behaviour.
+	closeStdin?: boolean;
 }
 
 function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult> {
@@ -61,14 +71,22 @@ function runRaw(args: string[], opts: RunOptions = {}): Promise<NtnCommandResult
 // no surrounding whitespace (e.g. `%{http_code}` is parsed as a ForEach-Object
 // script block, not a literal string) — bare flags and simple tokens
 // (letters, digits, and -_./:=,@) stay unquoted to match how you'd type them
-// by hand; anything else gets wrapped in double quotes, which passes through
-// unmodified in PowerShell, cmd, and POSIX shells alike. None of our values
-// contain embedded double quotes.
+// by hand; anything else gets wrapped in quotes, which pass through unmodified
+// in PowerShell, cmd, and POSIX shells alike.
+//
+// Double quotes are the default, but a value that itself contains double
+// quotes (a JSON request body for `ntn api -d`) would terminate them early, so
+// those get single quotes instead — literal in both PowerShell and POSIX. cmd
+// doesn't treat single quotes as quoting, so a JSON body isn't copy-pasteable
+// there; it is in the two shells this app documents.
 function quoteForDisplay(arg: string): string {
-	return /^[A-Za-z0-9_\-.\/:=,@]*$/.test(arg) ? arg : `"${arg}"`;
+	if (/^[A-Za-z0-9_\-.\/:=,@]*$/.test(arg)) return arg;
+	return arg.includes('"') ? `'${arg}'` : `"${arg}"`;
 }
 
-function formatCommandForDisplay(cmd: string, args: string[]): string {
+// Exported so routes can render the same copy-pasteable string in the output
+// panel that gets written to the spawn log.
+export function formatCommandForDisplay(cmd: string, args: string[]): string {
 	return [cmd, ...args.map(quoteForDisplay)].join(" ");
 }
 
@@ -85,7 +103,9 @@ function runRawCommand(
 			cwd: opts.cwd ?? DEFAULT_WORK_DIR,
 			windowsHide: true,
 			shell: opts.shell,
+			...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
 		});
+		if (opts.closeStdin) child.stdin?.end();
 
 		let stdout = "";
 		let stderr = "";

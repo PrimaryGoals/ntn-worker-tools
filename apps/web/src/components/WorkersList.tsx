@@ -1,12 +1,15 @@
-import type { Worker } from "@ntn-worker-tools/shared";
+import type { RunHealth, Worker } from "@ntn-worker-tools/shared";
 import { Empty } from "./ui/Panel";
+import { WorkerStatusDot } from "./ui/WorkerStatusDot";
 
 export function WorkersList({
 	loading,
 	error,
 	workers,
 	selectedId,
+	runHealth,
 	localPaths,
+	syncSchedules,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
 	onSelect,
@@ -17,7 +20,15 @@ export function WorkersList({
 	error: Error | null;
 	workers: Worker[];
 	selectedId: string | null;
+	// workerId -> recent-run health, from the run-health query. A worker with
+	// no entry (still loading, or added since the last refresh) gets a hollow dot.
+	runHealth: Record<string, RunHealth>;
 	localPaths: Record<string, string>;
+	// workerId -> the distinct polling intervals of that worker's syncs,
+	// read from its local source. Absent for workers with no registered
+	// folder (nothing to read) and empty for folders declaring no syncs —
+	// either way, no badge.
+	syncSchedules: Record<string, string[]>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
@@ -48,7 +59,18 @@ export function WorkersList({
 							className="block w-full px-3 pt-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
 						>
 							<div>
+								<WorkerStatusDot health={runHealth[w.workerId]} />
 								<span className="font-medium">{w.name}</span>
+				{syncSchedules[w.workerId]?.length ? (
+					<span
+						className="font-mono text-xs text-neutral-500"
+						title={`Sync polling interval${
+							syncSchedules[w.workerId]!.length > 1 ? "s" : ""
+							}, from this worker’s source`}
+					>
+						{" "}({syncSchedules[w.workerId]!.join(" / ")})
+					</span>
+				) : null}
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
 								{codeOutOfDateWorkerIds.has(w.workerId) && (
 									<span className="font-medium text-red-600 dark:text-red-400"> - redeploy</span>

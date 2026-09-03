@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { DeployResult } from "@ntn-worker-tools/shared";
+import type { AgentStatus, DeployResult } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import { formatSyncStatuses, ntnCmd } from "../format";
 
@@ -62,23 +62,45 @@ export function useCommandMutations(
 		}, 5000);
 	}
 
+	// The "redeploy" badge compares each folder's newest source mtime against
+	// the deploy timestamp the server records, so a successful deploy has to
+	// refetch config (which holds that timestamp) and the mtimes alongside the
+	// worker itself — invalidating only ["workers"] leaves the badge stuck
+	// until something else refreshes them.
+	function invalidateAfterDeploy(): void {
+		qc.invalidateQueries({ queryKey: ["workers"] });
+		qc.invalidateQueries({ queryKey: ["config"] });
+		qc.invalidateQueries({ queryKey: ["localMtimes"] });
+		// A deploy can change a sync's schedule, so the live interval the
+		// polling-interval dialog reports would otherwise keep showing the one
+		// the deploy just replaced.
+		qc.invalidateQueries({ queryKey: ["syncStatus"] });
+	}
+
 	const deployWorker = useMutation({
-		mutationFn: (workerId: string) => api.deployWorker(workerId, verboseLogs),
+		mutationFn: ({ workerId, assumeYes }: { workerId: string; assumeYes?: boolean }) =>
+			api.deployWorker(workerId, verboseLogs, assumeYes),
 		onSuccess: (data) => {
 			setDeployResult(data);
-			qc.invalidateQueries({ queryKey: ["workers"] });
+			invalidateAfterDeploy();
 		},
 	});
 	const pnpmDeployWorker = useMutation({
-		mutationFn: api.pnpmDeployWorker,
+		mutationFn: ({ workerId, assumeYes }: { workerId: string; assumeYes?: boolean }) =>
+			api.pnpmDeployWorker(workerId, assumeYes),
 		onSuccess: (data) => {
 			setDeployResult(data);
-			qc.invalidateQueries({ queryKey: ["workers"] });
+			invalidateAfterDeploy();
 		},
 	});
 	const pushSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pushWorkerSecrets(workerId, verboseLogs),
-		onSuccess: (data) => setDeployResult(data),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// Same staleness as a deploy: the "push secrets" badge is .env's mtime
+			// against the recorded push time, and this refreshed neither.
+			invalidateAfterDeploy();
+		},
 	});
 	const setEnvVar = useMutation({
 		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>
@@ -145,6 +167,24 @@ export function useCommandMutations(
 			api.oauthToken(workerId, key, verboseLogs),
 		onSuccess: (data) => setDeployResult(data),
 	});
+	const setAgentStatus = useMutation({
+		mutationFn: ({ agentId, status }: { agentId: string; status: AgentStatus }) =>
+			api.setAgentStatus(agentId, status),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["agents"] });
+			qc.invalidateQueries({ queryKey: ["agentUsage"] });
+		},
+	});
+	const setAgentCreditLimit = useMutation({
+		mutationFn: ({ agentId, creditLimit }: { agentId: string; creditLimit: number | null }) =>
+			api.setAgentCreditLimit(agentId, creditLimit),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			qc.invalidateQueries({ queryKey: ["agents"] });
+			qc.invalidateQueries({ queryKey: ["agentUsage"] });
+		},
+	});
 
 	const runningCommand = deployWorker.isPending
 		? "ntn workers deploy"
@@ -168,7 +208,11 @@ export function useCommandMutations(
 											? "ntn workers oauth start"
 											: oauthToken.isPending
 												? "ntn workers oauth token"
-												: null;
+												: setAgentStatus.isPending
+													? "ntn api /v1/agents/{id}/status"
+													: setAgentCreditLimit.isPending
+														? "ntn api /v1/agents/{id}/credit_limit"
+														: null;
 	const anyDeployError =
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
@@ -180,7 +224,9 @@ export function useCommandMutations(
 		(syncStateReset.error as Error | null) ??
 		(oauthShowRedirectUrl.error as Error | null) ??
 		(oauthStart.error as Error | null) ??
-		(oauthToken.error as Error | null);
+		(oauthToken.error as Error | null) ??
+		(setAgentStatus.error as Error | null) ??
+		(setAgentCreditLimit.error as Error | null);
 
 	function resetAll() {
 		followupTokenRef.current++;
@@ -197,6 +243,8 @@ export function useCommandMutations(
 		oauthShowRedirectUrl.reset();
 		oauthStart.reset();
 		oauthToken.reset();
+		setAgentStatus.reset();
+		setAgentCreditLimit.reset();
 	}
 
 	return {
@@ -211,6 +259,8 @@ export function useCommandMutations(
 		oauthShowRedirectUrl,
 		oauthStart,
 		oauthToken,
+		setAgentStatus,
+		setAgentCreditLimit,
 		deployResult,
 		setDeployResult,
 		syncStatusFollowup,

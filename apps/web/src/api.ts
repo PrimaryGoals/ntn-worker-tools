@@ -1,6 +1,12 @@
 import type {
+	AgentHealthPayload,
+	AgentStatus,
+	AgentSessionsPayload,
+	AgentSummary,
+	AgentUsagePayload,
 	ApiError,
 	AppConfig,
+	CrossWorkerRunsPayload,
 	CrossWorkerUsagePayload,
 	DeployNewInspection,
 	DeployResult,
@@ -8,7 +14,13 @@ import type {
 	LocalInfo,
 	LocalMtimes,
 	LogsPayload,
+	RunHealthPayload,
 	RunsPayload,
+	SessionEventsPayload,
+	SyncScheduleUpdate,
+	SyncScheduleUpdateResult,
+	SyncSchedulesByWorker,
+	SyncSchedulesPayload,
 	SyncStatus,
 	WebhookFireResult,
 	WebhooksPayload,
@@ -96,8 +108,9 @@ export const api = {
 		request<Whoami>(`/api/whoami${verbose ? "?verbose=1" : ""}`),
 	getWorkers: () => request<Worker[]>("/api/workers"),
 	getRuns: (workerId: string) => request<RunsPayload>(`/api/workers/${workerId}/runs`),
+	getRunHealth: () => request<RunHealthPayload>("/api/workers/run-health"),
 	getCrossWorkerRuns: (since: string) =>
-		request<RunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
+		request<CrossWorkerRunsPayload>(`/api/runs/cross-worker?since=${encodeURIComponent(since)}`),
 	getCrossWorkerUsage: () => request<CrossWorkerUsagePayload>("/api/usage/cross-worker"),
 	markTime: (time?: string) =>
 		request<AppConfig>("/api/config/mark-time", {
@@ -145,6 +158,18 @@ export const api = {
 			`/api/workers/${workerId}/sync/resume${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ syncKey }) },
 		),
+	// Read/write the `schedule:` values in the worker's local source. Both
+	// require a registered local path — the CLI has no notion of a sync's
+	// polling interval, it only exists in code.
+	// Every registered worker's intervals at once, for the workers list.
+	getAllSyncSchedules: () => request<SyncSchedulesByWorker>(`/api/workers/sync-schedules`),
+	getSyncSchedules: (workerId: string) =>
+		request<SyncSchedulesPayload>(`/api/workers/${workerId}/sync/schedules`),
+	updateSyncSchedules: (workerId: string, updates: SyncScheduleUpdate[]) =>
+		request<SyncScheduleUpdateResult>(`/api/workers/${workerId}/sync/schedules`, {
+			method: "POST",
+			body: JSON.stringify({ updates }),
+		}),
 	syncStateReset: (workerId: string, syncKey: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/sync/state-reset${verbose ? "?verbose=1" : ""}`,
@@ -167,13 +192,21 @@ export const api = {
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
-	deployWorker: (workerId: string, verbose = false) =>
+	// `assumeYes` adds `--yes`, confirming a deploy that touches linked
+	// databases. Never defaulted on — the caller opts in.
+	deployWorker: (workerId: string, verbose = false, assumeYes = false) =>
 		request<DeployResult>(
-			`/api/workers/${workerId}/deploy${verbose ? "?verbose=1" : ""}`,
+			`/api/workers/${workerId}/deploy?${new URLSearchParams({
+				...(verbose ? { verbose: "1" } : {}),
+				...(assumeYes ? { yes: "1" } : {}),
+			})}`,
 			{ method: "POST" },
 		),
-	pnpmDeployWorker: (workerId: string) =>
-		request<DeployResult>(`/api/workers/${workerId}/pnpm-deploy`, { method: "POST" }),
+	pnpmDeployWorker: (workerId: string, assumeYes = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/pnpm-deploy${assumeYes ? "?yes=1" : ""}`,
+			{ method: "POST" },
+		),
 	renameWorker: (workerId: string, newName: string) =>
 		request<DeployResult>(`/api/workers/${workerId}/rename`, {
 			method: "POST",
@@ -223,4 +256,34 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ key }),
 		}),
+	getAgents: () => request<AgentSummary[]>("/api/agents"),
+	getAgentHealth: () => request<AgentHealthPayload>("/api/agents/health"),
+	getAgentInsights: (agentId: string, verbose = false) =>
+		request<DeployResult>(`/api/agents/${agentId}/insights${verbose ? "?verbose=1" : ""}`),
+	getAgentSessions: (agentId: string) =>
+		request<AgentSessionsPayload>(`/api/agents/${agentId}/sessions`),
+	getSessionEvents: (sessionId: string) =>
+		request<SessionEventsPayload>(`/api/sessions/${sessionId}/events`),
+	getCrossAgentSessions: (since: string) =>
+		request<AgentSessionsPayload>(
+			`/api/sessions/cross-agent?since=${encodeURIComponent(since)}`,
+		),
+	// No start/end means the API reports the current billing period.
+	setAgentStatus: (agentId: string, status: AgentStatus) =>
+		request<DeployResult>(`/api/agents/${agentId}/status`, {
+			method: "PATCH",
+			body: JSON.stringify({ status }),
+		}),
+	// null clears the limit.
+	setAgentCreditLimit: (agentId: string, creditLimit: number | null) =>
+		request<DeployResult>(`/api/agents/${agentId}/credit-limit`, {
+			method: "PATCH",
+			body: JSON.stringify({ creditLimit }),
+		}),
+	getAgentUsage: (start?: string, end?: string) =>
+		request<AgentUsagePayload>(
+			start && end
+				? `/api/agents/usage?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
+				: "/api/agents/usage",
+		),
 };
