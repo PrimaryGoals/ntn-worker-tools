@@ -440,22 +440,13 @@ function AppContent() {
 						)
 					) {
 						clearTransientOutputs();
-						// `ntn workers oauth start` only prints the authorization URL —
-						// it doesn't launch a browser itself when run non-interactively
-						// (which is how the server always spawns it). Pre-open a blank
-						// tab synchronously, in the same click, so navigating it once the
-						// URL comes back isn't blocked as an unsolicited popup.
-						const authWindow = window.open("", "_blank");
-						oauthStart.mutate(
-							{ workerId: selectedWorkerId, key: oauthCapabilityKey },
-							{
-								onSuccess: (data) => {
-									const match = data.stdout.match(/https:\/\/\S+/);
-									if (match && authWindow) authWindow.location.href = match[0];
-									else authWindow?.close();
-								},
-							},
-						);
+						// The consent screen is opened by the server, in the OS default
+						// browser: `ntn workers oauth start` only prints the URL when run
+						// non-interactively (which is how the server always spawns it),
+						// and opening it from here instead would mean a window.open()
+						// that the browser blocks as an unsolicited popup, since the
+						// confirm() above has already spent the click's user activation.
+						oauthStart.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
 					}
 				}}
 				onOauthToken={() => {
