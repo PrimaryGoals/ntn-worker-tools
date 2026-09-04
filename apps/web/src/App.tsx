@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api, type ApiRequestError } from "./api";
+import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
@@ -31,6 +32,7 @@ import { RunsViewModeSwitch } from "./components/RunsViewModeSwitch";
 import { WebhookLine } from "./components/WebhookLine";
 import { WorkerDetailsBody } from "./components/WorkerDetailsBody";
 import { WorkerSearchBox } from "./components/WorkerSearchBox";
+import { WorkerContextMenu } from "./components/WorkerContextMenu";
 import { WorkersList } from "./components/WorkersList";
 import { useCommandMutations } from "./hooks/useCommandMutations";
 import { useAgentData } from "./hooks/useAgentData";
@@ -350,6 +352,181 @@ function AppContent() {
 		return sortedWorkers.filter((w) => w.name.toLowerCase().includes(q));
 	}, [sortedWorkers, workerFilter]);
 
+
+	const selectedWorkerName =
+		workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null;
+
+	function selectWorker(id: string) {
+		setSelectedWorkerId(id);
+		setSelectedRunId(null);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		setRunsViewMode("worker");
+		clearTransientOutputs();
+	}
+
+	// Built fresh on every render rather than memoised: these actions close
+	// over current state, and a stale dependency list here would mean a menu
+	// item acting on the worker that was selected a moment ago.
+	const workerMenuGroups = buildWorkerMenuGroups(
+		{
+			workerId: selectedWorkerId,
+			localPath,
+			hasDeployScript,
+			hasEnvFile: localInfoQ.data?.hasEnvFile ?? false,
+			oauthCapabilityKey,
+			isSyncWorker,
+			hasTimeMarker: !!configQ.data?.timeMarker,
+		},
+		{
+			setLocalPath: () => {
+				if (!selectedWorkerId) return;
+				setLocalPath.reset();
+				setFolderPickerOpen(true);
+			},
+			reveal: () => {
+				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
+			},
+			clearLocalPath: () => {
+				if (!selectedWorkerId) return;
+				if (window.confirm("Forget the local folder for this worker?")) {
+					clearLocalPath.mutate(selectedWorkerId);
+				}
+			},
+			renameWorker: () => {
+				renameWorker.reset();
+				setRenameWorkerOpen(true);
+			},
+			ntnDeploy: () => {
+				if (!selectedWorkerId || !localPath) return;
+				setDeployConfirmKind("ntn");
+			},
+			pnpmDeploy: () => {
+				if (!selectedWorkerId || !localPath) return;
+				setDeployConfirmKind("pnpm");
+			},
+			deployUpdatedWorkers: () => setDeployUpdatedWorkersOpen(true),
+			deployToNewWorkspace: () => setDeployNewWorkerOpen(true),
+			pushSecrets: () => {
+				if (!selectedWorkerId || !localPath) return;
+				if (
+					window.confirm(
+						`Push .env from ${localPath} to this worker's remote environment on Notion?\nThis overwrites remote env vars.`,
+					)
+				) {
+					clearTransientOutputs();
+					pushSecrets.mutate(selectedWorkerId);
+				}
+			},
+			openTokenPush: () => {
+				setEnvVar.reset();
+				setTokenPushOpen(true);
+			},
+			oauthShowRedirectUrl: () => {
+				clearTransientOutputs();
+				oauthShowRedirectUrl.mutate();
+			},
+			oauthStart: () => {
+				if (!selectedWorkerId || !oauthCapabilityKey) return;
+				if (
+					window.confirm(
+						`Start the OAuth flow for "${oauthCapabilityKey}"?\nThis opens your browser to the provider's consent screen.`,
+					)
+				) {
+					clearTransientOutputs();
+					// The consent screen is opened by the server, in the OS default
+					// browser: `ntn workers oauth start` only prints the URL when run
+					// non-interactively (which is how the server always spawns it),
+					// and opening it from here instead would mean a window.open()
+					// that the browser blocks as an unsolicited popup, since the
+					// confirm() above has already spent the click's user activation.
+					oauthStart.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
+				}
+			},
+			oauthToken: () => {
+				if (!selectedWorkerId || !oauthCapabilityKey) return;
+				clearTransientOutputs();
+				oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
+			},
+			markTime: () => markTime.mutate(undefined),
+			clearTimeMarker: () => clearTimeMarker.mutate(),
+			adjustTimeMarker: openAdjustTimeMarker,
+			syncPause: () => {
+				if (!selectedWorkerId || !syncCapabilities[0]) return;
+				if (window.confirm("Pause sync for this worker?")) {
+					clearTransientOutputs();
+					syncPause.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+				}
+			},
+			syncResume: () => {
+				if (!selectedWorkerId || !syncCapabilities[0]) return;
+				clearTransientOutputs();
+				syncResume.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+			},
+			syncStateReset: () => {
+				if (!selectedWorkerId || !syncCapabilities[0]) return;
+				if (
+					window.confirm(
+						"Reset sync state for this worker?\nThis clears the sync cursor so the next run processes from scratch.",
+					)
+				) {
+					clearTransientOutputs();
+					syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+				}
+			},
+			updatePollingInterval: () => {
+				if (!selectedWorkerId || !localPath) return;
+				setSyncScheduleOpen(true);
+			},
+		},
+	);
+
+	// A right-click selects its row immediately (so the highlight is the
+	// feedback) but the menu itself waits until the gates that decide which
+	// items appear are known — it is then correct on first paint and never
+	// rearranges under the pointer. Folder gates come from config, already
+	// loaded for every worker; capabilities and the package.json/.env facts
+	// each need an `ntn` spawn for the newly selected worker, so only a
+	// right-click on an unselected row actually waits.
+	const [contextMenu, setContextMenu] = useState<{
+		workerId: string;
+		x: number;
+		y: number;
+	} | null>(null);
+	const [pendingContextMenu, setPendingContextMenu] = useState<{
+		workerId: string;
+		x: number;
+		y: number;
+	} | null>(null);
+	// A failed gate query counts as settled: the menu should still open with
+	// the groups that did resolve rather than never opening at all.
+	const menuGatesReady = !capabilitiesQ.isPending && (localPath ? !localInfoQ.isPending : true);
+
+	useEffect(() => {
+		if (!pendingContextMenu) return;
+		if (pendingContextMenu.workerId !== selectedWorkerId || !menuGatesReady) return;
+		setContextMenu(pendingContextMenu);
+		setPendingContextMenu(null);
+	}, [pendingContextMenu, selectedWorkerId, menuGatesReady]);
+
+	// Abandon a wait the user has moved on from. The right-click's own
+	// pointerdown has already fired by the time this runs, so it cannot
+	// cancel the menu it just asked for; right-clicking another row cancels
+	// and then re-arms, leaving the latest one to win.
+	useEffect(() => {
+		if (!pendingContextMenu) return;
+		const cancel = () => setPendingContextMenu(null);
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") cancel();
+		};
+		window.addEventListener("pointerdown", cancel, true);
+		window.addEventListener("keydown", onKeyDown);
+		return () => {
+			window.removeEventListener("pointerdown", cancel, true);
+			window.removeEventListener("keydown", onKeyDown);
+		};
+	}, [pendingContextMenu]);
+
 	return (
 		<>
 		<div className="flex h-screen flex-col">
@@ -377,124 +554,13 @@ function AppContent() {
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
-				workerId={selectedWorkerId}
-				workerName={
-					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
-				}
+				workerName={selectedWorkerName}
 				localPath={localPath}
-				hasDeployScript={hasDeployScript}
+				groups={dropdownGroups(workerMenuGroups)}
 				setLocalPathError={friendlySetPathError(
 					setLocalPath.error as ApiRequestError | null,
-					workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
+					selectedWorkerName,
 				)}
-				onSetLocalPath={() => {
-					if (!selectedWorkerId) return;
-					setLocalPath.reset();
-					setFolderPickerOpen(true);
-				}}
-				onClearLocalPath={() => {
-					if (!selectedWorkerId) return;
-					if (window.confirm("Forget the local folder for this worker?")) {
-						clearLocalPath.mutate(selectedWorkerId);
-					}
-				}}
-				onReveal={() => {
-					if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
-				}}
-				onRenameWorker={() => {
-					renameWorker.reset();
-					setRenameWorkerOpen(true);
-				}}
-				onNtnDeploy={() => {
-					if (!selectedWorkerId || !localPath) return;
-					setDeployConfirmKind("ntn");
-				}}
-				onPnpmDeploy={() => {
-					if (!selectedWorkerId || !localPath) return;
-					setDeployConfirmKind("pnpm");
-				}}
-				onDeployUpdatedWorkers={() => setDeployUpdatedWorkersOpen(true)}
-				onDeployToNewWorkspace={() => setDeployNewWorkerOpen(true)}
-				hasEnvFile={localInfoQ.data?.hasEnvFile ?? false}
-				onPushSecrets={() => {
-					if (!selectedWorkerId || !localPath) return;
-					if (
-						window.confirm(
-							`Push .env from ${localPath} to this worker's remote environment on Notion?\nThis overwrites remote env vars.`,
-						)
-					) {
-						clearTransientOutputs();
-						pushSecrets.mutate(selectedWorkerId);
-					}
-				}}
-				oauthCapabilityKey={oauthCapabilityKey}
-				onOauthShowRedirectUrl={() => {
-					clearTransientOutputs();
-					oauthShowRedirectUrl.mutate();
-				}}
-				onOauthStart={() => {
-					if (!selectedWorkerId || !oauthCapabilityKey) return;
-					if (
-						window.confirm(
-							`Start the OAuth flow for "${oauthCapabilityKey}"?\nThis opens your browser to the provider's consent screen.`,
-						)
-					) {
-						clearTransientOutputs();
-						// `ntn workers oauth start` only prints the authorization URL —
-						// it doesn't launch a browser itself when run non-interactively
-						// (which is how the server always spawns it). Pre-open a blank
-						// tab synchronously, in the same click, so navigating it once the
-						// URL comes back isn't blocked as an unsolicited popup.
-						const authWindow = window.open("", "_blank");
-						oauthStart.mutate(
-							{ workerId: selectedWorkerId, key: oauthCapabilityKey },
-							{
-								onSuccess: (data) => {
-									const match = data.stdout.match(/https:\/\/\S+/);
-									if (match && authWindow) authWindow.location.href = match[0];
-									else authWindow?.close();
-								},
-							},
-						);
-					}
-				}}
-				onOauthToken={() => {
-					if (!selectedWorkerId || !oauthCapabilityKey) return;
-					clearTransientOutputs();
-					oauthToken.mutate({ workerId: selectedWorkerId, key: oauthCapabilityKey });
-				}}
-				onMarkTime={() => markTime.mutate(undefined)}
-				hasTimeMarker={!!configQ.data?.timeMarker}
-				onClearTimeMarker={() => clearTimeMarker.mutate()}
-				onAdjustTimeMarker={openAdjustTimeMarker}
-				onOpenTokenPush={() => {
-					setEnvVar.reset();
-					setTokenPushOpen(true);
-				}}
-				isSyncWorker={isSyncWorker}
-				onSyncPause={() => {
-					if (!selectedWorkerId || !syncCapabilities[0]) return;
-					if (window.confirm("Pause sync for this worker?")) {
-						clearTransientOutputs();
-						syncPause.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-					}
-				}}
-				onSyncResume={() => {
-					if (!selectedWorkerId || !syncCapabilities[0]) return;
-					clearTransientOutputs();
-					syncResume.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-				}}
-				onSyncStateReset={() => {
-					if (!selectedWorkerId || !syncCapabilities[0]) return;
-					if (window.confirm("Reset sync state for this worker?\nThis clears the sync cursor so the next run processes from scratch.")) {
-						clearTransientOutputs();
-						syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-					}
-				}}
-				onUpdatePollingInterval={() => {
-					if (!selectedWorkerId || !localPath) return;
-					setSyncScheduleOpen(true);
-				}}
 			/>
 
 			<PanelGroup
@@ -604,15 +670,12 @@ function AppContent() {
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										filtered={!!workerFilter.trim()}
-										onSelect={(id) => {
-											setSelectedWorkerId(id);
-											setSelectedRunId(null);
-											setSelectedAgentId(null);
-											setSelectedSessionId(null);
-											setRunsViewMode("worker");
-											clearTransientOutputs();
+										onSelect={selectWorker}
+										onContextMenu={(id, x, y) => {
+											setContextMenu(null);
+											if (id !== selectedWorkerId) selectWorker(id);
+											setPendingContextMenu({ workerId: id, x, y });
 										}}
-										onRevealPath={(id) => revealWorker.mutate(id)}
 									/>
 									)}
 								</Panel>
@@ -1294,6 +1357,15 @@ function AppContent() {
 							onSuccess: () => setAdjustTimeMarkerOpen(false),
 						});
 					}}
+				/>
+			) : null}
+			{contextMenu && contextMenu.workerId === selectedWorkerId ? (
+				<WorkerContextMenu
+					groups={contextMenuGroups(workerMenuGroups)}
+					workerName={selectedWorkerName}
+					x={contextMenu.x}
+					y={contextMenu.y}
+					onClose={() => setContextMenu(null)}
 				/>
 			) : null}
 		</>
