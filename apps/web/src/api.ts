@@ -19,6 +19,7 @@ import type {
 	SessionEventsPayload,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
+	SyncPausedByWorker,
 	SyncSchedulesByWorker,
 	SyncSchedulesPayload,
 	SyncStatus,
@@ -163,6 +164,7 @@ export const api = {
 	// polling interval, it only exists in code.
 	// Every registered worker's intervals at once, for the workers list.
 	getAllSyncSchedules: () => request<SyncSchedulesByWorker>(`/api/workers/sync-schedules`),
+	getAllSyncPaused: () => request<SyncPausedByWorker>(`/api/workers/sync-paused`),
 	getSyncSchedules: (workerId: string) =>
 		request<SyncSchedulesPayload>(`/api/workers/${workerId}/sync/schedules`),
 	updateSyncSchedules: (workerId: string, updates: SyncScheduleUpdate[]) =>

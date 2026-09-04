@@ -60,6 +60,11 @@ export interface WorkerMenuState {
 	hasEnvFile: boolean;
 	oauthCapabilityKey: string | null;
 	isSyncWorker: boolean;
+	// Whether the sync that pause/resume act on (the worker's first sync
+	// capability) is currently paused. null when that isn't known yet — no
+	// status has been gathered for this worker — in which case neither item
+	// is gated, since hiding the wrong one is worse than offering both.
+	syncPaused: boolean | null;
 	hasWebhook: boolean;
 	hasTimeMarker: boolean;
 }
@@ -105,6 +110,7 @@ export function buildWorkerMenuGroups(
 		hasEnvFile,
 		oauthCapabilityKey,
 		isSyncWorker,
+		syncPaused,
 		hasWebhook,
 		hasTimeMarker,
 	} = state;
@@ -275,8 +281,20 @@ export function buildWorkerMenuGroups(
 			disabledReason: !workerId ? "Select a worker first." : "This worker has no sync capability.",
 			separatorBefore: true,
 			items: [
-				{ id: "syncPause", label: "sync pause", onSelect: actions.syncPause },
-				{ id: "syncResume", label: "sync resume", onSelect: actions.syncResume },
+				{
+					id: "syncPause",
+					label: "sync pause",
+					disabled: syncPaused === true,
+					disabledReason: "This sync is already paused.",
+					onSelect: actions.syncPause,
+				},
+				{
+					id: "syncResume",
+					label: "sync resume",
+					disabled: syncPaused === false,
+					disabledReason: "This sync is running — nothing to resume.",
+					onSelect: actions.syncResume,
+				},
 				{ id: "syncStateReset", label: "sync reset", onSelect: actions.syncStateReset },
 				{ id: "syncTrigger", label: "Trigger Sync", onSelect: actions.syncTrigger },
 				{

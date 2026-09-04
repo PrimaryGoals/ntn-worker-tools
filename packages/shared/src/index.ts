@@ -615,6 +615,14 @@ export interface SyncSchedulesPayload {
 // declares no syncs is present with an empty array.
 export type SyncSchedulesByWorker = Record<string, string[]>;
 
+// Paused syncs per worker, for the workers list: workerId -> the capability
+// keys whose sync is currently disabled. Unlike the intervals above this is a
+// live `ntn` fact rather than a source one, so it costs one call per worker —
+// it is gathered only for the workers that already earn an interval badge,
+// which is the same set the "paused" marker renders next to. A worker with
+// nothing paused is present with an empty array.
+export type SyncPausedByWorker = Record<string, string[]>;
+
 export interface SyncScheduleUpdate {
 	key: string;
 	file: string;

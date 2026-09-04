@@ -10,6 +10,7 @@ export function WorkersList({
 	runHealth,
 	localPaths,
 	syncSchedules,
+	syncPaused,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
 	onSelect,
@@ -29,6 +30,10 @@ export function WorkersList({
 	// folder (nothing to read) and empty for folders declaring no syncs —
 	// either way, no badge.
 	syncSchedules: Record<string, string[]>;
+	// workerId -> the capability keys whose sync is currently paused, from
+	// `ntn workers sync status`. Sits right after the interval badge, since a
+	// paused sync means that interval isn't being honoured.
+	syncPaused: Record<string, string[]>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
@@ -85,6 +90,15 @@ export function WorkersList({
 									>
 										{" "}
 										({syncSchedules[w.workerId]!.join(" / ")})
+									</span>
+								) : null}
+								{syncPaused[w.workerId]?.length ? (
+									<span
+										className="text-xs font-medium text-amber-600 dark:text-amber-400"
+										title={`Paused: ${syncPaused[w.workerId]!.join(", ")}`}
+									>
+										{" "}
+										paused
 									</span>
 								) : null}
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
