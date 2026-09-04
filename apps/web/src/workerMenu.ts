@@ -45,6 +45,10 @@ export interface WorkerMenuGroup {
 	// The either/or gates leave these groups with a single applicable item, so
 	// in the context menu they shed their heading and collect at the bottom.
 	contextMenuFooter?: boolean;
+	// Rank within that footer block, lowest first; unranked groups sit at 0 and
+	// keep their order relative to one another. Only the footer reads this, so
+	// a group can lead it while staying put in the dropdown.
+	contextMenuFooterOrder?: number;
 }
 
 // Everything the gates are computed from. All of it is already derived in
@@ -56,6 +60,7 @@ export interface WorkerMenuState {
 	hasEnvFile: boolean;
 	oauthCapabilityKey: string | null;
 	isSyncWorker: boolean;
+	hasWebhook: boolean;
 	hasTimeMarker: boolean;
 }
 
@@ -78,6 +83,8 @@ export interface WorkerMenuActions {
 	markTime: () => void;
 	clearTimeMarker: () => void;
 	adjustTimeMarker: () => void;
+	fireWebhook: () => void;
+	syncTrigger: () => void;
 	syncPause: () => void;
 	syncResume: () => void;
 	syncStateReset: () => void;
@@ -98,6 +105,7 @@ export function buildWorkerMenuGroups(
 		hasEnvFile,
 		oauthCapabilityKey,
 		isSyncWorker,
+		hasWebhook,
 		hasTimeMarker,
 	} = state;
 	const noFolder = !localPath;
@@ -235,6 +243,29 @@ export function buildWorkerMenuGroups(
 			],
 		},
 		{
+			id: "webhook",
+			// Unheaded: the one webhook action has no siblings to be grouped with,
+			// and it fires a real POST at the deployed worker, so it reads better
+			// standing alone than buried under a heading. In the dropdown that
+			// leaves it here, next to Sync Options; in the context menu it heads
+			// the footer block instead, where the other single actions are.
+			label: null,
+			separatorBefore: true,
+			contextMenuFooter: true,
+			contextMenuFooterOrder: -1,
+			items: [
+				{
+					id: "fireWebhook",
+					label: "Fire Webhook",
+					disabled: !workerId || !hasWebhook,
+					disabledReason: !workerId
+						? "Select a worker first."
+						: "This worker has no webhook capability.",
+					onSelect: actions.fireWebhook,
+				},
+			],
+		},
+		{
 			id: "sync",
 			label: "Sync Options",
 			// Greyed rather than absent when the worker has no sync capability,
@@ -247,6 +278,7 @@ export function buildWorkerMenuGroups(
 				{ id: "syncPause", label: "sync pause", onSelect: actions.syncPause },
 				{ id: "syncResume", label: "sync resume", onSelect: actions.syncResume },
 				{ id: "syncStateReset", label: "sync reset", onSelect: actions.syncStateReset },
+				{ id: "syncTrigger", label: "Trigger Sync", onSelect: actions.syncTrigger },
 				{
 					id: "updatePollingInterval",
 					label: "Update polling interval…",
@@ -298,7 +330,10 @@ export function contextMenuGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] 
 	// heading over a single row is noise — so they lose it and gather into one
 	// block at the end, after the groups that genuinely list alternatives.
 	const headed = usable.filter((g) => !g.contextMenuFooter);
-	const footer = usable.filter((g) => g.contextMenuFooter).flatMap((g) => g.items);
+	const footer = usable
+		.filter((g) => g.contextMenuFooter)
+		.sort((a, b) => (a.contextMenuFooterOrder ?? 0) - (b.contextMenuFooterOrder ?? 0))
+		.flatMap((g) => g.items);
 	return footer.length > 0
 		? [...headed, { id: "footer", label: null, items: footer }]
 		: headed;
