@@ -376,6 +376,7 @@ function AppContent() {
 			hasEnvFile: localInfoQ.data?.hasEnvFile ?? false,
 			oauthCapabilityKey,
 			isSyncWorker,
+			hasWebhook: (webhooksQ.data?.webhooks?.length ?? 0) > 0,
 			hasTimeMarker: !!configQ.data?.timeMarker,
 		},
 		{
@@ -451,6 +452,24 @@ function AppContent() {
 			markTime: () => markTime.mutate(undefined),
 			clearTimeMarker: () => clearTimeMarker.mutate(),
 			adjustTimeMarker: openAdjustTimeMarker,
+			fireWebhook: () => {
+				// The same POST the webhook URL in the details pane fires, aimed at
+				// the first webhook — the menu is a flat list with nowhere to choose
+				// between several, so a worker with more than one still needs that
+				// pane.
+				const webhook = webhooksQ.data?.webhooks?.[0];
+				if (!webhook) return;
+				clearTransientOutputs();
+				fireWebhook.mutate({
+					url: webhook.url,
+					webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
+				});
+			},
+			syncTrigger: () => {
+				if (!selectedWorkerId || !syncCapabilities[0]) return;
+				clearTransientOutputs();
+				syncTrigger.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
+			},
 			syncPause: () => {
 				if (!selectedWorkerId || !syncCapabilities[0]) return;
 				if (window.confirm("Pause sync for this worker?")) {
@@ -500,7 +519,8 @@ function AppContent() {
 	} | null>(null);
 	// A failed gate query counts as settled: the menu should still open with
 	// the groups that did resolve rather than never opening at all.
-	const menuGatesReady = !capabilitiesQ.isPending && (localPath ? !localInfoQ.isPending : true);
+	const menuGatesReady =
+		!capabilitiesQ.isPending && !webhooksQ.isPending && (localPath ? !localInfoQ.isPending : true);
 
 	useEffect(() => {
 		if (!pendingContextMenu) return;
