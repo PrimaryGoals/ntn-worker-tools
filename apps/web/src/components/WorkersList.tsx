@@ -10,10 +10,11 @@ export function WorkersList({
 	runHealth,
 	localPaths,
 	syncSchedules,
+	syncPaused,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
 	onSelect,
-	onRevealPath,
+	onContextMenu,
 	filtered,
 }: {
 	loading: boolean;
@@ -29,10 +30,16 @@ export function WorkersList({
 	// folder (nothing to read) and empty for folders declaring no syncs —
 	// either way, no badge.
 	syncSchedules: Record<string, string[]>;
+	// workerId -> the capability keys whose sync is currently paused, from
+	// `ntn workers sync status`. Sits right after the interval badge, since a
+	// paused sync means that interval isn't being honoured.
+	syncPaused: Record<string, string[]>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
 	onSelect: (id: string) => void;
-	onRevealPath: (id: string) => void;
+	// Right-click anywhere on a row. Viewport coordinates, for positioning the
+	// menu at the pointer.
+	onContextMenu: (id: string, x: number, y: number) => void;
 	// True when `workers` has already been narrowed by a search filter —
 	// changes the empty-state message so "no matches" isn't confused with
 	// "no workers at all".
@@ -41,7 +48,9 @@ export function WorkersList({
 	if (loading) return <Empty>Loading workers…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
 	if (workers.length === 0) {
-		return <Empty>{filtered ? "No workers match your filter." : "No workers in this workspace."}</Empty>;
+		return (
+			<Empty>{filtered ? "No workers match your filter." : "No workers in this workspace."}</Empty>
+		);
 	}
 	return (
 		<ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
@@ -52,46 +61,63 @@ export function WorkersList({
 					<li
 						key={w.workerId}
 						className={isSelected ? "bg-neutral-100 dark:bg-neutral-900" : ""}
+						onContextMenu={(e) => {
+							// Shift+right-click is left alone, so the browser's own menu
+							// stays reachable (view source, inspect, and so on).
+							if (e.shiftKey) return;
+							e.preventDefault();
+							onContextMenu(w.workerId, e.clientX, e.clientY);
+						}}
 					>
+						{/* One button spanning both lines: the folder path used to be its
+						    own Explorer link, which made it easy to hit instead of the
+						    worker. Revealing now lives in the menus, and every part of
+						    the row selects. */}
 						<button
 							type="button"
 							onClick={() => onSelect(w.workerId)}
-							className="block w-full px-3 pt-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
+							className="block w-full px-3 py-2 text-left text-sm hover:bg-neutral-100 dark:hover:bg-neutral-900"
 						>
 							<div>
 								<WorkerStatusDot health={runHealth[w.workerId]} />
 								<span className="font-medium">{w.name}</span>
-				{syncSchedules[w.workerId]?.length ? (
-					<span
-						className="font-mono text-xs text-neutral-500"
-						title={`Sync polling interval${
-							syncSchedules[w.workerId]!.length > 1 ? "s" : ""
-							}, from this worker’s source`}
-					>
-						{" "}({syncSchedules[w.workerId]!.join(" / ")})
-					</span>
-				) : null}
+								{syncSchedules[w.workerId]?.length ? (
+									<span
+										className="font-mono text-xs text-neutral-500"
+										title={`Sync polling interval${
+											syncSchedules[w.workerId]!.length > 1 ? "s" : ""
+										}, from this worker’s source`}
+									>
+										{" "}
+										({syncSchedules[w.workerId]!.join(" / ")})
+									</span>
+								) : null}
+								{syncPaused[w.workerId]?.length ? (
+									<span
+										className="text-xs font-medium text-amber-600 dark:text-amber-400"
+										title={`Paused: ${syncPaused[w.workerId]!.join(", ")}`}
+									>
+										{" "}
+										paused
+									</span>
+								) : null}
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>
 								{codeOutOfDateWorkerIds.has(w.workerId) && (
 									<span className="font-medium text-red-600 dark:text-red-400"> - redeploy</span>
 								)}
 								{envOutOfDateWorkerIds.has(w.workerId) && (
-									<span className="font-medium text-amber-600 dark:text-amber-400"> - push secrets</span>
+									<span className="font-medium text-amber-600 dark:text-amber-400">
+										{" "}
+										- push secrets
+									</span>
 								)}
 							</div>
+							{localPath ? (
+								<div className="font-mono text-xs text-neutral-500" title={localPath}>
+									{localPath}
+								</div>
+							) : null}
 						</button>
-						{localPath ? (
-							<button
-								type="button"
-								onClick={() => onRevealPath(w.workerId)}
-								title={`Reveal ${localPath} in file explorer`}
-								className="block w-full px-3 pb-2 text-left font-mono text-xs font-medium text-neutral-500 hover:text-blue-600 hover:underline dark:hover:text-blue-400"
-							>
-								{localPath}
-							</button>
-						) : (
-							<div className="pb-2" />
-						)}
 					</li>
 				);
 			})}

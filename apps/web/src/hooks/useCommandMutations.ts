@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import type { AgentStatus, DeployResult } from "@ntn-worker-tools/shared";
+import type { AgentStatus, DeployResult, SyncPausedByWorker } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import { formatSyncStatuses, ntnCmd } from "../format";
 
@@ -51,6 +51,23 @@ export function useCommandMutations(
 					output: formatSyncStatuses(result.statuses),
 					trace: result._trace,
 				});
+				// This is the same call the workers list's "paused" marker is
+				// built from, so the answer is already here — patch that worker's
+				// entry rather than invalidating and re-running the whole
+				// per-worker sweep for a fact we just fetched. Workers absent
+				// from the map have no marker to update (no local folder, or no
+				// sync in source), and are left out so the marker's coverage
+				// doesn't change between a pause and the next full sweep.
+				qc.setQueryData<SyncPausedByWorker>(["allSyncPaused"], (prev) =>
+					prev && workerId in prev
+						? {
+								...prev,
+								[workerId]: result.statuses
+									.filter((st) => st.disabled)
+									.map((st) => st.capabilityKey),
+							}
+						: prev,
+				);
 			} catch (err) {
 				if (followupTokenRef.current !== token) return;
 				setSyncStatusFollowup({

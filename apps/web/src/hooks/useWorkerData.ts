@@ -199,6 +199,17 @@ export function useWorkerData(
 		queryFn: () => api.getAllSyncSchedules(),
 	});
 
+	// Which of those workers have a paused sync, for the marker beside the
+	// interval badge. Kept in its own query rather than folded into the one
+	// above: that one only reads local source, while this fans out an `ntn`
+	// call per sync worker, and the workers-tab refresh button re-runs it
+	// alongside the health sweep.
+	const syncPausedQ = useQuery({
+		queryKey: ["allSyncPaused"],
+		queryFn: () => api.getAllSyncPaused(),
+		enabled: !!whoamiQ.data,
+	});
+
 	// Which workers declare a sync, derived from the same source scan that
 	// feeds the interval badge — `ntn` can't answer this for every worker
 	// without a capabilities call each, and the batch deploy needs it for all
@@ -260,6 +271,7 @@ export function useWorkerData(
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
 		syncSchedulesQ,
+		syncPausedQ,
 		syncWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
