@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-04
+
+### Added
+- Right-click context menu on any worker in the sidebar. It and the header's Worker dropdown render from one definition in `workerMenu.ts`, so a label, a gate, or a disabled reason exists in exactly one place; the surfaces differ only in how they present it — the dropdown turns groups into submenus and greys unavailable items with their reason as a tooltip, while the context menu leaves those items out and collapses the single-item groups into one unheaded block at the bottom (#49)
+- "Fire Webhook" in both menus, firing the same POST as the webhook URL in the details pane. Greyed with its reason for a worker that has no webhook, and absent from the context menu (#50)
+- "Trigger Sync" under Sync Options, directly above "Update polling interval…" (#50)
+- "paused" marker beside a worker's polling interval in the workers list, from a new `/api/workers/sync-paused` route. Whether a sync is disabled is server state rather than something the worker's source can answer, so the route fans out one `ntn workers sync status` per worker — held to the workers whose source declares a sync, which are the only ones showing an interval badge for the marker to sit beside (#50)
+
+### Changed
+- The worker menus recognize that one worker can have both a sync and a webhook: the sync and webhook actions are gated independently instead of treating the two as alternatives (#50)
+- "sync pause" and "sync resume" are gated on the sync's current state — pause is unavailable on an already-paused sync, resume on a running one. Per the menus' existing convention that means greyed with the reason in the dropdown and absent from the context menu; when no status has been gathered for the worker yet, neither is gated (#50)
+- The status check that already ran ~5s after sync pause/resume/reset now also updates the workers list's "paused" marker from the response it just received, rather than leaving the marker stale until the next full sweep (#50)
+
+### Fixed
+- OAuth "start (authorize)" appeared to do nothing from the web UI while the same command worked in a terminal: `ntn workers oauth start` only opens a browser when its stdout is a TTY, and the server always spawns it non-interactively, so the CLI printed the authorization URL and exited without opening anything. The route now pulls that URL out of stdout and opens it itself — `rundll32 url.dll,FileProtocolHandler` on Windows, `open`/`xdg-open` elsewhere — and leaves the URL in the output panel so it can still be copied by hand (#48, #49)
+- `apps/web/tsconfig.tsbuildinfo` was tracked and unignored, so `tsc -b` left the working tree dirty after every build. Untracked, and `*.tsbuildinfo` added to `.gitignore` (#50)
+
 ## [1.1.0] - 2026-09-02
 
 ### Added
