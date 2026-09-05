@@ -267,6 +267,7 @@ function AppContent() {
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
 		syncSchedulesQ,
+		syncPausedQ,
 		syncWorkerIds,
 		syncCapabilities,
 		isSyncWorker,
@@ -365,6 +366,17 @@ function AppContent() {
 		clearTransientOutputs();
 	}
 
+	// Whether the sync that pause/resume act on — the first sync capability,
+	// the one every sync menu item uses — is currently paused. Read from the
+	// same map the sidebar's "paused" marker is built from, so it needs no
+	// call of its own and moves in step with that marker. undefined entry
+	// (worker has no local folder, or none of its source declares a sync)
+	// means unknown, and neither item is gated.
+	const menuSyncKey = syncCapabilities[0]?.key ?? null;
+	const menuPausedKeys = selectedWorkerId ? syncPausedQ.data?.[selectedWorkerId] : undefined;
+	const menuSyncPaused =
+		menuSyncKey && menuPausedKeys ? menuPausedKeys.includes(menuSyncKey) : null;
+
 	// Built fresh on every render rather than memoised: these actions close
 	// over current state, and a stale dependency list here would mean a menu
 	// item acting on the worker that was selected a moment ago.
@@ -376,6 +388,7 @@ function AppContent() {
 			hasEnvFile: localInfoQ.data?.hasEnvFile ?? false,
 			oauthCapabilityKey,
 			isSyncWorker,
+			syncPaused: menuSyncPaused,
 			hasWebhook: (webhooksQ.data?.webhooks?.length ?? 0) > 0,
 			hasTimeMarker: !!configQ.data?.timeMarker,
 		},
@@ -613,13 +626,14 @@ function AppContent() {
 													after: (
 														<RefreshButton
 															title="Refresh worker health"
-															spinning={runHealthQ.isFetching}
+															spinning={runHealthQ.isFetching || syncPausedQ.isFetching}
 															onClick={() => {
 																// Only switch when needed: switchBrowserTab
 																// clears the output panel, which would be a
 																// surprising side effect of a refresh click.
 																if (browserTab !== "workers") switchBrowserTab("workers");
 																runHealthQ.refetch();
+																syncPausedQ.refetch();
 															}}
 														/>
 													),
@@ -687,6 +701,7 @@ function AppContent() {
 										runHealth={workerHealth}
 										localPaths={configQ.data?.workerLocalPaths ?? {}}
 									syncSchedules={syncSchedulesQ.data ?? {}}
+										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										filtered={!!workerFilter.trim()}

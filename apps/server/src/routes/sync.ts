@@ -1,13 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import type {
 	DeployResult,
+	SyncPausedByWorker,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
 	SyncSchedulesByWorker,
 	SyncSchedulesPayload,
 } from "@ntn-worker-tools/shared";
 import { DEFAULT_SYNC_SCHEDULE, isValidSyncSchedule } from "@ntn-worker-tools/shared";
-import { runNtnJsonWithTrace, runNtnRawAllowingFailure } from "../ntn.js";
+import { runNtnJson, runNtnJsonWithTrace, runNtnRawAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 import { applySyncScheduleUpdates, findSyncSchedules } from "../sync-schedule.js";
 import { getConfig } from "../state.js";
@@ -65,6 +66,42 @@ export default async function syncRoutes(app: FastifyInstance) {
 					if (!labels.includes(label)) labels.push(label);
 				}
 				return [workerId, labels];
+			}),
+		);
+		return Object.fromEntries(entries);
+	});
+
+	// Which of those same workers have a paused sync, for the marker that sits
+	// beside the interval badge. Whether a sync is disabled is server state, so
+	// unlike the intervals it can't be read from source: this fans out one
+	// `ntn workers sync status` per worker. The fan-out is held to the workers
+	// whose source actually declares a sync — the only ones that show a badge
+	// to sit next to — rather than every worker in the workspace.
+	app.get("/api/workers/sync-paused", async (): Promise<SyncPausedByWorker> => {
+		const paths = getConfig().workerLocalPaths ?? {};
+		const entries = await Promise.all(
+			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string[]]> => {
+				const { entries: found } = await findSyncSchedules(path);
+				if (found.length === 0) return [workerId, []];
+				try {
+					const statuses = await runNtnJson<Array<{ capabilityKey?: string; disabled?: boolean }>>([
+						"workers",
+						"sync",
+						"status",
+						"--worker-id",
+						workerId,
+						"--no-watch",
+					]);
+					const paused = statuses
+						.filter((st) => st.disabled)
+						.map((st) => st.capabilityKey)
+						.filter((key): key is string => !!key);
+					return [workerId, paused];
+				} catch {
+					// One worker's status failing (never deployed, transient API
+					// error) shouldn't blank the marker on every other worker.
+					return [workerId, []];
+				}
 			}),
 		);
 		return Object.fromEntries(entries);
