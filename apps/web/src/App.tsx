@@ -252,6 +252,7 @@ function AppContent() {
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		localMtimesQ,
 		runsQ,
 		crossWorkerRunsQ,
 		crossWorkerUsageQ,
@@ -619,14 +620,18 @@ function AppContent() {
 												{
 													id: "workers" as const,
 													label: "Workers",
-													// Each tab carries its own refresh, scoped to that
-													// tab's health sweep. Clicking one also moves you to
+													// Each tab carries its own refresh, scoped to what
+													// that tab shows. Clicking one also moves you to
 													// that tab — refreshing a view you can't see would
 													// be a no-op from the user's side.
 													after: (
 														<RefreshButton
-															title="Refresh worker health"
-															spinning={runHealthQ.isFetching || syncPausedQ.isFetching}
+															title="Refresh workers"
+															spinning={
+																runHealthQ.isFetching ||
+																syncPausedQ.isFetching ||
+																localMtimesQ.isFetching
+															}
 															onClick={() => {
 																// Only switch when needed: switchBrowserTab
 																// clears the output panel, which would be a
@@ -634,6 +639,15 @@ function AppContent() {
 																if (browserTab !== "workers") switchBrowserTab("workers");
 																runHealthQ.refetch();
 																syncPausedQ.refetch();
+																// The out-of-date badges are a memo over these
+																// three, and nothing else re-reads them: local
+																// edits made outside the app are invisible until
+																// a deploy/env push invalidates them or the page
+																// reloads. Without these the button would refresh
+																// the dots but leave a stale "needs redeploy".
+																localMtimesQ.refetch();
+																workersQ.refetch();
+																configQ.refetch();
 															}}
 														/>
 													),
