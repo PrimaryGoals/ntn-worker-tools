@@ -290,6 +290,38 @@ export function normalizePathKey(path: string): string {
 	return /^[a-zA-Z]:/.test(unified) ? unified.toLowerCase() : unified;
 }
 
+// One worker folder found by walking the scan roots.
+export interface ScanWorker {
+	path: string;
+	// Folder name. Doubles as the default name on a first deployment, which is
+	// why it is carried rather than derived in the UI.
+	name: string;
+	// The scan root this folder was found under.
+	root: string;
+	// From the folder's workers.json. Both null when it has none, which is a
+	// folder that has never been deployed from here.
+	workspaceId: string | null;
+	workerId: string | null;
+	// A workers.json that won't parse, or that names no worker. Surfaced rather
+	// than treated as never-deployed: deploying over it would create a second
+	// worker instead of updating the intended one.
+	workersJsonInvalid: boolean;
+	// Matched by a `new Worker(` declaration in its own source rather than by a
+	// workers.json — the only way to find a folder that has never been deployed.
+	hasWorkerSource: boolean;
+}
+
+export interface ScanResult {
+	roots: string[];
+	workers: ScanWorker[];
+	// Roots that could not be read (renamed folder, disconnected drive), so the
+	// UI can say so instead of quietly listing fewer workers.
+	unreadableRoots: string[];
+	// How many folders were skipped because they are in ignoredFolders.
+	ignoredCount: number;
+	durationMs: number;
+}
+
 export interface LocalPathPayload {
 	workerId: string;
 	path: string | null;
