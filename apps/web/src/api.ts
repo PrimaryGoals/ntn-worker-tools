@@ -16,6 +16,7 @@ import type {
 	LogsPayload,
 	RunHealthPayload,
 	RunsPayload,
+	ScanResult,
 	SessionEventsPayload,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
@@ -97,6 +98,7 @@ export const api = {
 	sessionLogout: () =>
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
+	getScan: () => request<ScanResult>("/api/scan"),
 	addScanRoot: (path: string) =>
 		request<AppConfig>("/api/config/scan-roots", { method: "POST", body: JSON.stringify({ path }) }),
 	removeScanRoot: (path: string) =>

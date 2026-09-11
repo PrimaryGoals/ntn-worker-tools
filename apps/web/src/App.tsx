@@ -253,6 +253,7 @@ function AppContent() {
 		runHealthQ,
 		workerHealth,
 		localMtimesQ,
+		scanQ,
 		runsQ,
 		crossWorkerRunsQ,
 		crossWorkerUsageQ,
@@ -275,6 +276,11 @@ function AppContent() {
 		syncStatusQ,
 		oauthCapabilityKey,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
+	// The scan can span several repos, so there is no single branch to show in
+	// the header. It reports the branch of the selected worker's repo, and
+	// nothing when no scanned folder claims that worker.
+	const selectedWorkerBranch =
+		scanQ.data?.workers.find((worker) => worker.workerId === selectedWorkerId)?.branch ?? null;
 	const {
 		agentsQ,
 		agentHealthQ,
@@ -591,6 +597,7 @@ function AppContent() {
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
 				scanRoots={configQ.data?.scanRoots ?? []}
+				branch={selectedWorkerBranch}
 				workerName={selectedWorkerName}
 				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}

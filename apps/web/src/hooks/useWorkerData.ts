@@ -50,6 +50,15 @@ export function useWorkerData(
 		queryFn: api.getLocalMtimes,
 		enabled: !!whoamiQ.data,
 	});
+	// Worker folders on disk, with the repo and branch each belongs to. Gated on
+	// whoami like the rest, since every call 401s without a session. Deliberately
+	// not on a poll: the walk is filesystem work plus two git calls per repo, so
+	// it runs on load and on an explicit refresh.
+	const scanQ = useQuery({
+		queryKey: ["scan"],
+		queryFn: () => api.getScan(),
+		enabled: !!whoamiQ.data,
+	});
 	const runsQ = useQuery({
 		queryKey: ["runs", selectedWorkerId],
 		queryFn: () => api.getRuns(selectedWorkerId!),
@@ -256,6 +265,7 @@ export function useWorkerData(
 		runHealthQ,
 		workerHealth,
 		localMtimesQ,
+		scanQ,
 		runsQ,
 		crossWorkerRunsQ,
 		crossWorkerUsageQ,
