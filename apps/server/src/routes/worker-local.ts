@@ -13,6 +13,7 @@ import type {
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { SCAN_IGNORED_DIR_NAMES } from "../scan-ignore.js";
 import { isVerbose } from "../route-helpers.js";
+import { folderIdentityMismatch } from "../workers-json.js";
 import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
 
@@ -275,6 +276,13 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
+			}
 			const args = ["workers", "deploy", "--json"];
 			if (isVerbose(req.query.yes)) args.push("--yes");
 			const verbose = isVerbose(req.query.verbose);
@@ -359,6 +367,13 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
 			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
+			}
 			const verbose = isVerbose(req.query.verbose);
 			const pushArgs = ["workers", "env", "push", "--yes"];
 			if (verbose) pushArgs.push("-v");
@@ -400,6 +415,13 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				return reply
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
 			}
 			const args = ["run", "deploy"];
 			// pnpm forwards a flag placed after the script name straight into the
@@ -579,6 +601,16 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				const path = localPaths[action.workerId];
 				if (!path) {
 					send({ type: "chunk", text: `\n--- ${action.label} ---\nNo local path registered — skipped.` });
+					hasError = true;
+					continue;
+				}
+
+				const mismatch = await folderIdentityMismatch(path, action.workerId);
+				if (mismatch) {
+					send({
+						type: "chunk",
+						text: `\n--- ${action.label} ---\n${mismatch.error}. ${mismatch.detail}`,
+					});
 					hasError = true;
 					continue;
 				}
