@@ -231,6 +231,63 @@ export interface AppConfig {
 	// per-worker) — shown in the runs panel for every worker to split runs
 	// into before/after the marker.
 	timeMarker?: string;
+	// Directories chosen with "Set local folder…", each scanned for worker
+	// folders. Several are allowed. This replaces workerLocalPaths as the
+	// stored link to disk: folder-to-worker pairs are re-read from each
+	// folder's workers.json instead of being saved, so a branch switch can't
+	// leave a stale pairing behind.
+	scanRoots?: string[];
+	// Folders the scan finds that aren't workers to act on (templates,
+	// scaffolds). Compared through normalizePathKey.
+	ignoredFolders?: string[];
+	// repo root -> branch name -> workspaceId. Only ever written from an
+	// explicit choice: git cannot say which workspace a new branch belongs to.
+	// The reflog names a source branch only sometimes and expires, and a client
+	// branch cut from main looks identical to a feature branch.
+	branchWorkspaces?: Record<string, Record<string, string>>;
+	// repo root -> workspaceIds that repo is never deployed to, so a repo with
+	// no branch for the connected workspace can be dismissed once instead of
+	// warning forever.
+	repoWorkspacesNotUsed?: Record<string, string[]>;
+	// workspaceId -> display name, cached from `ntn whoami` as workspaces are
+	// seen. `ntn` has no command to list workspaces, so a name is only known
+	// once connected (or resolved read-only via NOTION_WORKSPACE_ID).
+	workspaceNames?: Record<string, string>;
+	// workerId -> what this app last deployed to that worker. Worker IDs are
+	// unique to a workspace, so each workspace's record is independent.
+	// Supersedes workerLastCodeDeployAt: comparing file mtimes breaks on every
+	// branch switch, because checkout re-stamps every file that differs.
+	workerDeploys?: Record<string, WorkerDeployRecord>;
+	// Same, for env pushes. Supersedes workerLastEnvPushAt.
+	workerEnvPushes?: Record<string, WorkerDeployRecord>;
+}
+
+// One deploy (or env push) this app performed, used to decide whether a folder
+// still matches what its workspace is running.
+export interface WorkerDeployRecord {
+	at: string;
+	// Hash of the worker's source plus every workspace: package it depends on,
+	// excluding workers.json and .env. Absent on records migrated from the old
+	// timestamp-only maps; those keep the mtime comparison until the next
+	// deploy records a fingerprint, which over-flags rather than hiding a real
+	// change.
+	fingerprint?: string;
+	// Where the deploy came from, so a row can say which branch's code a
+	// workspace is running. Absent outside git, and on migrated records.
+	branch?: string;
+	commit?: string;
+}
+
+// Case-insensitive key for comparing local paths. Windows treats D:\Code and
+// d:\code as one directory, and both spellings are already in the wild (this
+// app's own config holds the same folder under two capitalizations). Separators
+// are unified and a trailing one dropped, so a root stored with or without it
+// still matches the folders found beneath it. Case folding is decided from the
+// string's own drive letter rather than process.platform, so the server and the
+// browser bundle always agree.
+export function normalizePathKey(path: string): string {
+	const unified = path.replace(/\\/g, "/").replace(/\/+$/, "");
+	return /^[a-zA-Z]:/.test(unified) ? unified.toLowerCase() : unified;
 }
 
 export interface LocalPathPayload {

@@ -1,7 +1,22 @@
 import type { AppConfig } from "@ntn-worker-tools/shared";
-import { loadConfig, saveConfig } from "./config.js";
+import { loadConfig, migrateConfig, saveConfig } from "./config.js";
 
-let config: AppConfig = await loadConfig();
+// Migration runs before anything reads the config, and the result is persisted
+// immediately: the seeded scan roots are what the first scan walks, and
+// re-deriving them on every start would undo a root the user later removed.
+const migration = migrateConfig(await loadConfig());
+let config: AppConfig = migration.config;
+if (migration.changed) {
+	try {
+		await saveConfig(config);
+	} catch (err) {
+		// Not fatal — the app runs on the migrated config in memory and tries
+		// again next start. A lost write only means seeding happens later.
+		console.warn(
+			`[config] Could not save migrated config: ${err instanceof Error ? err.message : String(err)}`,
+		);
+	}
+}
 
 export function getConfig(): AppConfig {
 	return config;
