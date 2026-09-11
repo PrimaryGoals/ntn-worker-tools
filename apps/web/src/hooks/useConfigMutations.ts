@@ -22,6 +22,23 @@ export function useConfigMutations(
 			setFolderPickerOpen(false);
 		},
 	});
+	// Adding a scan root is what "Set local folder…" now does. It needs no
+	// selected worker, so unlike setLocalPath there is no id to check against.
+	const addScanRoot = useMutation({
+		mutationFn: (path: string) => api.addScanRoot(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+			setFolderPickerOpen(false);
+		},
+	});
+	const removeScanRoot = useMutation({
+		mutationFn: (path: string) => api.removeScanRoot(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+		},
+	});
 	const clearLocalPath = useMutation({
 		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
 		onSuccess: () => {
@@ -81,6 +98,8 @@ export function useConfigMutations(
 
 	return {
 		setLocalPath,
+		addScanRoot,
+		removeScanRoot,
 		clearLocalPath,
 		revealWorker,
 		renameWorker,

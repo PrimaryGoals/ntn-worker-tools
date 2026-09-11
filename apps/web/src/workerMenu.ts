@@ -123,7 +123,9 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "setLocalPath",
-					label: localPath ? "Change local folder…" : "Set local folder…",
+					// Always the same label now: it adds a folder to scan, and does
+					// not change anything about the selected worker.
+					label: "Set local folder…",
 					onSelect: actions.setLocalPath,
 				},
 				{

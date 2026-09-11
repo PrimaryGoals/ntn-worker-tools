@@ -11,6 +11,8 @@ export function MenuBar({
 	spaceName,
 	workerName,
 	localPath,
+	scanRoots,
+	branch,
 	groups,
 	setLocalPathError,
 }: {
@@ -24,6 +26,12 @@ export function MenuBar({
 	spaceName: string | null;
 	workerName: string | null;
 	localPath: string | null;
+	// Folders the scan walks. Shown as Source in the status strip so the folder
+	// being read is visible without opening a menu.
+	scanRoots: string[];
+	// Checked-out branch of the repo in view, when there is one. Absent outside
+	// git, and until the per-repo git state lands.
+	branch?: string | null;
 	// Already narrowed by dropdownGroups() — unavailable items are still here,
 	// greyed with their reason, because the dropdown is where you find out why
 	// an action isn't open to you yet.
@@ -31,6 +39,14 @@ export function MenuBar({
 	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
+	// One root reads as a path; several would overflow the bar, so the rest are
+	// counted and listed in the tooltip.
+	const sourceLabel =
+		scanRoots.length === 0
+			? "none set"
+			: scanRoots.length === 1
+				? (scanRoots[0] ?? "none set")
+				: `${scanRoots[0]} +${scanRoots.length - 1} more`;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (
@@ -99,16 +115,26 @@ export function MenuBar({
 					) : null}
 				</div>
 			)}
+			<div className="flex min-w-0 flex-1 items-center gap-4 px-4 text-xs text-neutral-500">
+				<span className="whitespace-nowrap">
+					Workspace:{" "}
+					<span className="font-medium text-neutral-700 dark:text-neutral-300">
+						{spaceName ?? "…"}
+					</span>
+				</span>
+				<span className="min-w-0 truncate" title={scanRoots.join("\n")}>
+					Source:{" "}
+					<span className="font-mono text-neutral-700 dark:text-neutral-300">{sourceLabel}</span>
+				</span>
+				{branch ? (
+					<span className="whitespace-nowrap">
+						Branch:{" "}
+						<span className="font-mono text-neutral-700 dark:text-neutral-300">{branch}</span>
+					</span>
+				) : null}
+			</div>
 			<div className="flex items-center gap-3">
-				<h1 className="text-sm font-semibold">
-					{spaceName ? (
-						<>
-							NTN Worker Tools <span className="font-normal text-neutral-500">({spaceName})</span>
-						</>
-					) : (
-						"NTN Worker Tools"
-					)}
-				</h1>
+				<h1 className="whitespace-nowrap text-sm font-semibold">NTN Worker Tools</h1>
 				<span className={"text-xs " + (error ? "text-red-600 dark:text-red-400" : "text-neutral-500")}>
 					{loading ? (
 						"checking auth…"

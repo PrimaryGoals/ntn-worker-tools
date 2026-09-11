@@ -97,6 +97,12 @@ export const api = {
 	sessionLogout: () =>
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
+	addScanRoot: (path: string) =>
+		request<AppConfig>("/api/config/scan-roots", { method: "POST", body: JSON.stringify({ path }) }),
+	removeScanRoot: (path: string) =>
+		request<AppConfig>(`/api/config/scan-roots?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
 	updateUiConfig: (patch: Partial<AppConfig["ui"]>) =>
 		request<AppConfig>("/api/config/ui", {
 			method: "PATCH",

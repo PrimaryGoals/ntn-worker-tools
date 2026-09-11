@@ -304,6 +304,7 @@ function AppContent() {
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
 		setLocalPath,
+		addScanRoot,
 		clearLocalPath,
 		revealWorker,
 		renameWorker,
@@ -395,8 +396,9 @@ function AppContent() {
 		},
 		{
 			setLocalPath: () => {
-				if (!selectedWorkerId) return;
-				setLocalPath.reset();
+				// No worker needed: this picks a folder to scan for workers, rather
+				// than a folder to attach to one selected worker.
+				addScanRoot.reset();
 				setFolderPickerOpen(true);
 			},
 			reveal: () => {
@@ -588,6 +590,7 @@ function AppContent() {
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
+				scanRoots={configQ.data?.scanRoots ?? []}
 				workerName={selectedWorkerName}
 				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}
@@ -1212,22 +1215,20 @@ function AppContent() {
 					}}
 				/>
 			) : null}
-			{folderPickerOpen && selectedWorkerId ? (
+			{folderPickerOpen ? (
 				<FolderPickerModal
-					workerName={
-						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
-					}
-					startPath={localPath}
-					submitting={setLocalPath.isPending}
-					error={friendlySetPathError(
-						setLocalPath.error as ApiRequestError | null,
-						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
-					)}
+					workerName={null}
+					title="Choose a folder to scan for workers"
+					selectLabel="Use this folder"
+					requireWorkerProject={false}
+					startPath={configQ.data?.scanRoots?.[0] ?? localPath}
+					submitting={addScanRoot.isPending}
+					error={addScanRoot.error as Error | null}
 					onClose={() => setFolderPickerOpen(false)}
-					onResetError={() => setLocalPath.reset()}
+					onResetError={() => addScanRoot.reset()}
 					onSelect={(path) => {
 						clearTransientOutputs();
-						setLocalPath.mutate({ workerId: selectedWorkerId, path });
+						addScanRoot.mutate(path);
 					}}
 				/>
 			) : null}
