@@ -1,7 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { normalizePathKey } from "@ntn-worker-tools/shared";
-import type { ScanResult, ScanWorker } from "@ntn-worker-tools/shared";
+import type { ScanResult, ScanWorker, WorkersJsonState } from "@ntn-worker-tools/shared";
+import { loadGitState } from "./git.js";
 import { SCAN_IGNORED_DIR_NAMES } from "./scan-ignore.js";
 
 // A folder counts as a worker when it holds a workers.json (deployed at least
@@ -17,6 +18,14 @@ const WORKER_SOURCE_PATTERN = /new\s+Worker\s*\(/;
 const MAX_SOURCE_FILES = 20;
 const MAX_SOURCE_BYTES = 256 * 1024;
 const SOURCE_FILE_PATTERN = /\.(ts|tsx|js|mjs)$/;
+
+// A source match on its own is too weak a marker twice over: it hits any
+// file that merely mentions the constructor, documentation comments
+// included (this project's own shared types matched that way), and it hits
+// a src/ subfolder as readily as the project that owns it. Requiring the
+// SDK dependency in the folder's own package.json makes the pair mean what
+// it should: a deployable worker project lives here.
+const WORKER_PACKAGE = "@notionhq/workers";
 
 async function collectSourceFiles(from: string, depth: number, found: string[]): Promise<void> {
 	if (found.length >= MAX_SOURCE_FILES || depth < 0) return;
@@ -52,12 +61,36 @@ async function declaresWorker(dir: string): Promise<boolean> {
 	return false;
 }
 
+async function declaresWorkerProject(dir: string, fileNames: Set<string>): Promise<boolean> {
+	if (!fileNames.has("package.json")) return false;
+	try {
+		const pkg = JSON.parse(await readFile(join(dir, "package.json"), "utf8")) as {
+			dependencies?: Record<string, string>;
+			devDependencies?: Record<string, string>;
+		};
+		const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+		if (!(WORKER_PACKAGE in deps)) return false;
+	} catch {
+		return false; // unreadable or invalid package.json — not a project we can deploy
+	}
+	return declaresWorker(dir);
+}
+
 async function inspectFolder(
 	dir: string,
 	root: string,
 	fileNames: Set<string>,
 ): Promise<ScanWorker | null> {
-	const base = { path: dir, name: basename(dir), root };
+	// The git fields are filled in one pass at the end of the scan, grouped
+	// by repo, so the defaults here are what a folder outside git keeps.
+	const base = {
+		path: dir,
+		name: basename(dir),
+		root,
+		repoRoot: null,
+		branch: null,
+		workersJsonState: "absent" as WorkersJsonState,
+	};
 	if (fileNames.has("workers.json")) {
 		try {
 			const parsed = JSON.parse(await readFile(join(dir, "workers.json"), "utf8")) as {
@@ -85,7 +118,7 @@ async function inspectFolder(
 			};
 		}
 	}
-	if (await declaresWorker(dir)) {
+	if (await declaresWorkerProject(dir, fileNames)) {
 		return {
 			...base,
 			workspaceId: null,
@@ -164,9 +197,24 @@ export async function runScan(roots: string[], ignoredFolders: string[]): Promis
 	}
 
 	workers.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }));
+
+	// Git state comes last, in one pass over the folders already found: it is
+	// grouped by repo, so its cost scales with the number of repos rather than
+	// with the number of workers.
+	const { byWorker, repos } = await loadGitState(
+		workers.map((worker) => ({ path: worker.path, hasWorkersJson: !worker.hasWorkerSource })),
+	);
+	for (const worker of workers) {
+		const state = byWorker.get(normalizePathKey(worker.path));
+		worker.repoRoot = state?.repoRoot ?? null;
+		worker.branch = state?.branch ?? null;
+		worker.workersJsonState = state?.workersJsonState ?? "no-git";
+	}
+
 	return {
 		roots,
 		workers,
+		repos,
 		unreadableRoots,
 		ignoredCount: counters.ignored,
 		durationMs: Date.now() - started,

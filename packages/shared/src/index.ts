@@ -309,11 +309,35 @@ export interface ScanWorker {
 	// Matched by a `new Worker(` declaration in its own source rather than by a
 	// workers.json — the only way to find a folder that has never been deployed.
 	hasWorkerSource: boolean;
+	// The git repo this folder sits in, and that repo's checked-out branch.
+	// Both null outside git, which is allowed: such folders are treated as
+	// single-workspace and get no branch check at all.
+	repoRoot: string | null;
+	branch: string | null;
+	// How git treats this folder's workers.json — the input to the "not
+	// committed on this branch" flag.
+	workersJsonState: WorkersJsonState;
+}
+
+// How git treats a worker folder's workers.json. "ignored" is the one that
+// matters: a branch switch cannot restore an ignored file, so it holds one
+// workspace's worker ID for every branch at once.
+export type WorkersJsonState = "tracked" | "untracked" | "ignored" | "absent" | "no-git";
+
+export interface ScanRepo {
+	root: string;
+	// Checked-out branch, or null when detached or unreadable.
+	branch: string | null;
+	// How many scanned worker folders sit in this repo.
+	workerCount: number;
 }
 
 export interface ScanResult {
 	roots: string[];
 	workers: ScanWorker[];
+	// Every git repo the scanned folders belong to. Folders outside git
+	// contribute nothing here, which is what makes git optional.
+	repos: ScanRepo[];
 	// Roots that could not be read (renamed folder, disconnected drive), so the
 	// UI can say so instead of quietly listing fewer workers.
 	unreadableRoots: string[];
