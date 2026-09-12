@@ -670,6 +670,7 @@ function AppContent() {
 														<RefreshButton
 															title="Refresh workers"
 															spinning={
+																whoamiQ.isFetching ||
 																runHealthQ.isFetching ||
 																syncPausedQ.isFetching ||
 																localMtimesQ.isFetching ||
@@ -680,6 +681,12 @@ function AppContent() {
 																// clears the output panel, which would be a
 																// surprising side effect of a refresh click.
 																if (browserTab !== "workers") switchBrowserTab("workers");
+																// The connected workspace can change under the app: `ntn
+																// login` in a terminal switches it, and everything else
+																// here is read against whoever is connected now - the
+																// worker list, the scan pairing, the header itself. So
+																// confirm the identity first.
+																whoamiQ.refetch();
 																runHealthQ.refetch();
 																syncPausedQ.refetch();
 																// The out-of-date badges are a memo over these
