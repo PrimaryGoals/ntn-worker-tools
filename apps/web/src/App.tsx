@@ -217,6 +217,7 @@ function AppContent() {
 	const [agentCreditLimitOpen, setAgentCreditLimitOpen] = useState(false);
 	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
 	const {
+		checkWorkerFolder,
 		deployWorker,
 		pnpmDeployWorker,
 		pushSecrets,
@@ -394,6 +395,23 @@ function AppContent() {
 	const selectedWorkerName =
 		workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null;
 
+	// Check the folder still belongs to this worker before the confirmation
+	// dialog, not when the deploy runs. Confirming a deploy that was never
+	// going to be allowed wastes the decision the dialog is asking for, and
+	// the answer reads the same either way - it is the same check.
+	async function confirmDeployAfterFolderCheck(kind: "ntn" | "pnpm") {
+		if (!selectedWorkerId || !localPath) return;
+		clearTransientOutputs();
+		checkWorkerFolder.reset();
+		try {
+			await checkWorkerFolder.mutateAsync(selectedWorkerId);
+		} catch {
+			// Reported through anyDeployError; the dialog stays shut.
+			return;
+		}
+		setDeployConfirmKind(kind);
+	}
+
 	function selectWorker(id: string) {
 		setSelectedWorkerId(id);
 		setSelectedRunId(null);
@@ -472,14 +490,8 @@ function AppContent() {
 				renameWorker.reset();
 				setRenameWorkerOpen(true);
 			},
-			ntnDeploy: () => {
-				if (!selectedWorkerId || !localPath) return;
-				setDeployConfirmKind("ntn");
-			},
-			pnpmDeploy: () => {
-				if (!selectedWorkerId || !localPath) return;
-				setDeployConfirmKind("pnpm");
-			},
+			ntnDeploy: () => confirmDeployAfterFolderCheck("ntn"),
+			pnpmDeploy: () => confirmDeployAfterFolderCheck("pnpm"),
 			deployUpdatedWorkers: () => setDeployUpdatedWorkersOpen(true),
 			deployToNewWorkspace: () => setDeployNewWorkerOpen(true),
 			pushSecrets: () => {

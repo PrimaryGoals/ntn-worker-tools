@@ -214,6 +214,10 @@ export const api = {
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
+	checkWorkerFolder: (workerId: string) =>
+		request<{ ok: boolean; error?: string; detail?: string }>(
+			`/api/workers/${workerId}/folder-check`,
+		),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
 	// `assumeYes` adds `--yes`, confirming a deploy that touches linked

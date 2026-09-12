@@ -268,6 +268,21 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	// before a managed-database schema migration, and it can never be answered
 	// here (the CLI is always spawned non-interactively), so the caller has to
 	// decide deliberately — it is never assumed.
+	// The same folder check the deploy routes run, without doing anything. The
+	// client asks before opening its confirmation dialog: being told the folder
+	// belongs to another worker is worth knowing before confirming a deploy, not
+	// after. Answers 200 either way - a check that says "no" is not a failed
+	// request.
+	app.get<{ Params: { id: string } }>(
+		"/api/workers/:id/folder-check",
+		async (req): Promise<{ ok: boolean; error?: string; detail?: string }> => {
+			const path = getConfig().workerLocalPaths?.[req.params.id];
+			if (!path) return { ok: true }; // nothing registered, nothing to contradict
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			return mismatch ? { ok: false, ...mismatch } : { ok: true };
+		},
+	);
+
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string; yes?: string } }>(
 		"/api/workers/:id/deploy",
 		async (req, reply): Promise<DeployResult> => {
