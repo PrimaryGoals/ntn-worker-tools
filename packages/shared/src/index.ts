@@ -352,6 +352,15 @@ export interface ScanResult {
 	durationMs: number;
 }
 
+// True when `path` is `root` itself or sits beneath it. Compared through
+// normalizePathKey, so Windows casing and separator style never decide the
+// answer — the same folder spelled two ways is still the same folder.
+export function isPathUnder(path: string, root: string): boolean {
+	const p = normalizePathKey(path);
+	const r = normalizePathKey(root);
+	return p === r || p.startsWith(r + "/");
+}
+
 export interface LocalPathPayload {
 	workerId: string;
 	path: string | null;

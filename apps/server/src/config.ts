@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, parse } from "node:path";
 import envPaths from "env-paths";
-import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { isPathUnder, normalizePathKey } from "@ntn-worker-tools/shared";
 import type { AppConfig, WorkerDeployRecord } from "@ntn-worker-tools/shared";
 
 const paths = envPaths("ntn-worker-tools", { suffix: "" });
@@ -149,12 +149,6 @@ function seedRecords(
 	return records;
 }
 
-function isUnder(path: string, root: string): boolean {
-	const p = normalizePathKey(path);
-	const r = normalizePathKey(root);
-	return p === r || p.startsWith(r + "/");
-}
-
 // Reduces candidate roots to the one the scan runs from, plus whatever sits
 // outside it. The shallowest candidate wins, since a nested one finds nothing
 // its parent would not. Anything left over is kept as an extra folder rather
@@ -169,7 +163,7 @@ function splitRoot(
 	const extras: string[] = [];
 	const seen = new Set<string>([normalizePathKey(root)]);
 	for (const candidate of [...sorted.slice(1), ...savedFolders]) {
-		if (isUnder(candidate, root)) continue;
+		if (isPathUnder(candidate, root)) continue;
 		const key = normalizePathKey(candidate);
 		if (seen.has(key)) continue;
 		seen.add(key);

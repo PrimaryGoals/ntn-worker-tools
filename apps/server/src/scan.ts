@@ -173,6 +173,7 @@ export async function runScan(
 	scanRoot: string | null,
 	extraWorkerFolders: string[],
 	ignoredFolders: string[],
+	options: { withGitState?: boolean } = {},
 ): Promise<ScanResult> {
 	const started = Date.now();
 	// The root first, then any retained out-of-root folder. Each retained folder
@@ -204,6 +205,20 @@ export async function runScan(
 	}
 
 	workers.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }));
+
+	// Internal callers that only need the identities on disk skip the git pass:
+	// it spawns two commands per repo, which is wasted work when the branch and
+	// tracking state are thrown away.
+	if (options.withGitState === false) {
+		return {
+			roots,
+			workers,
+			repos: [],
+			unreadableRoots,
+			ignoredCount: counters.ignored,
+			durationMs: Date.now() - started,
+		};
+	}
 
 	// Git state comes last, in one pass over the folders already found: it is
 	// grouped by repo, so its cost scales with the number of repos rather than

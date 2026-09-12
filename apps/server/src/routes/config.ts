@@ -1,8 +1,9 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { isPathUnder, normalizePathKey } from "@ntn-worker-tools/shared";
 import type { AppConfig } from "@ntn-worker-tools/shared";
+import { runScan } from "../scan.js";
 import { getConfig, updateConfig } from "../state.js";
 
 export default async function configRoutes(app: FastifyInstance) {
@@ -42,14 +43,35 @@ export default async function configRoutes(app: FastifyInstance) {
 				.code(400)
 				.send({ error: "directory not found", detail: abs }) as unknown as AppConfig;
 		}
-		// Worker folders already paired but outside the new root are retained, so
-		// moving the root never silently drops a worker that is on the server.
+		// Moving the root must not silently drop a worker that is deployed. Any
+		// folder the old root could see that names a worker, and that falls
+		// outside the new root, is retained and scanned alongside it. Folders
+		// with no workers.json are not retained: those are just source, and
+		// losing sight of one costs nothing that a rescan cannot undo.
 		const config = getConfig();
-		const key = normalizePathKey(abs);
-		const kept = (config.extraWorkerFolders ?? []).filter(
-			(folder) => !normalizePathKey(folder).startsWith(key + "/") && normalizePathKey(folder) !== key,
+		const retained = (config.extraWorkerFolders ?? []).filter(
+			(folder) => !isPathUnder(folder, abs),
 		);
-		return updateConfig({ scanRoot: abs, extraWorkerFolders: kept });
+		const seen = new Set(retained.map(normalizePathKey));
+		if (config.scanRoot) {
+			// Identities only — the git pass would spawn two commands per repo for
+			// branch and tracking state that this decision never reads.
+			const previous = await runScan(
+				config.scanRoot,
+				config.extraWorkerFolders ?? [],
+				config.ignoredFolders ?? [],
+				{ withGitState: false },
+			);
+			for (const worker of previous.workers) {
+				if (!worker.workerId) continue;
+				if (isPathUnder(worker.path, abs)) continue;
+				const folderKey = normalizePathKey(worker.path);
+				if (seen.has(folderKey)) continue;
+				seen.add(folderKey);
+				retained.push(worker.path);
+			}
+		}
+		return updateConfig({ scanRoot: abs, extraWorkerFolders: retained });
 	});
 
 	// Drops a retained out-of-root folder. The root itself is replaced, never
