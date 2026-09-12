@@ -43,13 +43,26 @@ export function MenuBar({
 	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
-	// There is one root by design. Retained out-of-root folders are counted
-	// here and spelled out in the tooltip, which is the only place a path that
-	// long fits.
+	// There is one root by design. A single retained folder is named outright:
+	// a bare "+1 outside" says something is there without saying what, which is
+	// no use when the whole point is knowing which worker sits apart. Several
+	// are counted, with every path in the tooltip.
 	const sourceLabel = scanRoot ?? "none set";
+	const outsideNames = extraWorkerFolders.map(
+		(folder) => folder.split(/[\\/]/).filter(Boolean).pop() ?? folder,
+	);
 	const outsideLabel =
-		extraWorkerFolders.length > 0 ? ` +${extraWorkerFolders.length} outside` : "";
-	const sourceTitle = [scanRoot ?? "No scan root set", ...extraWorkerFolders].join("\n");
+		extraWorkerFolders.length === 0
+			? ""
+			: extraWorkerFolders.length === 1
+				? ` + ${outsideNames[0]}`
+				: ` +${extraWorkerFolders.length} outside`;
+	const sourceTitle = [
+		scanRoot ?? "No scan root set",
+		...(extraWorkerFolders.length > 0
+			? ["", "Also scanned, from outside the root:", ...extraWorkerFolders]
+			: []),
+	].join("\n");
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (

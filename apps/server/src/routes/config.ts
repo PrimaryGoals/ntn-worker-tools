@@ -71,7 +71,18 @@ export default async function configRoutes(app: FastifyInstance) {
 				retained.push(worker.path);
 			}
 		}
-		return updateConfig({ scanRoot: abs, extraWorkerFolders: retained });
+		// Drop retained folders that no longer exist. A deleted project should
+		// not linger as a dead path in the header with nothing behind it.
+		const alive: string[] = [];
+		for (const folder of retained) {
+			try {
+				const folderStat = await stat(folder);
+				if (folderStat.isDirectory()) alive.push(folder);
+			} catch {
+				/* gone from disk — drop it rather than carry a path nobody can act on */
+			}
+		}
+		return updateConfig({ scanRoot: abs, extraWorkerFolders: alive });
 	});
 
 	// Drops a retained out-of-root folder. The root itself is replaced, never
