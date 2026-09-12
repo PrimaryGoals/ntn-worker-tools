@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api, type ApiRequestError } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
@@ -402,6 +402,29 @@ function AppContent() {
 		setRunsViewMode("worker");
 		clearTransientOutputs();
 	}
+
+	// A selection belongs to the workspace it was made in. The connected
+	// workspace can change underneath the app - `ntn login` in a terminal, then
+	// refresh - and holding the old id would leave the details pane querying a
+	// worker the new workspace does not have. Cleared the same way selecting
+	// clears, so the runs panel and outputs stop describing something gone.
+	const connectedSpaceId = whoamiQ.data?.spaceId ?? null;
+	const lastSpaceIdRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!connectedSpaceId) return;
+		const previous = lastSpaceIdRef.current;
+		lastSpaceIdRef.current = connectedSpaceId;
+		// First resolution is not a change: nothing was selected against an
+		// earlier workspace.
+		if (!previous || previous === connectedSpaceId) return;
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		setRunsViewMode("worker");
+		clearTransientOutputs();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [connectedSpaceId]);
 
 	// Whether the sync that pause/resume act on — the first sync capability,
 	// the one every sync menu item uses — is currently paused. Read from the

@@ -1,6 +1,29 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+export interface WorkerIdentity {
+	workspaceId: string | null;
+	workerId: string | null;
+}
+
+// The ids a folder claims, or null when it has no readable workers.json. Used
+// where the question is which workspace a folder belongs to rather than whether
+// it matches a particular worker.
+export async function readWorkerIdentity(dir: string): Promise<WorkerIdentity | null> {
+	try {
+		const parsed = JSON.parse(await readFile(join(dir, "workers.json"), "utf8")) as {
+			workspaceId?: unknown;
+			workerId?: unknown;
+		};
+		return {
+			workspaceId: typeof parsed.workspaceId === "string" ? parsed.workspaceId : null,
+			workerId: typeof parsed.workerId === "string" ? parsed.workerId : null,
+		};
+	} catch {
+		return null;
+	}
+}
+
 export interface FolderIdentityMismatch {
 	error: string;
 	detail: string;

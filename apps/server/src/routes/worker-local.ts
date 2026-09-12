@@ -13,7 +13,8 @@ import type {
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { SCAN_IGNORED_DIR_NAMES } from "../scan-ignore.js";
 import { isVerbose } from "../route-helpers.js";
-import { folderIdentityMismatch } from "../workers-json.js";
+import { tokenWorkspaceMismatch } from "../token-workspace.js";
+import { folderIdentityMismatch, readWorkerIdentity } from "../workers-json.js";
 import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
 
@@ -374,6 +375,14 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			if (mismatch) {
 				return reply.code(409).send(mismatch) as unknown as DeployResult;
 			}
+			// .env is gitignored, so it belongs to a clone rather than a branch: a
+			// branch switch leaves the previous workspace's token sitting there.
+			// Check before pushing, since afterwards is too late.
+			const identity = await readWorkerIdentity(path);
+			const tokenMismatch = await tokenWorkspaceMismatch(path, identity?.workspaceId ?? null);
+			if (tokenMismatch) {
+				return reply.code(409).send(tokenMismatch) as unknown as DeployResult;
+			}
 			const verbose = isVerbose(req.query.verbose);
 			const pushArgs = ["workers", "env", "push", "--yes"];
 			if (verbose) pushArgs.push("-v");
@@ -656,6 +665,19 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 
 				if (action.pushSecrets) {
 					send({ type: "chunk", text: `\n--- Pushing secrets for ${action.label} ---` });
+					const identity = await readWorkerIdentity(path);
+					const tokenMismatch = await tokenWorkspaceMismatch(
+						path,
+						identity?.workspaceId ?? null,
+					);
+					if (tokenMismatch) {
+						send({
+							type: "chunk",
+							text: `${tokenMismatch.error}. ${tokenMismatch.detail}`,
+						});
+						hasError = true;
+						continue;
+					}
 					const pushArgs = ["workers", "env", "push", "--yes"];
 					if (verbose) pushArgs.push("-v");
 					const result = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
