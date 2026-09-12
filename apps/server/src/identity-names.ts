@@ -72,6 +72,31 @@ export async function resolveWorkspaceName(workspaceId: string | null): Promise<
 	return name;
 }
 
+// Records the name behind a workspace id. `ntn` cannot list workspaces, so the
+// only names this app can ever offer are ones it has seen - every whoami is a
+// chance to learn one, and the branch-linking prompt is where they are spent.
+export async function rememberWorkspaceName(workspaceId: string, name: string): Promise<void> {
+	if (!workspaceId || !name) return;
+	if (getConfig().workspaceNames?.[workspaceId] === name) return;
+	try {
+		await updateConfig({
+			workspaceNames: { ...(getConfig().workspaceNames ?? {}), [workspaceId]: name },
+		});
+	} catch {
+		/* a convenience; a failed write changes nothing the caller depends on */
+	}
+}
+
+// Learns the names behind whatever workspace ids the scan saw, so a prompt can
+// offer them by name rather than by UUID. Each unknown id costs one read-only
+// whoami, once ever - after that the config answers.
+export async function ensureWorkspaceNames(ids: (string | null)[]): Promise<void> {
+	const known = getConfig().workspaceNames ?? {};
+	const unknown = new Set<string>();
+	for (const id of ids) if (id && !known[id]) unknown.add(id);
+	for (const id of unknown) await resolveWorkspaceName(id);
+}
+
 function label(name: string | null, id: string): string {
 	return name ? `${name} - ${id}` : id;
 }

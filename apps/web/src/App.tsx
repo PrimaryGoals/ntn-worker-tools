@@ -380,6 +380,7 @@ function AppContent() {
 		() =>
 			buildRepoStatuses(
 				scanQ.data?.repos ?? [],
+				scanQ.data?.workers ?? [],
 				configQ.data,
 				whoamiQ.data?.spaceId ?? null,
 				(id) =>
@@ -840,7 +841,7 @@ function AppContent() {
 												status={status}
 												workspaces={workspaceChoices}
 												saving={setBranchWorkspace.isPending}
-												onAssign={(workspaceId) => {
+												onLink={(workspaceId) => {
 													if (!status.repo.branch) return;
 													setBranchWorkspace.mutate({
 														repoRoot: status.repo.root,

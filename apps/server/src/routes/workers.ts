@@ -10,12 +10,20 @@ import type {
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace, runNtnRawWithTrace } from "../ntn.js";
 import { attachTrace, isVerbose } from "../route-helpers.js";
+import { rememberWorkspaceName } from "../identity-names.js";
 import { fetchWhoami } from "../whoami.js";
 
 export default async function workersRoutes(app: FastifyInstance) {
 	app.get<{ Querystring: { verbose?: string } }>(
 		"/api/whoami",
-		async (req): Promise<Whoami> => fetchWhoami(isVerbose(req.query.verbose)),
+		async (req): Promise<Whoami> => {
+			const whoami = await fetchWhoami(isVerbose(req.query.verbose));
+			// Learn the name behind the id while it is in front of us. Nothing else
+			// can teach it: `ntn` has no command that lists workspaces, so a name is
+			// only knowable by having been connected to that workspace.
+			await rememberWorkspaceName(whoami.spaceId, whoami.spaceName);
+			return whoami;
+		},
 	);
 
 	app.get("/api/workers", async (): Promise<Worker[]> => runNtnJson<Worker[]>(["workers", "list"]));
