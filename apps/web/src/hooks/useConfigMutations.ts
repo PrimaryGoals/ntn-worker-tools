@@ -22,6 +22,26 @@ export function useConfigMutations(
 			setFolderPickerOpen(false);
 		},
 	});
+	// Recording which workspace a branch belongs to. Config-only: the banner
+	// derives from it, and nothing needs rescanning because the folders on disk
+	// have not changed.
+	const setBranchWorkspace = useMutation({
+		mutationFn: ({
+			repoRoot,
+			branch,
+			workspaceId,
+		}: {
+			repoRoot: string;
+			branch: string;
+			workspaceId: string;
+		}) => api.setBranchWorkspace(repoRoot, branch, workspaceId),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
+	const clearBranchWorkspace = useMutation({
+		mutationFn: ({ repoRoot, branch }: { repoRoot: string; branch: string }) =>
+			api.clearBranchWorkspace(repoRoot, branch),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
 	// Hiding a folder the scan finds but that is not a worker to act on. The
 	// scan reads ignoredFolders, so invalidating it is what makes the row go.
 	const ignoreFolder = useMutation({
@@ -121,6 +141,8 @@ export function useConfigMutations(
 
 	return {
 		setLocalPath,
+		setBranchWorkspace,
+		clearBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
 		setScanRoot,

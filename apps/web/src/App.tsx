@@ -4,6 +4,8 @@ import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-
 import { api, type ApiRequestError } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
 import { buildLocalOnlyRows } from "./workerRows";
+import { bannerStatuses, buildRepoStatuses, knownWorkspaces } from "./repoStatus";
+import { RepoBanner } from "./components/RepoBanner";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
@@ -319,6 +321,7 @@ function AppContent() {
 	const {
 		setLocalPath,
 		setScanRoot,
+		setBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
 		clearLocalPath,
@@ -369,6 +372,39 @@ function AppContent() {
 	// Scanned folders with no worker in the connected workspace. Without these
 	// the list can only show what the server already has, so a workspace that
 	// most of the code has never been deployed to looks empty.
+	// Where each repository stands against the connected workspace. Computed
+	// here rather than on the server: the scan already reports every repo with
+	// its branch, and the config and whoami are both already in hand, so this
+	// costs no call at all.
+	const repoStatuses = useMemo(
+		() =>
+			buildRepoStatuses(
+				scanQ.data?.repos ?? [],
+				configQ.data,
+				whoamiQ.data?.spaceId ?? null,
+				(id) =>
+					configQ.data?.workspaceNames?.[id] ??
+					(id === whoamiQ.data?.spaceId ? (whoamiQ.data?.spaceName ?? null) : null),
+			),
+		[scanQ.data, configQ.data, whoamiQ.data],
+	);
+	const workspaceChoices = useMemo(
+		() =>
+			knownWorkspaces(
+				configQ.data,
+				whoamiQ.data?.spaceId ?? null,
+				whoamiQ.data?.spaceName ?? null,
+			),
+		[configQ.data, whoamiQ.data],
+	);
+	// Dismissing an unanswerable prompt is session-local on purpose: the right
+	// answer is a workspace this app has never seen, and recording a guess
+	// would be worse than asking again once it has.
+	const [dismissedBranchPrompts, setDismissedBranchPrompts] = useState<string[]>([]);
+	const visibleRepoBanners = bannerStatuses(repoStatuses).filter(
+		(status) =>
+			!dismissedBranchPrompts.includes(`${status.repo.root}@${status.repo.branch}`),
+	);
 	const localOnlyRows = useMemo(
 		() =>
 			buildLocalOnlyRows(
@@ -797,6 +833,29 @@ function AppContent() {
 											}}
 										/>
 									) : (
+									<>
+										{visibleRepoBanners.map((status) => (
+											<RepoBanner
+												key={status.repo.root}
+												status={status}
+												workspaces={workspaceChoices}
+												saving={setBranchWorkspace.isPending}
+												onAssign={(workspaceId) => {
+													if (!status.repo.branch) return;
+													setBranchWorkspace.mutate({
+														repoRoot: status.repo.root,
+														branch: status.repo.branch,
+														workspaceId,
+													});
+												}}
+												onDismiss={() =>
+													setDismissedBranchPrompts((prev) => [
+														...prev,
+														`${status.repo.root}@${status.repo.branch}`,
+													])
+												}
+											/>
+										))}
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
@@ -824,6 +883,7 @@ function AppContent() {
 											setPendingContextMenu({ workerId: id, x, y });
 										}}
 									/>
+									</>
 									)}
 								</Panel>
 							</div>

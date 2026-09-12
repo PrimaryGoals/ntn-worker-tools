@@ -99,6 +99,16 @@ export const api = {
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
 	getScan: () => request<ScanResult>("/api/scan"),
+	setBranchWorkspace: (repoRoot: string, branch: string, workspaceId: string) =>
+		request<AppConfig>("/api/config/branch-workspace", {
+			method: "POST",
+			body: JSON.stringify({ repoRoot, branch, workspaceId }),
+		}),
+	clearBranchWorkspace: (repoRoot: string, branch: string) =>
+		request<AppConfig>(
+			`/api/config/branch-workspace?repoRoot=${encodeURIComponent(repoRoot)}&branch=${encodeURIComponent(branch)}`,
+			{ method: "DELETE" },
+		),
 	ignoreFolder: (path: string) =>
 		request<AppConfig>("/api/config/ignored-folders", {
 			method: "POST",
