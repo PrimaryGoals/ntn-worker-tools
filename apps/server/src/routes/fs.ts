@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -10,6 +11,37 @@ import type { FsListing } from "@ntn-worker-tools/shared";
 // the session-token guard before ntn-worker-tools is ever shipped to run remotely.
 export default async function fsRoutes(app: FastifyInstance) {
 	app.get("/api/fs/home", async (): Promise<{ path: string }> => ({ path: homedir() }));
+
+	// Opens any directory in the OS file browser. The worker-scoped reveal
+	// resolves a workerId through the config; this takes the path directly,
+	// for places that are not a registered worker folder - a repository root,
+	// say.
+	app.post<{ Body: { path?: string } }>("/api/fs/reveal", async (req, reply) => {
+		const raw = req.body?.path;
+		if (typeof raw !== "string" || !raw.trim()) {
+			return reply.code(400).send({ error: "path required" });
+		}
+		const abs = resolve(raw.trim());
+		try {
+			const s = await stat(abs);
+			if (!s.isDirectory()) {
+				return reply.code(400).send({ error: "path is not a directory", detail: abs });
+			}
+		} catch {
+			return reply.code(400).send({ error: "directory not found", detail: abs });
+		}
+		// explorer.exe exits non-zero even when it worked, so nothing observes
+		// the exit code here - the same reasoning as the worker-scoped reveal.
+		const child =
+			process.platform === "win32"
+				? spawn("explorer.exe", [abs], { detached: true })
+				: process.platform === "darwin"
+					? spawn("open", [abs], { detached: true })
+					: spawn("xdg-open", [abs], { detached: true });
+		child.on("error", (err) => app.log.error({ err, path: abs }, "reveal spawn failed"));
+		child.unref();
+		return { ok: true, path: abs };
+	});
 
 	app.get<{ Querystring: { path?: string } }>(
 		"/api/fs/list",

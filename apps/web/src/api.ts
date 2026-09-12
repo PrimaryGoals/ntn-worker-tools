@@ -120,6 +120,11 @@ export const api = {
 			body: JSON.stringify(patch),
 		}),
 	getFsHome: () => request<{ path: string }>("/api/fs/home"),
+	revealPath: (path: string) =>
+		request<{ ok: true; path: string }>("/api/fs/reveal", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
 	getFsListing: (path: string) =>
 		request<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
 	getWhoami: (verbose = false) =>

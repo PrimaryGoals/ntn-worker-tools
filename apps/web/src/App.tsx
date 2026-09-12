@@ -279,11 +279,15 @@ function AppContent() {
 		syncStatusQ,
 		oauthCapabilityKey,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
-	// The scan can span several repos, so there is no single branch to show in
-	// the header. It reports the branch of the selected worker's repo, and
-	// nothing when no scanned folder claims that worker.
-	const selectedWorkerBranch =
-		scanQ.data?.workers.find((worker) => worker.workerId === selectedWorkerId)?.branch ?? null;
+	// The scan can span several repos, and a worker may sit in one of its own
+	// entirely, so the header names the repository as well as the branch. Both
+	// are null when no scanned folder claims the selected worker.
+	const selectedWorkerFolder = useMemo(
+		() => scanQ.data?.workers.find((worker) => worker.workerId === selectedWorkerId) ?? null,
+		[scanQ.data, selectedWorkerId],
+	);
+	const selectedWorkerBranch = selectedWorkerFolder?.branch ?? null;
+	const selectedWorkerRepoRoot = selectedWorkerFolder?.repoRoot ?? null;
 	const {
 		agentsQ,
 		agentHealthQ,
@@ -318,6 +322,7 @@ function AppContent() {
 		unignoreFolder,
 		clearLocalPath,
 		revealWorker,
+		revealPath,
 		renameWorker,
 		markTime,
 		clearTimeMarker,
@@ -622,6 +627,8 @@ function AppContent() {
 				spaceName={whoamiQ.data?.spaceName ?? null}
 				scanRoot={configQ.data?.scanRoot || null}
 				branch={selectedWorkerBranch}
+				repoRoot={selectedWorkerRepoRoot}
+				onRevealRepo={(path) => revealPath.mutate(path)}
 				workerName={selectedWorkerName}
 				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}

@@ -63,6 +63,12 @@ export function useConfigMutations(
 			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 		},
 	});
+	// Reveals any directory, not just a registered worker folder - the header
+	// uses it to open the repository a worker lives in.
+	const revealPath = useMutation({
+		mutationFn: (path: string) => api.revealPath(path),
+		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
+	});
 	const revealWorker = useMutation({
 		mutationFn: api.revealWorker,
 		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
@@ -121,6 +127,7 @@ export function useConfigMutations(
 		removeExtraWorkerFolder,
 		clearLocalPath,
 		revealWorker,
+		revealPath,
 		renameWorker,
 		markTime,
 		clearTimeMarker,

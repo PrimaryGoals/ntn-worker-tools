@@ -13,6 +13,8 @@ export function MenuBar({
 	localPath,
 	scanRoot,
 	branch,
+	repoRoot,
+	onRevealRepo,
 	groups,
 	setLocalPathError,
 }: {
@@ -29,9 +31,14 @@ export function MenuBar({
 	// The one folder the scan walks, shown as Source so the directory being
 	// read is visible without opening a menu.
 	scanRoot: string | null;
-	// Checked-out branch of the repo in view, when there is one. Absent outside
-	// git, and until the per-repo git state lands.
+	// Checked-out branch of the selected worker's repo, when there is one.
+	// Absent outside git.
 	branch?: string | null;
+	// That repo's root. A worker can live in a repository of its own, unrelated
+	// to the source folder, so a bare branch name like "main" says almost
+	// nothing on its own - the repo is what makes it specific.
+	repoRoot?: string | null;
+	onRevealRepo?: (path: string) => void;
 	// Already narrowed by dropdownGroups() — unavailable items are still here,
 	// greyed with their reason, because the dropdown is where you find out why
 	// an action isn't open to you yet.
@@ -43,6 +50,9 @@ export function MenuBar({
 	// retained from outside it are still scanned, but appending them here made
 	// the bar disagree with the choice it is meant to report.
 	const sourceLabel = scanRoot ?? "none set";
+	// Repository first, then branch: a worker in its own repo would otherwise
+	// read as the same "main" as everything else.
+	const branchLabel = repoRoot ? `${repoRoot} @ ${branch}` : branch;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (
@@ -120,12 +130,27 @@ export function MenuBar({
 				</span>
 				<span className="min-w-0 truncate" title={sourceLabel}>
 					Source:{" "}
-					<span className="font-mono text-neutral-700 dark:text-neutral-300">{sourceLabel}</span>
+					<span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">
+						{sourceLabel}
+					</span>
 				</span>
 				{branch ? (
-					<span className="whitespace-nowrap">
+					<span className="min-w-0 truncate">
 						Branch:{" "}
-						<span className="font-mono text-neutral-700 dark:text-neutral-300">{branch}</span>
+						{repoRoot && onRevealRepo ? (
+							<button
+								type="button"
+								onClick={() => onRevealRepo(repoRoot)}
+								title={`Open ${repoRoot} in your file browser`}
+								className="font-mono font-medium text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
+							>
+								{branchLabel}
+							</button>
+						) : (
+							<span className="font-mono font-medium text-neutral-700 dark:text-neutral-300">
+								{branchLabel}
+							</span>
+						)}
 					</span>
 				) : null}
 			</div>
