@@ -1037,7 +1037,7 @@ function AppContent() {
 				{runningCommand ? (
 					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
 				) : anyDeployError ? (
-					<div className="p-3 text-sm text-red-400">
+					<div className="whitespace-pre-wrap p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
 					</div>
 				) : deployResult && syncStatusFollowup?.state === "done" ? (

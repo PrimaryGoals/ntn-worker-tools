@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { describeIdentityMismatch } from "./identity-names.js";
 
 export interface WorkerIdentity {
 	workspaceId: string | null;
@@ -45,6 +46,9 @@ export interface FolderIdentityMismatch {
 export async function folderIdentityMismatch(
 	dir: string,
 	workerId: string,
+	// The workspace the action is aimed at, used only to name the target
+	// worker in the message. Omitted by callers that do not know it.
+	targetWorkspaceId: string | null = null,
 ): Promise<FolderIdentityMismatch | null> {
 	const file = join(dir, "workers.json");
 	let raw: string;
@@ -82,12 +86,13 @@ export async function folderIdentityMismatch(
 
 	return {
 		error: "folder belongs to a different worker",
-		detail:
-			`${file} points at workerId=${folderWorkerId}` +
-			(folderWorkspaceId ? ` in workspace ${folderWorkspaceId}` : "") +
-			`, but this action targets workerId=${workerId}. Acting here would deploy to the ` +
-			`wrong worker. This usually means the checked-out branch belongs to another ` +
-			`workspace — switch branches in your terminal, or pick the worker this folder holds.`,
+		detail: await describeIdentityMismatch({
+			file,
+			folderWorkerId,
+			folderWorkspaceId,
+			targetWorkerId: workerId,
+			targetWorkspaceId,
+		}),
 		folderWorkerId,
 		...(folderWorkspaceId ? { folderWorkspaceId } : {}),
 	};
