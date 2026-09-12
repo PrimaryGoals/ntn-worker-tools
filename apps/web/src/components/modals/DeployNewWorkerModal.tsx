@@ -61,6 +61,9 @@ export function DeployNewWorkerModal({
 			qc.invalidateQueries({ queryKey: ["workers"] });
 			qc.invalidateQueries({ queryKey: ["config"] });
 			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+			// The folder just gained a new workers.json. Without this the scan
+			// keeps the old id and the row stays "not on server" until a reload.
+			qc.invalidateQueries({ queryKey: ["scan"] });
 			onDeployed(result);
 		},
 	});
@@ -76,6 +79,9 @@ export function DeployNewWorkerModal({
 			qc.invalidateQueries({ queryKey: ["workers"] });
 			qc.invalidateQueries({ queryKey: ["config"] });
 			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+			// The folder just gained a new workers.json. Without this the scan
+			// keeps the old id and the row stays "not on server" until a reload.
+			qc.invalidateQueries({ queryKey: ["scan"] });
 			onDeployed(result);
 		},
 	});

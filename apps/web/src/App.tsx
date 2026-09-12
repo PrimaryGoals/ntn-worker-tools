@@ -621,7 +621,6 @@ function AppContent() {
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
 				scanRoot={configQ.data?.scanRoot || null}
-				extraWorkerFolders={configQ.data?.extraWorkerFolders ?? []}
 				branch={selectedWorkerBranch}
 				workerName={selectedWorkerName}
 				localPath={localPath}
@@ -665,7 +664,8 @@ function AppContent() {
 															spinning={
 																runHealthQ.isFetching ||
 																syncPausedQ.isFetching ||
-																localMtimesQ.isFetching
+																localMtimesQ.isFetching ||
+																scanQ.isFetching
 															}
 															onClick={() => {
 																// Only switch when needed: switchBrowserTab
@@ -683,6 +683,11 @@ function AppContent() {
 																localMtimesQ.refetch();
 																workersQ.refetch();
 																configQ.refetch();
+																// The rows for folders with no worker in this
+																// workspace are built from the scan, so without this
+																// a folder deployed since the last scan keeps saying
+																// "not on server" however often you refresh.
+																scanQ.refetch();
 															}}
 														/>
 													),

@@ -12,7 +12,6 @@ export function MenuBar({
 	workerName,
 	localPath,
 	scanRoot,
-	extraWorkerFolders,
 	branch,
 	groups,
 	setLocalPathError,
@@ -30,9 +29,6 @@ export function MenuBar({
 	// The one folder the scan walks, shown as Source so the directory being
 	// read is visible without opening a menu.
 	scanRoot: string | null;
-	// Worker folders kept from outside that root. Counted rather than listed,
-	// since they are the exception and the bar has no room for paths.
-	extraWorkerFolders: string[];
 	// Checked-out branch of the repo in view, when there is one. Absent outside
 	// git, and until the per-repo git state lands.
 	branch?: string | null;
@@ -43,26 +39,10 @@ export function MenuBar({
 	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
-	// There is one root by design. A single retained folder is named outright:
-	// a bare "+1 outside" says something is there without saying what, which is
-	// no use when the whole point is knowing which worker sits apart. Several
-	// are counted, with every path in the tooltip.
+	// Source reports the folder that was chosen, and nothing else. Folders
+	// retained from outside it are still scanned, but appending them here made
+	// the bar disagree with the choice it is meant to report.
 	const sourceLabel = scanRoot ?? "none set";
-	const outsideNames = extraWorkerFolders.map(
-		(folder) => folder.split(/[\\/]/).filter(Boolean).pop() ?? folder,
-	);
-	const outsideLabel =
-		extraWorkerFolders.length === 0
-			? ""
-			: extraWorkerFolders.length === 1
-				? ` + ${outsideNames[0]}`
-				: ` +${extraWorkerFolders.length} outside`;
-	const sourceTitle = [
-		scanRoot ?? "No scan root set",
-		...(extraWorkerFolders.length > 0
-			? ["", "Also scanned, from outside the root:", ...extraWorkerFolders]
-			: []),
-	].join("\n");
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (
@@ -138,12 +118,9 @@ export function MenuBar({
 						{spaceName ?? "…"}
 					</span>
 				</span>
-				<span className="min-w-0 truncate" title={sourceTitle}>
+				<span className="min-w-0 truncate" title={sourceLabel}>
 					Source:{" "}
-					<span className="font-mono text-neutral-700 dark:text-neutral-300">
-						{sourceLabel}
-						{outsideLabel}
-					</span>
+					<span className="font-mono text-neutral-700 dark:text-neutral-300">{sourceLabel}</span>
 				</span>
 				{branch ? (
 					<span className="whitespace-nowrap">
