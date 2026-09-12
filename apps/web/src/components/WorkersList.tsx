@@ -18,6 +18,7 @@ export function WorkersList({
 	ignoredFolders,
 	onIgnoreFolder,
 	onUnignoreFolder,
+	onDeployFolder,
 	onSelect,
 	onContextMenu,
 	filtered,
@@ -50,6 +51,10 @@ export function WorkersList({
 	ignoredFolders: string[];
 	onIgnoreFolder: (path: string) => void;
 	onUnignoreFolder: (path: string) => void;
+	// Opens the deploy-to-new-workspace flow on that folder. Not offered for
+	// an unreadable workers.json: it may still hold an id, and deploying over
+	// it would strand the worker that id belongs to.
+	onDeployFolder: (path: string) => void;
 	onSelect: (id: string) => void;
 	// Right-click anywhere on a row. Viewport coordinates, for positioning the
 	// menu at the pointer.
@@ -165,6 +170,16 @@ export function WorkersList({
 							{row.path}
 						</div>
 					</div>
+					{row.state === "unreadable" ? null : (
+						<button
+							type="button"
+							onClick={() => onDeployFolder(row.path)}
+							title="Deploy this folder to the connected workspace as a new worker."
+							className="shrink-0 rounded border border-blue-400 px-2 py-0.5 text-[11px] text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/40"
+						>
+							Deploy
+						</button>
+					)}
 					<button
 						type="button"
 						onClick={() => onIgnoreFolder(row.path)}

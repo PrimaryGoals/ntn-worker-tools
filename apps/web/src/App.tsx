@@ -189,6 +189,8 @@ function AppContent() {
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
 		deployNewWorkerOpen,
+		deployNewWorkerPath,
+		setDeployNewWorkerPath,
 		setDeployNewWorkerOpen,
 		deployUpdatedWorkersOpen,
 		setDeployUpdatedWorkersOpen,
@@ -755,6 +757,10 @@ function AppContent() {
 										ignoredFolders={configQ.data?.ignoredFolders ?? []}
 										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}
 										onUnignoreFolder={(path) => unignoreFolder.mutate(path)}
+										onDeployFolder={(path) => {
+											setDeployNewWorkerPath(path);
+											setDeployNewWorkerOpen(true);
+										}}
 										filtered={!!workerFilter.trim()}
 										onSelect={selectWorker}
 										onContextMenu={(id, x, y) => {
@@ -1359,12 +1365,17 @@ function AppContent() {
 			) : null}
 			{deployNewWorkerOpen ? (
 				<DeployNewWorkerModal
+					initialPath={deployNewWorkerPath}
 					startPath={localPath}
 					whoami={whoamiQ.data ?? null}
 					existingWorkers={workersQ.data ?? []}
-					onClose={() => setDeployNewWorkerOpen(false)}
+					onClose={() => {
+						setDeployNewWorkerOpen(false);
+						setDeployNewWorkerPath(null);
+					}}
 					onDeployed={(result) => {
 						setDeployNewWorkerOpen(false);
+						setDeployNewWorkerPath(null);
 						clearTransientOutputs();
 						setDeployResult(result);
 					}}
