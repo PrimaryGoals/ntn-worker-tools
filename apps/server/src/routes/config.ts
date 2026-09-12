@@ -85,6 +85,37 @@ export default async function configRoutes(app: FastifyInstance) {
 		return updateConfig({ scanRoot: abs, extraWorkerFolders: alive });
 	});
 
+	// Folders the scan finds that are not workers to act on: a template, a
+	// scaffold, a project that merely depends on the SDK. Reversible by design —
+	// this remembers a path, it does not touch the folder.
+	app.post<{ Body: { path?: string } }>("/api/config/ignored-folders", async (req, reply) => {
+		const raw = req.body?.path;
+		if (typeof raw !== "string" || !raw.trim()) {
+			return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
+		}
+		const abs = resolve(raw.trim());
+		const folders = getConfig().ignoredFolders ?? [];
+		if (folders.some((folder) => normalizePathKey(folder) === normalizePathKey(abs))) {
+			return getConfig();
+		}
+		return updateConfig({ ignoredFolders: [...folders, abs] });
+	});
+
+	app.delete<{ Querystring: { path?: string } }>(
+		"/api/config/ignored-folders",
+		async (req, reply): Promise<AppConfig> => {
+			const raw = req.query.path;
+			if (typeof raw !== "string" || !raw.trim()) {
+				return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
+			}
+			const key = normalizePathKey(resolve(raw.trim()));
+			const folders = getConfig().ignoredFolders ?? [];
+			return updateConfig({
+				ignoredFolders: folders.filter((folder) => normalizePathKey(folder) !== key),
+			});
+		},
+	);
+
 	// Drops a retained out-of-root folder. The root itself is replaced, never
 	// removed, so there is nothing to delete for it.
 	app.delete<{ Querystring: { path?: string } }>(

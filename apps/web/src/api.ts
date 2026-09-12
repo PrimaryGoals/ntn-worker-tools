@@ -99,6 +99,15 @@ export const api = {
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
 	getScan: () => request<ScanResult>("/api/scan"),
+	ignoreFolder: (path: string) =>
+		request<AppConfig>("/api/config/ignored-folders", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
+	unignoreFolder: (path: string) =>
+		request<AppConfig>(`/api/config/ignored-folders?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
 	setScanRoot: (path: string) =>
 		request<AppConfig>("/api/config/scan-root", { method: "POST", body: JSON.stringify({ path }) }),
 	removeExtraWorkerFolder: (path: string) =>

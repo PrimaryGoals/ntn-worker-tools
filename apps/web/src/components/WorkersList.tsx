@@ -15,6 +15,9 @@ export function WorkersList({
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
 	localOnly,
+	ignoredFolders,
+	onIgnoreFolder,
+	onUnignoreFolder,
 	onSelect,
 	onContextMenu,
 	filtered,
@@ -42,6 +45,11 @@ export function WorkersList({
 	// the server workers, and not selectable yet: selection, run health and the
 	// details pane are all keyed by workerId, which these do not have.
 	localOnly: LocalOnlyRow[];
+	// Folders hidden from the scan. Listed at the bottom so hiding one is
+	// visibly reversible rather than a one-way door.
+	ignoredFolders: string[];
+	onIgnoreFolder: (path: string) => void;
+	onUnignoreFolder: (path: string) => void;
 	onSelect: (id: string) => void;
 	// Right-click anywhere on a row. Viewport coordinates, for positioning the
 	// menu at the pointer.
@@ -53,7 +61,7 @@ export function WorkersList({
 }) {
 	if (loading) return <Empty>Loading workers…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (workers.length === 0 && localOnly.length === 0) {
+	if (workers.length === 0 && localOnly.length === 0 && ignoredFolders.length === 0) {
 		return (
 			<Empty>{filtered ? "No workers match your filter." : "No workers in this workspace."}</Empty>
 		);
@@ -135,26 +143,60 @@ export function WorkersList({
 				</li>
 			) : null}
 			{localOnly.map((row) => (
-				<li key={row.path} className="px-3 py-2 text-sm">
-					<div>
-						<span className="font-medium">{row.name}</span>{" "}
-						<span
-							className={
-								row.state === "unreadable"
-									? "font-medium text-red-600 dark:text-red-400"
-									: "font-medium text-blue-600 dark:text-blue-400"
-							}
-						>
-							- {localOnlyLabel(row.state)}
-						</span>
-						<span className="text-xs text-neutral-500"> ({row.detail})</span>
-						{row.branch ? (
-							<span className="font-mono text-xs text-neutral-500"> {row.branch}</span>
-						) : null}
+				<li key={row.path} className="flex items-start gap-2 px-3 py-2 text-sm">
+					<div className="min-w-0 flex-1">
+						<div>
+							<span className="font-medium">{row.name}</span>{" "}
+							<span
+								className={
+									row.state === "unreadable"
+										? "font-medium text-red-600 dark:text-red-400"
+										: "font-medium text-blue-600 dark:text-blue-400"
+								}
+							>
+								- {localOnlyLabel(row.state)}
+							</span>
+							<span className="text-xs text-neutral-500"> ({row.detail})</span>
+							{row.branch ? (
+								<span className="font-mono text-xs text-neutral-500"> {row.branch}</span>
+							) : null}
+						</div>
+						<div className="truncate font-mono text-xs text-neutral-500" title={row.path}>
+							{row.path}
+						</div>
 					</div>
-					<div className="font-mono text-xs text-neutral-500" title={row.path}>
-						{row.path}
+					<button
+						type="button"
+						onClick={() => onIgnoreFolder(row.path)}
+						title="Stop listing this folder. Reversible — ignored folders are listed at the bottom."
+						className="shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+					>
+						Ignore
+					</button>
+				</li>
+			))}
+			{ignoredFolders.length > 0 ? (
+				<li>
+					<div className="border-t-2 border-neutral-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-700">
+						Ignored ({ignoredFolders.length})
 					</div>
+				</li>
+			) : null}
+			{ignoredFolders.map((folder) => (
+				<li key={folder} className="flex items-center gap-2 px-3 py-1.5">
+					<span
+						className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-400 dark:text-neutral-600"
+						title={folder}
+					>
+						{folder}
+					</span>
+					<button
+						type="button"
+						onClick={() => onUnignoreFolder(folder)}
+						className="shrink-0 rounded border border-neutral-300 px-2 py-0.5 text-[11px] text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
+					>
+						Show
+					</button>
 				</li>
 			))}
 		</ul>

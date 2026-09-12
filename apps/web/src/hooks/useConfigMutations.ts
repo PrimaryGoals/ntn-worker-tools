@@ -22,6 +22,22 @@ export function useConfigMutations(
 			setFolderPickerOpen(false);
 		},
 	});
+	// Hiding a folder the scan finds but that is not a worker to act on. The
+	// scan reads ignoredFolders, so invalidating it is what makes the row go.
+	const ignoreFolder = useMutation({
+		mutationFn: (path: string) => api.ignoreFolder(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+		},
+	});
+	const unignoreFolder = useMutation({
+		mutationFn: (path: string) => api.unignoreFolder(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+		},
+	});
 	// Choosing the scan root is what "Set local folder…" now does. It needs no
 	// selected worker, so unlike setLocalPath there is no id to check against,
 	// and there is one root, so this replaces rather than appends.
@@ -99,6 +115,8 @@ export function useConfigMutations(
 
 	return {
 		setLocalPath,
+		ignoreFolder,
+		unignoreFolder,
 		setScanRoot,
 		removeExtraWorkerFolder,
 		clearLocalPath,

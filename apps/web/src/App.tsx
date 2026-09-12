@@ -312,6 +312,8 @@ function AppContent() {
 	const {
 		setLocalPath,
 		setScanRoot,
+		ignoreFolder,
+		unignoreFolder,
 		clearLocalPath,
 		revealWorker,
 		renameWorker,
@@ -750,6 +752,9 @@ function AppContent() {
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 										localOnly={filteredLocalOnly}
+										ignoredFolders={configQ.data?.ignoredFolders ?? []}
+										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}
+										onUnignoreFolder={(path) => unignoreFolder.mutate(path)}
 										filtered={!!workerFilter.trim()}
 										onSelect={selectWorker}
 										onContextMenu={(id, x, y) => {
