@@ -320,6 +320,10 @@ export interface ScanWorker {
 	// single-workspace and get no branch check at all.
 	repoRoot: string | null;
 	branch: string | null;
+	// That repo's origin. A worker can live in a repository of its own, so the
+	// remote is what identifies it — the local path only says where this clone
+	// happens to sit.
+	remoteUrl: string | null;
 	// How git treats this folder's workers.json — the input to the "not
 	// committed on this branch" flag.
 	workersJsonState: WorkersJsonState;
@@ -334,8 +338,27 @@ export interface ScanRepo {
 	root: string;
 	// Checked-out branch, or null when detached or unreadable.
 	branch: string | null;
+	// The `origin` remote, verbatim. Null when the repo has no origin at all.
+	remoteUrl: string | null;
 	// How many scanned worker folders sit in this repo.
 	workerCount: number;
+}
+
+// Turns a git remote into a URL a browser can open, or null when it cannot be
+// made into one. Credentials embedded in a remote (https://user:token@host/…)
+// are stripped: that string is about to be rendered and linked, and a token
+// has no business in either.
+export function gitRemoteWebUrl(remote: string | null | undefined): string | null {
+	if (!remote) return null;
+	const trimmed = remote.trim().replace(/\.git$/i, "");
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^(https?:\/\/)[^@/]+@/i, "$1");
+	// scp-style: git@github.com:owner/repo
+	const scp = /^[^@/]+@([^:/]+):(.+)$/.exec(trimmed);
+	if (scp?.[1] && scp[2]) return `https://${scp[1]}/${scp[2]}`;
+	const ssh = /^ssh:\/\/(?:[^@/]+@)?([^/]+)\/(.+)$/i.exec(trimmed);
+	if (ssh?.[1] && ssh[2]) return `https://${ssh[1]}/${ssh[2]}`;
+	return null;
 }
 
 export interface ScanResult {

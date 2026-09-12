@@ -628,6 +628,7 @@ function AppContent() {
 				scanRoot={configQ.data?.scanRoot || null}
 				branch={selectedWorkerBranch}
 				repoRoot={selectedWorkerRepoRoot}
+				repoRemoteUrl={selectedWorkerFolder?.remoteUrl ?? null}
 				onRevealRepo={(path) => revealPath.mutate(path)}
 				workerName={selectedWorkerName}
 				localPath={localPath}

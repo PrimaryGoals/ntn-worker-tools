@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { gitRemoteWebUrl } from "@ntn-worker-tools/shared";
 import { PRIMARY_GOALS_URL } from "../constants";
 import type { WorkerMenuGroup } from "../workerMenu";
 import { MenuItem } from "./ui/MenuItem";
@@ -14,6 +15,7 @@ export function MenuBar({
 	scanRoot,
 	branch,
 	repoRoot,
+	repoRemoteUrl,
 	onRevealRepo,
 	groups,
 	setLocalPathError,
@@ -38,6 +40,10 @@ export function MenuBar({
 	// to the source folder, so a bare branch name like "main" says almost
 	// nothing on its own - the repo is what makes it specific.
 	repoRoot?: string | null;
+	// That repo's origin, verbatim. Preferred over the local path for display:
+	// it identifies the repository rather than this clone of it.
+	repoRemoteUrl?: string | null;
+	// Used only when there is no remote to link to.
 	onRevealRepo?: (path: string) => void;
 	// Already narrowed by dropdownGroups() — unavailable items are still here,
 	// greyed with their reason, because the dropdown is where you find out why
@@ -51,8 +57,12 @@ export function MenuBar({
 	// the bar disagree with the choice it is meant to report.
 	const sourceLabel = scanRoot ?? "none set";
 	// Repository first, then branch: a worker in its own repo would otherwise
-	// read as the same "main" as everything else.
-	const branchLabel = repoRoot ? `${repoRoot} @ ${branch}` : branch;
+	// read as the same "main" as everything else. The remote names the
+	// repository; the local path is only where this clone sits, so it is the
+	// fallback for a repo with no origin.
+	const repoWebUrl = gitRemoteWebUrl(repoRemoteUrl);
+	const repoLabel = repoWebUrl ?? repoRemoteUrl ?? repoRoot;
+	const branchLabel = repoLabel ? `${repoLabel} @ ${branch}` : branch;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (
@@ -137,11 +147,21 @@ export function MenuBar({
 				{branch ? (
 					<span className="min-w-0 truncate">
 						Branch:{" "}
-						{repoRoot && onRevealRepo ? (
+						{repoWebUrl ? (
+							<a
+								href={repoWebUrl}
+								target="_blank"
+								rel="noopener noreferrer"
+								title={`Open ${repoWebUrl}`}
+								className="font-mono font-medium text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
+							>
+								{branchLabel}
+							</a>
+						) : repoRoot && onRevealRepo ? (
 							<button
 								type="button"
 								onClick={() => onRevealRepo(repoRoot)}
-								title={`Open ${repoRoot} in your file browser`}
+								title={`No origin remote — open ${repoRoot} in your file browser`}
 								className="font-mono font-medium text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
 							>
 								{branchLabel}

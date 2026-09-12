@@ -35,6 +35,7 @@ async function findRepoRoot(from: string): Promise<string | null> {
 export interface WorkerGitState {
 	repoRoot: string | null;
 	branch: string | null;
+	remoteUrl: string | null;
 	workersJsonState: WorkersJsonState;
 }
 
@@ -54,6 +55,7 @@ export async function loadGitState(
 			byWorker.set(normalizePathKey(folder.path), {
 				repoRoot: null,
 				branch: null,
+				remoteUrl: null,
 				workersJsonState: folder.hasWorkersJson ? "no-git" : "absent",
 			});
 			continue;
@@ -79,7 +81,11 @@ export async function loadGitState(
 			const symbolicName = symbolic.stdout.trim();
 			if (symbolic.exitCode === 0 && symbolicName) branch = symbolicName;
 		}
-		repos.push({ root, branch, workerCount: repoFolders.length });
+		// The remote is what names the repository; the root only says where this
+		// clone sits. Absent for a repo with no origin, which is not an error.
+		const remote = await git(["remote", "get-url", "origin"], root);
+		const remoteUrl = remote.exitCode === 0 && remote.stdout.trim() ? remote.stdout.trim() : null;
+		repos.push({ root, branch, remoteUrl, workerCount: repoFolders.length });
 
 		const withFile = repoFolders.filter((f) => f.hasWorkersJson);
 		const flagged = new Map<string, WorkersJsonState>();
@@ -111,6 +117,7 @@ export async function loadGitState(
 			byWorker.set(normalizePathKey(folder.path), {
 				repoRoot: root,
 				branch,
+				remoteUrl,
 				workersJsonState: !folder.hasWorkersJson
 					? "absent"
 					: (flagged.get(workersJson) ?? "tracked"),

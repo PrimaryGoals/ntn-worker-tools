@@ -89,6 +89,7 @@ async function inspectFolder(
 		root,
 		repoRoot: null,
 		branch: null,
+		remoteUrl: null,
 		workersJsonState: "absent" as WorkersJsonState,
 	};
 	if (fileNames.has("workers.json")) {
@@ -230,6 +231,7 @@ export async function runScan(
 		const state = byWorker.get(normalizePathKey(worker.path));
 		worker.repoRoot = state?.repoRoot ?? null;
 		worker.branch = state?.branch ?? null;
+		worker.remoteUrl = state?.remoteUrl ?? null;
 		worker.workersJsonState = state?.workersJsonState ?? "no-git";
 	}
 
