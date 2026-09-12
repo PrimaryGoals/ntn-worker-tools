@@ -4,7 +4,7 @@ import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-
 import { api, type ApiRequestError } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
 import { buildLocalOnlyRows } from "./workerRows";
-import { bannerStatuses, buildRepoStatuses, knownWorkspaces } from "./repoStatus";
+import { bannerStatuses, buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
 import { RepoBanner } from "./components/RepoBanner";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
@@ -406,6 +406,36 @@ function AppContent() {
 		(status) =>
 			!dismissedBranchPrompts.includes(`${status.repo.root}@${status.repo.branch}`),
 	);
+	// An unlinked repo is a question you can answer right now, so it sits above
+	// the list. A mismatch is not actionable from here - the remedy is a branch
+	// switch or a different login - so it goes below, rather than pushing the
+	// workers you came to look at off the top of the panel.
+	const topRepoBanners = visibleRepoBanners.filter((status) => status.kind === "unlinked");
+	const bottomRepoBanners = visibleRepoBanners.filter((status) => status.kind !== "unlinked");
+	const renderRepoBanner = (status: RepoStatus, placement: "top" | "bottom") => (
+			<RepoBanner
+				key={status.repo.root}
+				placement={placement}
+				status={status}
+				workspaces={workspaceChoices}
+				saving={setBranchWorkspace.isPending}
+				onLink={(workspaceId) => {
+					if (!status.repo.branch) return;
+					setBranchWorkspace.mutate({
+						repoRoot: status.repo.root,
+						branch: status.repo.branch,
+						workspaceId,
+					});
+				}}
+				onDismiss={() =>
+					setDismissedBranchPrompts((prev) => [
+						...prev,
+						`${status.repo.root}@${status.repo.branch}`,
+					])
+				}
+			/>
+	);
+
 	const localOnlyRows = useMemo(
 		() =>
 			buildLocalOnlyRows(
@@ -835,28 +865,7 @@ function AppContent() {
 										/>
 									) : (
 									<>
-										{visibleRepoBanners.map((status) => (
-											<RepoBanner
-												key={status.repo.root}
-												status={status}
-												workspaces={workspaceChoices}
-												saving={setBranchWorkspace.isPending}
-												onLink={(workspaceId) => {
-													if (!status.repo.branch) return;
-													setBranchWorkspace.mutate({
-														repoRoot: status.repo.root,
-														branch: status.repo.branch,
-														workspaceId,
-													});
-												}}
-												onDismiss={() =>
-													setDismissedBranchPrompts((prev) => [
-														...prev,
-														`${status.repo.root}@${status.repo.branch}`,
-													])
-												}
-											/>
-										))}
+										{topRepoBanners.map((status) => renderRepoBanner(status, "top"))}
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
@@ -884,6 +893,7 @@ function AppContent() {
 											setPendingContextMenu({ workerId: id, x, y });
 										}}
 									/>
+										{bottomRepoBanners.map((status) => renderRepoBanner(status, "bottom"))}
 									</>
 									)}
 								</Panel>

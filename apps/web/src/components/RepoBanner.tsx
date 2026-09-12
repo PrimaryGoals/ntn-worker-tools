@@ -9,6 +9,7 @@ export function RepoBanner({
 	status,
 	workspaces,
 	saving,
+	placement = "top",
 	onLink,
 	onDismiss,
 }: {
@@ -17,6 +18,9 @@ export function RepoBanner({
 	// whose name it has learned.
 	workspaces: KnownWorkspace[];
 	saving: boolean;
+	// Where this sits relative to the worker list, which decides which edge
+	// carries the rule. An unanswerable mismatch belongs below the list.
+	placement?: "top" | "bottom";
 	onLink: (workspaceId: string) => void;
 	// Closes the prompt for now without recording anything, for when the right
 	// answer is a workspace this app has never connected to.
@@ -52,7 +56,7 @@ export function RepoBanner({
 	);
 
 	return (
-		<div className={`border-b px-3 py-2 text-xs ${tone}`}>
+		<div className={`${placement === "bottom" ? "border-t" : "border-b"} px-3 py-2 text-xs ${tone}`}>
 			{status.kind === "unlinked" ? (
 				<>
 					<div>Link {repoLine} to a workspace.</div>
