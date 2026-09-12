@@ -32,6 +32,22 @@ async function findRepoRoot(from: string): Promise<string | null> {
 	}
 }
 
+// The branch and commit a folder sits on right now, for recording what a deploy
+// actually shipped. Null throughout when the folder is not in a repo, which is
+// allowed: git is optional here.
+export async function headInfoFor(
+	dir: string,
+): Promise<{ root: string; branch: string | null; commit: string | null } | null> {
+	const root = await findRepoRoot(dir);
+	if (!root) return null;
+	const head = await git(["rev-parse", "--abbrev-ref", "HEAD"], root);
+	const name = head.stdout.trim();
+	const branch = head.exitCode === 0 && name && name !== "HEAD" ? name : null;
+	const revision = await git(["rev-parse", "HEAD"], root);
+	const commit = revision.exitCode === 0 ? revision.stdout.trim() || null : null;
+	return { root, branch, commit };
+}
+
 export interface WorkerGitState {
 	repoRoot: string | null;
 	branch: string | null;

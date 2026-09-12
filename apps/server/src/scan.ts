@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { normalizePathKey } from "@ntn-worker-tools/shared";
 import type { ScanResult, ScanWorker, WorkersJsonState } from "@ntn-worker-tools/shared";
+import { computeFingerprints, newFingerprintCache } from "./fingerprint.js";
 import { loadGitState } from "./git.js";
 import { SCAN_IGNORED_DIR_NAMES } from "./scan-ignore.js";
 
@@ -90,6 +91,8 @@ async function inspectFolder(
 		repoRoot: null,
 		branch: null,
 		remoteUrl: null,
+		codeFingerprint: null,
+		envFingerprint: null,
 		workersJsonState: "absent" as WorkersJsonState,
 	};
 	if (fileNames.has("workers.json")) {
@@ -207,7 +210,8 @@ export async function runScan(
 
 	workers.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base" }));
 
-	// Internal callers that only need the identities on disk skip the git pass:
+	// Internal callers that only need the identities on disk skip both the git
+	// pass and the fingerprints:
 	// it spawns two commands per repo, which is wasted work when the branch and
 	// tracking state are thrown away.
 	if (options.withGitState === false) {
@@ -227,7 +231,14 @@ export async function runScan(
 	const { byWorker, repos } = await loadGitState(
 		workers.map((worker) => ({ path: worker.path, hasWorkersJson: !worker.hasWorkerSource })),
 	);
+	// One cache across the whole scan: in a monorepo every worker depends on
+	// the same few shared packages, which would otherwise be re-read per
+	// worker.
+	const fingerprintCache = newFingerprintCache();
 	for (const worker of workers) {
+		const fingerprints = await computeFingerprints(worker.path, fingerprintCache);
+		worker.codeFingerprint = fingerprints.code;
+		worker.envFingerprint = fingerprints.env;
 		const state = byWorker.get(normalizePathKey(worker.path));
 		worker.repoRoot = state?.repoRoot ?? null;
 		worker.branch = state?.branch ?? null;

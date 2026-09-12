@@ -256,7 +256,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 					await updateConfig({
 						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
 					});
-					await recordCodeDeploy(newWorkerId);
+					await recordCodeDeploy(newWorkerId, abs);
 				}
 			}
 
@@ -373,7 +373,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 					await updateConfig({
 						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
 					});
-					await recordCodeDeploy(newWorkerId);
+					await recordCodeDeploy(newWorkerId, abs);
 				}
 			}
 

@@ -313,7 +313,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				} catch {
 					/* stdout wasn't clean JSON; leave summary undefined */
 				}
-				await recordCodeDeploy(req.params.id);
+				await recordCodeDeploy(req.params.id, path);
 			}
 			return {
 				command: `ntn ${args.join(" ")}`,
@@ -404,7 +404,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const push = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
 			let followup: DeployResult["followup"];
 			if (push.exitCode === 0) {
-				await recordEnvPush(req.params.id);
+				await recordEnvPush(req.params.id, path);
 				const pullArgs = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
 				if (verbose) pullArgs.push("-v");
 				const pull = await runNtnRawAllowingFailure(pullArgs, { cwd: path });
@@ -457,7 +457,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				cwd: path,
 				shell: true,
 			});
-			if (result.exitCode === 0) await recordCodeDeploy(req.params.id);
+			if (result.exitCode === 0) await recordCodeDeploy(req.params.id, path);
 			return {
 				command: result.command,
 				cwd: path,
@@ -672,7 +672,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					if (result.exitCode !== 0) {
 						hasError = true;
 					} else {
-						await recordCodeDeploy(action.workerId);
+						await recordCodeDeploy(action.workerId, path);
 					}
 					if (result.stdout) send({ type: "chunk", text: result.stdout });
 					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
@@ -702,7 +702,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					if (result.exitCode !== 0) {
 						hasError = true;
 					} else {
-						await recordEnvPush(action.workerId);
+						await recordEnvPush(action.workerId, path);
 					}
 					if (result.stdout) send({ type: "chunk", text: result.stdout });
 					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });

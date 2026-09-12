@@ -327,6 +327,14 @@ export interface ScanWorker {
 	// How git treats this folder's workers.json — the input to the "not
 	// committed on this branch" flag.
 	workersJsonState: WorkersJsonState;
+	// Content hash of everything this worker deploys: its own source plus the
+	// workspace packages it depends on, excluding workers.json and .env.
+	// Compared against the fingerprint recorded at the last deploy, which is
+	// what makes "needs redeploy" survive a branch switch. Null when it could
+	// not be computed.
+	codeFingerprint: string | null;
+	// Content hash of .env, compared against the last push. Null when absent.
+	envFingerprint: string | null;
 }
 
 // How git treats a worker folder's workers.json. "ignored" is the one that
