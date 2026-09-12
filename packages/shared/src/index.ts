@@ -361,6 +361,17 @@ export function gitRemoteWebUrl(remote: string | null | undefined): string | nul
 	return null;
 }
 
+// The repository as owner/name, for places where the whole URL is more than
+// the line can carry. Everything up to the host is dropped, so GitHub gives
+// PrimaryGoals/PMFN while a nested GitLab path keeps its groups. Null when
+// the remote yields no path at all, leaving callers to show the full URL.
+export function gitRemoteShortLabel(remote: string | null | undefined): string | null {
+	const url = gitRemoteWebUrl(remote);
+	if (!url) return null;
+	const path = url.replace(/^https?:\/\/[^/]+\/?/i, "").replace(/\/+$/, "");
+	return path || null;
+}
+
 export interface ScanResult {
 	roots: string[];
 	workers: ScanWorker[];

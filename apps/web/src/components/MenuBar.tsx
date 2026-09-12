@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { gitRemoteWebUrl } from "@ntn-worker-tools/shared";
+import { gitRemoteShortLabel, gitRemoteWebUrl } from "@ntn-worker-tools/shared";
 import { PRIMARY_GOALS_URL } from "../constants";
 import type { WorkerMenuGroup } from "../workerMenu";
 import { MenuItem } from "./ui/MenuItem";
@@ -61,7 +61,10 @@ export function MenuBar({
 	// repository; the local path is only where this clone sits, so it is the
 	// fallback for a repo with no origin.
 	const repoWebUrl = gitRemoteWebUrl(repoRemoteUrl);
-	const repoLabel = repoWebUrl ?? repoRemoteUrl ?? repoRoot;
+	// owner/name rather than the whole URL: the line already carries a
+	// workspace and a full local path. The link still goes to the repository,
+	// and the title carries the URL in full.
+	const repoLabel = gitRemoteShortLabel(repoRemoteUrl) ?? repoWebUrl ?? repoRemoteUrl ?? repoRoot;
 	const branchLabel = repoLabel ? `${repoLabel} @ ${branch}` : branch;
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
