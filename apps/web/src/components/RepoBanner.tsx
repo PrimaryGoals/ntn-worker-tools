@@ -10,6 +10,7 @@ export function RepoBanner({
 	workspaces,
 	saving,
 	placement = "top",
+	suppressedCount = 0,
 	onLink,
 	onDismiss,
 }: {
@@ -21,6 +22,9 @@ export function RepoBanner({
 	// Where this sits relative to the worker list, which decides which edge
 	// carries the rule. An unanswerable mismatch belongs below the list.
 	placement?: "top" | "bottom";
+	// Folders in this repo left out of the list because nothing in a
+	// mismatched repo can pair. Stated here so they do not just vanish.
+	suppressedCount?: number;
 	onLink: (workspaceId: string) => void;
 	// Closes the prompt for now without recording anything, for when the right
 	// answer is a workspace this app has never connected to.
@@ -132,6 +136,12 @@ export function RepoBanner({
 							</>
 						)}
 					</div>
+					{suppressedCount > 0 ? (
+						<div className="mt-1 text-[11px] text-neutral-500">
+							{suppressedCount} folder{suppressedCount === 1 ? " is" : "s are"} not listed
+							while this repo is mismatched.
+						</div>
+					) : null}
 				</>
 			)}
 		</div>

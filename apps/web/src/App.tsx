@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api, type ApiRequestError } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
+import { normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
 import { bannerStatuses, buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
 import { RepoBanner } from "./components/RepoBanner";
@@ -416,6 +417,9 @@ function AppContent() {
 			<RepoBanner
 				key={status.repo.root}
 				placement={placement}
+				suppressedCount={
+					localOnly.suppressedByRepo.get(normalizePathKey(status.repo.root)) ?? 0
+				}
 				status={status}
 				workspaces={workspaceChoices}
 				saving={setBranchWorkspace.isPending}
@@ -436,15 +440,31 @@ function AppContent() {
 			/>
 	);
 
-	const localOnlyRows = useMemo(
+	// Nothing in a mismatched repo can pair, and a row per folder offering a
+	// first deployment would invite the very thing its banner warns about.
+	const mismatchedRepoRoots = useMemo(
+		() =>
+			new Set(
+				repoStatuses
+					.filter(
+						(status) =>
+							status.kind === "wrong-branch" || status.kind === "no-branch-here",
+					)
+					.map((status) => normalizePathKey(status.repo.root)),
+			),
+		[repoStatuses],
+	);
+	const localOnly = useMemo(
 		() =>
 			buildLocalOnlyRows(
 				scanQ.data?.workers ?? [],
 				workersQ.data ?? [],
 				whoamiQ.data?.spaceId ?? null,
+				mismatchedRepoRoots,
 			),
-		[scanQ.data, workersQ.data, whoamiQ.data],
+		[scanQ.data, workersQ.data, whoamiQ.data, mismatchedRepoRoots],
 	);
+	const localOnlyRows = localOnly.rows;
 	const filteredLocalOnly = useMemo(() => {
 		const q = workerFilter.trim().toLowerCase();
 		if (!q) return localOnlyRows;

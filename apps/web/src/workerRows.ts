@@ -1,3 +1,4 @@
+import { normalizePathKey } from "@ntn-worker-tools/shared";
 import type { ScanWorker, Worker } from "@ntn-worker-tools/shared";
 
 // A scanned folder that the connected workspace has no worker for. These are
@@ -25,6 +26,13 @@ export function localOnlyLabel(state: LocalOnlyState): string {
 	return LOCAL_ONLY_LABELS[state];
 }
 
+export interface LocalOnlyResult {
+	rows: LocalOnlyRow[];
+	// repo root key -> rows withheld because that repo is mismatched, so the
+	// banner can account for what is missing instead of leaving a gap.
+	suppressedByRepo: Map<string, number>;
+}
+
 // Folders the scan found that no worker in the connected workspace claims.
 // Pairing is by workerId only — never by name, since names repeat across
 // workspaces while ids do not.
@@ -32,13 +40,24 @@ export function buildLocalOnlyRows(
 	scanned: ScanWorker[],
 	servers: Worker[],
 	connectedWorkspaceId: string | null,
-): LocalOnlyRow[] {
+	// Repos whose branch belongs to another workspace. Nothing in them can
+	// pair, and offering to deploy each folder into the connected workspace
+	// would invite exactly what the repo banner is warning against.
+	mismatchedRepoRoots: Set<string> = new Set(),
+): LocalOnlyResult {
 	const serverIds = new Set(servers.map((worker) => worker.workerId));
 	const rows: LocalOnlyRow[] = [];
+	const suppressedByRepo = new Map<string, number>();
 
 	for (const folder of scanned) {
 		// Paired: the server already lists it, so it has a row of its own.
 		if (folder.workerId && serverIds.has(folder.workerId)) continue;
+
+		const repoKey = folder.repoRoot ? normalizePathKey(folder.repoRoot) : null;
+		if (repoKey && mismatchedRepoRoots.has(repoKey)) {
+			suppressedByRepo.set(repoKey, (suppressedByRepo.get(repoKey) ?? 0) + 1);
+			continue;
+		}
 
 		let state: LocalOnlyState;
 		let detail: string;
@@ -63,5 +82,6 @@ export function buildLocalOnlyRows(
 		rows.push({ path: folder.path, name: folder.name, state, detail, branch: folder.branch });
 	}
 
-	return rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+	rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+	return { rows, suppressedByRepo };
 }
