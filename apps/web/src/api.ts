@@ -214,13 +214,6 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ url, webhookSecret }),
 		}),
-	setWorkerLocalPath: (workerId: string, path: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, {
-			method: "POST",
-			body: JSON.stringify({ path }),
-		}),
-	clearWorkerLocalPath: (workerId: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),

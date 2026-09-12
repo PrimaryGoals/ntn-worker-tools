@@ -207,8 +207,6 @@ export interface AppConfig {
 		theme: "system" | "light" | "dark";
 		panelSizes?: Record<string, number>;
 	};
-	// workerId -> absolute path of the local source directory
-	workerLocalPaths?: Record<string, string>;
 	// workerId -> ISO timestamp of the last successful code deploy THIS APP
 	// initiated (ntn workers deploy / pnpm run deploy / deploy-updated /
 	// deploy-new). Deliberately not re-derived from the worker's live

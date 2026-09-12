@@ -122,71 +122,6 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		return Object.fromEntries(entries);
 	});
 
-	app.post<{ Params: { id: string }; Body: { path: string } }>(
-		"/api/workers/:id/local-path",
-		async (req, reply): Promise<AppConfig> => {
-			const raw = req.body?.path;
-			if (typeof raw !== "string" || !raw.trim()) {
-				return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
-			}
-			const abs = resolve(raw.trim());
-			const workersJsonPath = join(abs, "workers.json");
-			try {
-				const s = await stat(abs);
-				if (!s.isDirectory()) {
-					return reply
-						.code(400)
-						.send({ error: "path is not a directory", detail: abs }) as unknown as AppConfig;
-				}
-				await stat(workersJsonPath);
-			} catch {
-				return reply.code(400).send({
-					error: "not a worker project",
-					detail: `Expected ${abs} to be a directory containing workers.json`,
-				}) as unknown as AppConfig;
-			}
-			let folderWorkerId: unknown;
-			try {
-				const parsed = JSON.parse(await readFile(workersJsonPath, "utf8")) as {
-					workerId?: unknown;
-				};
-				folderWorkerId = parsed.workerId;
-			} catch {
-				return reply.code(400).send({
-					error: "workers.json is not valid JSON",
-					detail: workersJsonPath,
-				}) as unknown as AppConfig;
-			}
-			if (typeof folderWorkerId !== "string" || !folderWorkerId) {
-				return reply.code(400).send({
-					error: "workers.json is missing a workerId",
-					detail: workersJsonPath,
-				}) as unknown as AppConfig;
-			}
-			if (folderWorkerId !== req.params.id) {
-				let folderWorkerName: string | undefined;
-				try {
-					const pkgRaw = await readFile(join(abs, "package.json"), "utf8");
-					const pkg = JSON.parse(pkgRaw) as { name?: string };
-					folderWorkerName = pkg.name;
-				} catch {
-					/* no package.json or invalid JSON — leave undefined */
-				}
-				return reply.code(400).send({
-					error: "worker mismatch",
-					detail: `Folder ${abs} is registered to workerId=${folderWorkerId}, but you have workerId=${req.params.id} selected.`,
-					folderWorkerId,
-					folderWorkerName,
-					selectedWorkerId: req.params.id,
-				}) as unknown as AppConfig;
-			}
-			const updated = await updateConfig({
-				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
-			});
-			return updated;
-		},
-	);
-
 	app.get<{ Params: { id: string } }>(
 		"/api/workers/:id/local-info",
 		async (req, reply): Promise<LocalInfo> => {
@@ -221,15 +156,6 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				deployScript,
 				hasEnvFile,
 			};
-		},
-	);
-
-	app.delete<{ Params: { id: string } }>(
-		"/api/workers/:id/local-path",
-		async (req): Promise<AppConfig> => {
-			const nextPaths = { ...(getConfig().workerLocalPaths ?? {}) };
-			delete nextPaths[req.params.id];
-			return updateConfig({ workerLocalPaths: nextPaths });
 		},
 	);
 
@@ -499,9 +425,8 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				}) as unknown as DeployResult;
 			}
 
-			await updateConfig({
-				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: newPath },
-			});
+			// The folder moved, so anything cached about where it was is wrong.
+			invalidateScan();
 
 			const ntnResult = await runNtnRawAllowingFailure(
 				["workers", "rename", "--worker-id", req.params.id, newName],

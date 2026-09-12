@@ -254,9 +254,6 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				}
 
 				if (newWorkerId) {
-					await updateConfig({
-						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-					});
 					await recordCodeDeploy(newWorkerId, abs);
 					// A new workers.json exists now; the cached scan predates it.
 					invalidateScan();
@@ -373,9 +370,6 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 					/* the script may write workers.json somewhere else — nothing to register here */
 				}
 				if (newWorkerId) {
-					await updateConfig({
-						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-					});
 					await recordCodeDeploy(newWorkerId, abs);
 					// A new workers.json exists now; the cached scan predates it.
 					invalidateScan();

@@ -22,9 +22,21 @@ export function useWorkerData(
 		retry: false,
 	});
 	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
+	// Worker folders on disk, with the repo and branch each belongs to. Gated on
+	// whoami like the rest, since every call 401s without a session. Deliberately
+	// not on a poll: the walk is filesystem work plus two git calls per repo, so
+	// it runs on load and on an explicit refresh.
+	const scanQ = useQuery({
+		queryKey: ["scan"],
+		queryFn: () => api.getScan(),
+		enabled: !!whoamiQ.data,
+	});
 	const persistedPanelSizes = configQ.data?.ui?.panelSizes ?? {};
+	// Where the selected worker's code lives, from the scan. The config used to
+	// hold a workerId -> folder map written once per registration; this is the
+	// folder that names the worker in its own workers.json, re-read each scan.
 	const localPath = selectedWorkerId
-		? (configQ.data?.workerLocalPaths?.[selectedWorkerId] ?? null)
+		? (scanQ.data?.workers.find((worker) => worker.workerId === selectedWorkerId)?.path ?? null)
 		: null;
 	const localInfoQ = useQuery({
 		queryKey: ["localInfo", selectedWorkerId, localPath],
@@ -48,15 +60,6 @@ export function useWorkerData(
 	const localMtimesQ = useQuery({
 		queryKey: ["localMtimes"],
 		queryFn: api.getLocalMtimes,
-		enabled: !!whoamiQ.data,
-	});
-	// Worker folders on disk, with the repo and branch each belongs to. Gated on
-	// whoami like the rest, since every call 401s without a session. Deliberately
-	// not on a poll: the walk is filesystem work plus two git calls per repo, so
-	// it runs on load and on an explicit refresh.
-	const scanQ = useQuery({
-		queryKey: ["scan"],
-		queryFn: () => api.getScan(),
 		enabled: !!whoamiQ.data,
 	});
 	const runsQ = useQuery({

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { api, type ApiRequestError } from "./api";
+import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
 import { normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
@@ -56,7 +56,6 @@ import {
 	formatWebhookUrls,
 	formatWhoami,
 	formatWorkerUsage,
-	friendlySetPathError,
 	ntnCmd,
 	SEPARATOR,
 } from "./format";
@@ -320,12 +319,10 @@ function AppContent() {
 		null;
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
-		setLocalPath,
 		setScanRoot,
 		setBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
-		clearLocalPath,
 		revealWorker,
 		revealPath,
 		renameWorker,
@@ -454,6 +451,16 @@ function AppContent() {
 			),
 		[repoStatuses],
 	);
+	// Where each worker's code lives, for the rows and the bulk modal. Derived
+	// from the scan rather than a saved map, so a folder that moved is simply
+	// found where it is now, and one that is gone stops being claimed.
+	const workerFolders = useMemo(() => {
+		const map: Record<string, string> = {};
+		for (const folder of scanQ.data?.workers ?? []) {
+			if (folder.workerId) map[folder.workerId] = folder.path;
+		}
+		return map;
+	}, [scanQ.data]);
 	const localOnly = useMemo(
 		() =>
 			buildLocalOnlyRows(
@@ -566,12 +573,6 @@ function AppContent() {
 			},
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
-			},
-			clearLocalPath: () => {
-				if (!selectedWorkerId) return;
-				if (window.confirm("Forget the local folder for this worker?")) {
-					clearLocalPath.mutate(selectedWorkerId);
-				}
 			},
 			renameWorker: () => {
 				renameWorker.reset();
@@ -755,10 +756,6 @@ function AppContent() {
 				workerName={selectedWorkerName}
 				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}
-				setLocalPathError={friendlySetPathError(
-					setLocalPath.error as ApiRequestError | null,
-					selectedWorkerName,
-				)}
 			/>
 
 			<PanelGroup
@@ -892,7 +889,7 @@ function AppContent() {
 										workers={filteredWorkers}
 										selectedId={selectedWorkerId}
 										runHealth={workerHealth}
-										localPaths={configQ.data?.workerLocalPaths ?? {}}
+										localPaths={workerFolders}
 									syncSchedules={syncSchedulesQ.data ?? {}}
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
@@ -1530,7 +1527,7 @@ function AppContent() {
 			{deployUpdatedWorkersOpen ? (
 				<DeployUpdatedWorkersModal
 					workers={sortedWorkers}
-					localPaths={configQ.data?.workerLocalPaths ?? {}}
+					localPaths={workerFolders}
 					codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 					envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 					syncWorkerIds={syncWorkerIds}

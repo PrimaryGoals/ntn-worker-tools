@@ -8,20 +8,6 @@ export function useConfigMutations(
 ) {
 	const qc = useQueryClient();
 
-	const setLocalPath = useMutation({
-		mutationFn: ({ workerId, path }: { workerId: string; path: string }) =>
-			api.setWorkerLocalPath(workerId, path),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["config"] });
-			// Registering a path brings a new (or changed) local folder into the
-			// out-of-date comparison — rescan its mtime.
-			qc.invalidateQueries({ queryKey: ["localMtimes"] });
-			// Only close the folder picker after the workerId-match check server-side
-			// has accepted the path. On failure (e.g. worker mismatch) it stays open
-			// so the user sees the inline error and can navigate somewhere else.
-			setFolderPickerOpen(false);
-		},
-	});
 	// Recording which workspace a branch belongs to. Config-only: the banner
 	// derives from it, and nothing needs rescanning because the folders on disk
 	// have not changed.
@@ -74,13 +60,6 @@ export function useConfigMutations(
 		onSuccess: (config) => {
 			qc.setQueryData(["config"], config);
 			qc.invalidateQueries({ queryKey: ["scan"] });
-		},
-	});
-	const clearLocalPath = useMutation({
-		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["config"] });
-			qc.invalidateQueries({ queryKey: ["localMtimes"] });
 		},
 	});
 	// Reveals any directory, not just a registered worker folder - the header
@@ -140,14 +119,12 @@ export function useConfigMutations(
 	}, []);
 
 	return {
-		setLocalPath,
 		setBranchWorkspace,
 		clearBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
 		setScanRoot,
 		removeExtraWorkerFolder,
-		clearLocalPath,
 		revealWorker,
 		revealPath,
 		renameWorker,

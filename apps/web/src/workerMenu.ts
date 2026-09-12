@@ -74,7 +74,6 @@ export interface WorkerMenuState {
 export interface WorkerMenuActions {
 	setLocalPath: () => void;
 	reveal: () => void;
-	clearLocalPath: () => void;
 	renameWorker: () => void;
 	ntnDeploy: () => void;
 	pnpmDeploy: () => void;
@@ -134,13 +133,6 @@ export function buildWorkerMenuGroups(
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
 					onSelect: actions.reveal,
-				},
-				{
-					id: "clearLocalPath",
-					label: "Forget local folder",
-					disabled: noFolder,
-					disabledReason: NO_FOLDER,
-					onSelect: actions.clearLocalPath,
 				},
 			],
 		},

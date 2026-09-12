@@ -267,31 +267,6 @@ export function formatWebhookResult(r: WebhookFireResult): string {
 	return `${lines.join("\n")}\n${"─".repeat(60)}\n${body}`;
 }
 
-// Rewrites the raw server error into a friendlier message for folder selection
-// errors. Shows the actual worker name from the folder when there's a mismatch.
-export function friendlySetPathError(
-	err: ApiRequestError | null,
-	workerName: string | null,
-): Error | null {
-	if (!err) return null;
-	if (err.message.startsWith("worker mismatch")) {
-		const folderWorkerName = err.folderWorkerName;
-		if (folderWorkerName) {
-			return new Error(
-				`The folder you chose appears to be for a worker called ${folderWorkerName}`,
-			);
-		}
-	}
-	if (
-		err.message.includes("not a worker project") ||
-		err.message.includes("workers.json is not valid JSON") ||
-		err.message.includes("workers.json is missing a workerId") ||
-		err.message.includes("path is not a directory")
-	) {
-		return new Error("This is not a worker folder");
-	}
-	return err;
-}
 
 // Renders a session transcript as plain text for the output panel, mirroring
 // how formatSyncStatuses shapes CLI JSON client-side.

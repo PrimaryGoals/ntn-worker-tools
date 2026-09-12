@@ -11,7 +11,6 @@ const configTempFile = join(paths.config, "config.tmp.json");
 
 const defaultConfig: AppConfig = {
 	ui: { theme: "system" },
-	workerLocalPaths: {},
 };
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -22,7 +21,6 @@ export async function loadConfig(): Promise<AppConfig> {
 			...defaultConfig,
 			...parsed,
 			ui: { ...defaultConfig.ui, ...(parsed.ui ?? {}) },
-			workerLocalPaths: { ...defaultConfig.workerLocalPaths, ...(parsed.workerLocalPaths ?? {}) },
 		};
 	} catch (err) {
 		const nodeErr = err as NodeJS.ErrnoException;
@@ -39,10 +37,6 @@ export async function loadConfig(): Promise<AppConfig> {
 					...defaultConfig,
 					...backupParsed,
 					ui: { ...defaultConfig.ui, ...(backupParsed.ui ?? {}) },
-					workerLocalPaths: {
-						...defaultConfig.workerLocalPaths,
-						...(backupParsed.workerLocalPaths ?? {}),
-					},
 				};
 			} catch {
 				console.warn("[config] Backup also corrupted or missing; using defaults");
@@ -204,11 +198,16 @@ function stripStaleFingerprints(config: AppConfig): { config: AppConfig; changed
 // records. Keyed on `scanRoot` being absent, so it seeds once and never again —
 // otherwise clearing the root would silently re-seed it on the next start. Also
 // collapses the earlier multi-root shape, where a second root was allowed.
-// Leaves workerLocalPaths in place; the old fields go once the rest of the
-// feature lands.
+// The old workerId -> folder map is read here and nowhere else: it is the only
+// record of where an installation kept its workers before the scan existed.
 function migrateScanRoot(config: AppConfig): { config: AppConfig; changed: boolean } {
 	if (config.scanRoot !== undefined) return { config, changed: false };
-	const saved = Object.values(config.workerLocalPaths ?? {});
+	// Read through a cast: the field is gone from AppConfig, but a config
+	// written before it was retired still carries it, and it is the only
+	// record of where that installation kept its workers.
+	const legacyPaths = (config as { workerLocalPaths?: Record<string, string> })
+		.workerLocalPaths;
+	const saved = Object.values(legacyPaths ?? {});
 	const legacyRoots = (config as { scanRoots?: string[] }).scanRoots;
 	const candidates = legacyRoots?.length ? legacyRoots : seedScanRoots(saved);
 	const { root, extras } = splitRoot(candidates, saved);

@@ -18,7 +18,6 @@ export function MenuBar({
 	repoRemoteUrl,
 	onRevealRepo,
 	groups,
-	setLocalPathError,
 }: {
 	// When supplied, replaces the Worker dropdown in the header's left slot.
 	// The Agents tab passes its own menu here; the rest of the header (title,
@@ -49,7 +48,6 @@ export function MenuBar({
 	// greyed with their reason, because the dropdown is where you find out why
 	// an action isn't open to you yet.
 	groups: WorkerMenuGroup[];
-	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
 	// Source reports the folder that was chosen, and nothing else. Folders
@@ -125,11 +123,6 @@ export function MenuBar({
 									</div>
 								);
 							})}
-							{setLocalPathError ? (
-								<div className="border-t border-red-200 px-3 py-1 text-[11px] text-red-600 dark:border-red-900/40 dark:text-red-400">
-									{setLocalPathError.message}
-								</div>
-							) : null}
 						</div>
 					) : null}
 				</div>
