@@ -142,7 +142,10 @@ async function indexPackages(root: string, cache: FingerprintCache): Promise<Map
 // The worker's folder plus every workspace package it depends on, directly or
 // through another workspace package. A change in @pmfn/util reaches sixteen
 // workers, and none of them would notice otherwise.
-async function dependencyDirs(dir: string, cache: FingerprintCache): Promise<string[]> {
+async function dependencyPackages(
+	dir: string,
+	cache: FingerprintCache,
+): Promise<Array<{ name: string; dir: string }>> {
 	const pkg = await readJson(join(dir, "package.json"));
 	if (!pkg) return [];
 	const root = await findWorkspaceRoot(dir);
@@ -165,7 +168,7 @@ async function dependencyDirs(dir: string, cache: FingerprintCache): Promise<str
 		}
 	};
 	await visit(pkg);
-	return [...found.values()].sort();
+	return [...found.entries()].map(([name, packageDir]) => ({ name, dir: packageDir }));
 }
 
 export interface Fingerprints {
@@ -177,11 +180,21 @@ export async function computeFingerprints(
 	dir: string,
 	cache: FingerprintCache = newFingerprintCache(),
 ): Promise<Fingerprints> {
-	const dirs = [dir, ...(await dependencyDirs(dir, cache))];
-	const hashes = await Promise.all(dirs.map((each) => hashFolder(each, cache)));
-	const parts = dirs
-		.map((each, index) => (hashes[index] ? `${each}:${hashes[index]}` : null))
-		.filter((part): part is string => part !== null);
+	const deps = await dependencyPackages(dir, cache);
+	// Labelled by package name, never by absolute path. The same folder
+	// reached as D:\Code\... and d:\code\... is one folder, and a project that
+	// moves is still the same code - including the path made both read as a
+	// change, so a worker deployed from one spelling and scanned from the
+	// other could never match.
+	const entries = [
+		{ label: ".", dir },
+		...deps.map((dep) => ({ label: dep.name, dir: dep.dir })),
+	];
+	const hashes = await Promise.all(entries.map((entry) => hashFolder(entry.dir, cache)));
+	const parts = entries
+		.map((entry, index) => (hashes[index] ? `${entry.label}:${hashes[index]}` : null))
+		.filter((part): part is string => part !== null)
+		.sort();
 
 	let env: string | null = null;
 	try {

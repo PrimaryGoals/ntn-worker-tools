@@ -266,6 +266,10 @@ export interface AppConfig {
 	workerDeploys?: Record<string, WorkerDeployRecord>;
 	// Same, for env pushes. Supersedes workerLastEnvPushAt.
 	workerEnvPushes?: Record<string, WorkerDeployRecord>;
+	// How the recorded fingerprints were computed. Bumped when the scheme
+	// changes, since values from an older one cannot be compared with values
+	// from a newer and would report changes that never happened.
+	fingerprintScheme?: number;
 }
 
 // One deploy (or env push) this app performed, used to decide whether a folder

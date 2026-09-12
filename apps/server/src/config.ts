@@ -172,13 +172,41 @@ function splitRoot(
 	return { root, extras };
 }
 
+// Fingerprints are only comparable within one scheme. Scheme 1 hashed each
+// folder's absolute path alongside its contents, so a worker deployed from
+// D:\Code\... and scanned from d:\code\... never matched itself.
+const FINGERPRINT_SCHEME = 2;
+
+function stripStaleFingerprints(config: AppConfig): { config: AppConfig; changed: boolean } {
+	if ((config.fingerprintScheme ?? 1) >= FINGERPRINT_SCHEME) return { config, changed: false };
+	// Dropped rather than kept: a value from the old scheme reports a change
+	// that never happened, every time. The timestamps stay, which is what the
+	// comparison falls back to until the next deploy writes a fresh hash.
+	const strip = (records: Record<string, WorkerDeployRecord> | undefined) =>
+		Object.fromEntries(
+			Object.entries(records ?? {}).map(([workerId, record]) => [
+				workerId,
+				{ ...record, fingerprint: undefined },
+			]),
+		);
+	return {
+		config: {
+			...config,
+			workerDeploys: strip(config.workerDeploys),
+			workerEnvPushes: strip(config.workerEnvPushes),
+			fingerprintScheme: FINGERPRINT_SCHEME,
+		},
+		changed: true,
+	};
+}
+
 // One-time move from the workerId -> folder map to a scan root and deploy
 // records. Keyed on `scanRoot` being absent, so it seeds once and never again —
 // otherwise clearing the root would silently re-seed it on the next start. Also
 // collapses the earlier multi-root shape, where a second root was allowed.
 // Leaves workerLocalPaths in place; the old fields go once the rest of the
 // feature lands.
-export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
+function migrateScanRoot(config: AppConfig): { config: AppConfig; changed: boolean } {
 	if (config.scanRoot !== undefined) return { config, changed: false };
 	const saved = Object.values(config.workerLocalPaths ?? {});
 	const legacyRoots = (config as { scanRoots?: string[] }).scanRoots;
@@ -195,4 +223,17 @@ export function migrateConfig(config: AppConfig): { config: AppConfig; changed: 
 	// replacement, where a later reader could pick the wrong one.
 	delete next.scanRoots;
 	return { config: next, changed: true };
+}
+
+// Every migration, applied in order. Each is keyed on its own evidence, so
+// they run once and stay quiet afterwards.
+export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
+	let current = config;
+	let changed = false;
+	for (const migration of [migrateScanRoot, stripStaleFingerprints]) {
+		const result = migration(current);
+		current = result.config;
+		changed = changed || result.changed;
+	}
+	return { config: current, changed };
 }
