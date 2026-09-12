@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api, type ApiRequestError } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
+import { buildLocalOnlyRows } from "./workerRows";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
@@ -355,6 +356,25 @@ function AppContent() {
 		}
 	}
 
+	// Scanned folders with no worker in the connected workspace. Without these
+	// the list can only show what the server already has, so a workspace that
+	// most of the code has never been deployed to looks empty.
+	const localOnlyRows = useMemo(
+		() =>
+			buildLocalOnlyRows(
+				scanQ.data?.workers ?? [],
+				workersQ.data ?? [],
+				whoamiQ.data?.spaceId ?? null,
+			),
+		[scanQ.data, workersQ.data, whoamiQ.data],
+	);
+	const filteredLocalOnly = useMemo(() => {
+		const q = workerFilter.trim().toLowerCase();
+		if (!q) return localOnlyRows;
+		return localOnlyRows.filter(
+			(row) => row.name.toLowerCase().includes(q) || row.path.toLowerCase().includes(q),
+		);
+	}, [localOnlyRows, workerFilter]);
 	const filteredWorkers = useMemo(() => {
 		const q = workerFilter.trim().toLowerCase();
 		if (!q) return sortedWorkers;
@@ -729,6 +749,7 @@ function AppContent() {
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										localOnly={filteredLocalOnly}
 										filtered={!!workerFilter.trim()}
 										onSelect={selectWorker}
 										onContextMenu={(id, x, y) => {

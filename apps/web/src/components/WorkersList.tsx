@@ -1,4 +1,5 @@
 import type { RunHealth, Worker } from "@ntn-worker-tools/shared";
+import { localOnlyLabel, type LocalOnlyRow } from "../workerRows";
 import { Empty } from "./ui/Panel";
 import { WorkerStatusDot } from "./ui/WorkerStatusDot";
 
@@ -13,6 +14,7 @@ export function WorkersList({
 	syncPaused,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
+	localOnly,
 	onSelect,
 	onContextMenu,
 	filtered,
@@ -36,6 +38,10 @@ export function WorkersList({
 	syncPaused: Record<string, string[]>;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
+	// Scanned folders the connected workspace has no worker for. Listed below
+	// the server workers, and not selectable yet: selection, run health and the
+	// details pane are all keyed by workerId, which these do not have.
+	localOnly: LocalOnlyRow[];
 	onSelect: (id: string) => void;
 	// Right-click anywhere on a row. Viewport coordinates, for positioning the
 	// menu at the pointer.
@@ -47,7 +53,7 @@ export function WorkersList({
 }) {
 	if (loading) return <Empty>Loading workers…</Empty>;
 	if (error) return <div className="p-3 text-sm text-red-600">{error.message}</div>;
-	if (workers.length === 0) {
+	if (workers.length === 0 && localOnly.length === 0) {
 		return (
 			<Empty>{filtered ? "No workers match your filter." : "No workers in this workspace."}</Empty>
 		);
@@ -121,6 +127,36 @@ export function WorkersList({
 					</li>
 				);
 			})}
+			{localOnly.length > 0 ? (
+				<li>
+					<div className="border-t-2 border-neutral-300 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:border-neutral-700">
+						On disk, not in this workspace
+					</div>
+				</li>
+			) : null}
+			{localOnly.map((row) => (
+				<li key={row.path} className="px-3 py-2 text-sm">
+					<div>
+						<span className="font-medium">{row.name}</span>{" "}
+						<span
+							className={
+								row.state === "unreadable"
+									? "font-medium text-red-600 dark:text-red-400"
+									: "font-medium text-blue-600 dark:text-blue-400"
+							}
+						>
+							- {localOnlyLabel(row.state)}
+						</span>
+						<span className="text-xs text-neutral-500"> ({row.detail})</span>
+						{row.branch ? (
+							<span className="font-mono text-xs text-neutral-500"> {row.branch}</span>
+						) : null}
+					</div>
+					<div className="font-mono text-xs text-neutral-500" title={row.path}>
+						{row.path}
+					</div>
+				</li>
+			))}
 		</ul>
 	);
 }
