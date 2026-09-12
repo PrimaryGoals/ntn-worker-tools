@@ -14,6 +14,7 @@ import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from ".
 import { SCAN_IGNORED_DIR_NAMES } from "../scan-ignore.js";
 import { isVerbose } from "../route-helpers.js";
 import { tokenWorkspaceMismatch } from "../token-workspace.js";
+import { folderForWorker, foldersByWorkerId, invalidateScan } from "../scan-cache.js";
 import { folderIdentityMismatch, readWorkerIdentity } from "../workers-json.js";
 import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
@@ -73,7 +74,7 @@ async function scanLocalMtimes(dir: string): Promise<{ code: number | null; env:
 // but only when actually needed.
 async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<void> {
 	const cfg = getConfig();
-	const ids = Object.keys(cfg.workerLocalPaths ?? {});
+	const ids = [...(await foldersByWorkerId()).keys()];
 	const missing = ids.filter(
 		(id) => !cfg.workerLastCodeDeployAt?.[id] || !cfg.workerLastEnvPushAt?.[id],
 	);
@@ -105,7 +106,7 @@ async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<vo
 export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
 		await seedMissingWorkerTimestamps(null);
-		const paths = getConfig().workerLocalPaths ?? {};
+		const paths = Object.fromEntries(await foldersByWorkerId());
 		const entries = await Promise.all(
 			Object.entries(paths).map(async ([workerId, path]): Promise<[string, LocalMtimeInfo]> => {
 				const { code, env } = await scanLocalMtimes(path);
@@ -189,7 +190,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get<{ Params: { id: string } }>(
 		"/api/workers/:id/local-info",
 		async (req, reply): Promise<LocalInfo> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(404)
@@ -235,7 +236,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string } }>(
 		"/api/workers/:id/reveal",
 		async (req, reply): Promise<{ ok: true; path: string }> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -276,7 +277,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get<{ Params: { id: string } }>(
 		"/api/workers/:id/folder-check",
 		async (req): Promise<{ ok: boolean; error?: string; detail?: string }> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) return { ok: true }; // nothing registered, nothing to contradict
 			const mismatch = await folderIdentityMismatch(path, req.params.id);
 			return mismatch ? { ok: false, ...mismatch } : { ok: true };
@@ -286,7 +287,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string; yes?: string } }>(
 		"/api/workers/:id/deploy",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -314,6 +315,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					/* stdout wasn't clean JSON; leave summary undefined */
 				}
 				await recordCodeDeploy(req.params.id, path);
+				invalidateScan();
 			}
 			return {
 				command: `ntn ${args.join(" ")}`,
@@ -377,7 +379,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 		"/api/workers/:id/env/push",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -434,7 +436,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Querystring: { yes?: string } }>(
 		"/api/workers/:id/pnpm-deploy",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -472,7 +474,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Body: { newName: string } }>(
 		"/api/workers/:id/rename",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -582,7 +584,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		"/api/workers/batch-actions",
 		async (req, reply) => {
 			const verbose = isVerbose(req.query.verbose);
-			const localPaths = getConfig().workerLocalPaths ?? {};
+			const localPaths = Object.fromEntries(await foldersByWorkerId());
 			const rawActions = req.body?.actions;
 			if (!Array.isArray(rawActions) || rawActions.length === 0) {
 				return reply.code(400).send({ error: "actions required" });
@@ -673,6 +675,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 						hasError = true;
 					} else {
 						await recordCodeDeploy(action.workerId, path);
+						invalidateScan();
 					}
 					if (result.stdout) send({ type: "chunk", text: result.stdout });
 					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
