@@ -11,7 +11,11 @@ export default async function scanRoutes(app: FastifyInstance) {
 	// user presses refresh.
 	app.get("/api/scan", async (): Promise<ScanResult> => {
 		const config = getConfig();
-		const result = await runScan(config.scanRoots ?? [], config.ignoredFolders ?? []);
+		const result = await runScan(
+			config.scanRoot || null,
+			config.extraWorkerFolders ?? [],
+			config.ignoredFolders ?? [],
+		);
 		app.log.info(
 			{
 				roots: result.roots.length,

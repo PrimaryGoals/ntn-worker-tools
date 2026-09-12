@@ -149,20 +149,56 @@ function seedRecords(
 	return records;
 }
 
-// One-time move from the workerId -> folder map to scan roots and deploy
-// records. Keyed on `scanRoots` being absent rather than empty, so it seeds once
-// and never again — otherwise removing every root would silently re-seed them
-// on the next start. Leaves workerLocalPaths in place; nothing reads the new
-// fields yet, and the old ones are removed once the rest of the feature lands.
+function isUnder(path: string, root: string): boolean {
+	const p = normalizePathKey(path);
+	const r = normalizePathKey(root);
+	return p === r || p.startsWith(r + "/");
+}
+
+// Reduces candidate roots to the one the scan runs from, plus whatever sits
+// outside it. The shallowest candidate wins, since a nested one finds nothing
+// its parent would not. Anything left over is kept as an extra folder rather
+// than discarded: a worker already paired to it must not disappear.
+function splitRoot(
+	candidates: string[],
+	savedFolders: string[],
+): { root: string | undefined; extras: string[] } {
+	const sorted = [...candidates].sort((a, b) => normalizePathKey(a).length - normalizePathKey(b).length);
+	const root = sorted[0];
+	if (root === undefined) return { root: undefined, extras: [] };
+	const extras: string[] = [];
+	const seen = new Set<string>([normalizePathKey(root)]);
+	for (const candidate of [...sorted.slice(1), ...savedFolders]) {
+		if (isUnder(candidate, root)) continue;
+		const key = normalizePathKey(candidate);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		extras.push(candidate);
+	}
+	return { root, extras };
+}
+
+// One-time move from the workerId -> folder map to a scan root and deploy
+// records. Keyed on `scanRoot` being absent, so it seeds once and never again —
+// otherwise clearing the root would silently re-seed it on the next start. Also
+// collapses the earlier multi-root shape, where a second root was allowed.
+// Leaves workerLocalPaths in place; the old fields go once the rest of the
+// feature lands.
 export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
-	if (config.scanRoots !== undefined) return { config, changed: false };
-	return {
-		config: {
-			...config,
-			scanRoots: seedScanRoots(Object.values(config.workerLocalPaths ?? {})),
-			workerDeploys: seedRecords(config.workerDeploys, config.workerLastCodeDeployAt),
-			workerEnvPushes: seedRecords(config.workerEnvPushes, config.workerLastEnvPushAt),
-		},
-		changed: true,
+	if (config.scanRoot !== undefined) return { config, changed: false };
+	const saved = Object.values(config.workerLocalPaths ?? {});
+	const legacyRoots = (config as { scanRoots?: string[] }).scanRoots;
+	const candidates = legacyRoots?.length ? legacyRoots : seedScanRoots(saved);
+	const { root, extras } = splitRoot(candidates, saved);
+	const next: AppConfig & { scanRoots?: string[] } = {
+		...config,
+		scanRoot: root ?? "",
+		extraWorkerFolders: extras,
+		workerDeploys: seedRecords(config.workerDeploys, config.workerLastCodeDeployAt),
+		workerEnvPushes: seedRecords(config.workerEnvPushes, config.workerLastEnvPushAt),
 	};
+	// The multi-root field is gone rather than left to rot beside its
+	// replacement, where a later reader could pick the wrong one.
+	delete next.scanRoots;
+	return { config: next, changed: true };
 }

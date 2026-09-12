@@ -21,10 +21,10 @@ export default async function configRoutes(app: FastifyInstance) {
 		return updateConfig({ timeMarker: undefined });
 	});
 
-	// A scan root is a container directory, not a worker project: the scan walks
-	// it looking for worker folders. Several are allowed, so this appends rather
-	// than replaces.
-	app.post<{ Body: { path?: string } }>("/api/config/scan-roots", async (req, reply) => {
+	// The scan root is a container directory, not a worker project: the scan
+	// walks it looking for worker folders. There is exactly one, so choosing a
+	// folder replaces it rather than adding to a list.
+	app.post<{ Body: { path?: string } }>("/api/config/scan-root", async (req, reply) => {
 		const raw = req.body?.path;
 		if (typeof raw !== "string" || !raw.trim()) {
 			return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
@@ -42,23 +42,30 @@ export default async function configRoutes(app: FastifyInstance) {
 				.code(400)
 				.send({ error: "directory not found", detail: abs }) as unknown as AppConfig;
 		}
-		const roots = getConfig().scanRoots ?? [];
-		// Compared through normalizePathKey so the same folder cannot be added
-		// twice under two spellings, which on Windows are the same directory.
-		if (roots.some((root) => normalizePathKey(root) === normalizePathKey(abs))) return getConfig();
-		return updateConfig({ scanRoots: [...roots, abs] });
+		// Worker folders already paired but outside the new root are retained, so
+		// moving the root never silently drops a worker that is on the server.
+		const config = getConfig();
+		const key = normalizePathKey(abs);
+		const kept = (config.extraWorkerFolders ?? []).filter(
+			(folder) => !normalizePathKey(folder).startsWith(key + "/") && normalizePathKey(folder) !== key,
+		);
+		return updateConfig({ scanRoot: abs, extraWorkerFolders: kept });
 	});
 
+	// Drops a retained out-of-root folder. The root itself is replaced, never
+	// removed, so there is nothing to delete for it.
 	app.delete<{ Querystring: { path?: string } }>(
-		"/api/config/scan-roots",
+		"/api/config/extra-worker-folders",
 		async (req, reply): Promise<AppConfig> => {
 			const raw = req.query.path;
 			if (typeof raw !== "string" || !raw.trim()) {
 				return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
 			}
 			const key = normalizePathKey(resolve(raw.trim()));
-			const roots = getConfig().scanRoots ?? [];
-			return updateConfig({ scanRoots: roots.filter((root) => normalizePathKey(root) !== key) });
+			const folders = getConfig().extraWorkerFolders ?? [];
+			return updateConfig({
+				extraWorkerFolders: folders.filter((folder) => normalizePathKey(folder) !== key),
+			});
 		},
 	);
 }

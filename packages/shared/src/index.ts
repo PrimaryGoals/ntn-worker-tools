@@ -231,12 +231,18 @@ export interface AppConfig {
 	// per-worker) — shown in the runs panel for every worker to split runs
 	// into before/after the marker.
 	timeMarker?: string;
-	// Directories chosen with "Set local folder…", each scanned for worker
-	// folders. Several are allowed. This replaces workerLocalPaths as the
-	// stored link to disk: folder-to-worker pairs are re-read from each
-	// folder's workers.json instead of being saved, so a branch switch can't
-	// leave a stale pairing behind.
-	scanRoots?: string[];
+	// The single directory scanned for worker folders, chosen with "Set local
+	// folder…". Exactly one by design: it is the root the scan starts from, and
+	// a second root either duplicates the first or makes it ambiguous which
+	// root a worker was found under. Replaces workerLocalPaths as the stored
+	// link to disk — folder-to-worker pairs are re-read from each folder's
+	// workers.json rather than saved, so a branch switch cannot leave a stale
+	// pairing behind.
+	scanRoot?: string;
+	// Worker folders outside scanRoot that are kept anyway: a worker already
+	// paired to a folder must not vanish because the root moved or never
+	// covered it. Scanned in addition to the root.
+	extraWorkerFolders?: string[];
 	// Folders the scan finds that aren't workers to act on (templates,
 	// scaffolds). Compared through normalizePathKey.
 	ignoredFolders?: string[];

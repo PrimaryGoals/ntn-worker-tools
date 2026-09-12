@@ -169,8 +169,15 @@ async function walk(
 // Walks every scan root and returns the worker folders under them. Pairing a
 // folder to a server worker happens later and elsewhere: this layer only
 // reports what is on disk.
-export async function runScan(roots: string[], ignoredFolders: string[]): Promise<ScanResult> {
+export async function runScan(
+	scanRoot: string | null,
+	extraWorkerFolders: string[],
+	ignoredFolders: string[],
+): Promise<ScanResult> {
 	const started = Date.now();
+	// The root first, then any retained out-of-root folder. Each retained folder
+	// is walked the same way, so one holding several workers still reports them.
+	const roots = [...(scanRoot ? [scanRoot] : []), ...extraWorkerFolders];
 	const ignored = new Set(ignoredFolders.map(normalizePathKey));
 	const workers: ScanWorker[] = [];
 	const unreadableRoots: string[] = [];

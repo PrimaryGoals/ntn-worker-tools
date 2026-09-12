@@ -11,7 +11,8 @@ export function MenuBar({
 	spaceName,
 	workerName,
 	localPath,
-	scanRoots,
+	scanRoot,
+	extraWorkerFolders,
 	branch,
 	groups,
 	setLocalPathError,
@@ -26,9 +27,12 @@ export function MenuBar({
 	spaceName: string | null;
 	workerName: string | null;
 	localPath: string | null;
-	// Folders the scan walks. Shown as Source in the status strip so the folder
-	// being read is visible without opening a menu.
-	scanRoots: string[];
+	// The one folder the scan walks, shown as Source so the directory being
+	// read is visible without opening a menu.
+	scanRoot: string | null;
+	// Worker folders kept from outside that root. Counted rather than listed,
+	// since they are the exception and the bar has no room for paths.
+	extraWorkerFolders: string[];
 	// Checked-out branch of the repo in view, when there is one. Absent outside
 	// git, and until the per-repo git state lands.
 	branch?: string | null;
@@ -39,14 +43,13 @@ export function MenuBar({
 	setLocalPathError: Error | null;
 }) {
 	const [open, setOpen] = useState(false);
-	// One root reads as a path; several would overflow the bar, so the rest are
-	// counted and listed in the tooltip.
-	const sourceLabel =
-		scanRoots.length === 0
-			? "none set"
-			: scanRoots.length === 1
-				? (scanRoots[0] ?? "none set")
-				: `${scanRoots[0]} +${scanRoots.length - 1} more`;
+	// There is one root by design. Retained out-of-root folders are counted
+	// here and spelled out in the tooltip, which is the only place a path that
+	// long fits.
+	const sourceLabel = scanRoot ?? "none set";
+	const outsideLabel =
+		extraWorkerFolders.length > 0 ? ` +${extraWorkerFolders.length} outside` : "";
+	const sourceTitle = [scanRoot ?? "No scan root set", ...extraWorkerFolders].join("\n");
 	return (
 		<header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 dark:border-neutral-800 dark:bg-neutral-950">
 			{leftMenu ?? (
@@ -122,9 +125,12 @@ export function MenuBar({
 						{spaceName ?? "…"}
 					</span>
 				</span>
-				<span className="min-w-0 truncate" title={scanRoots.join("\n")}>
+				<span className="min-w-0 truncate" title={sourceTitle}>
 					Source:{" "}
-					<span className="font-mono text-neutral-700 dark:text-neutral-300">{sourceLabel}</span>
+					<span className="font-mono text-neutral-700 dark:text-neutral-300">
+						{sourceLabel}
+						{outsideLabel}
+					</span>
 				</span>
 				{branch ? (
 					<span className="whitespace-nowrap">
