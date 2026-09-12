@@ -165,40 +165,68 @@ export function useWorkerData(
 			),
 		[workersQ.data],
 	);
-	// workerId -> local code changed more recently than the last code deploy
-	// THIS APP recorded (see AppConfig.workerLastCodeDeployAt). Only
-	// meaningful for workers with a registered local path AND at least one
-	// recorded deploy — a missing mtime or missing record means "can't tell",
-	// not "up to date". Deliberately NOT compared against the worker's live
-	// `updatedAt`: that bumps on any mutation (including env pushes), which
-	// can mask an undeployed code change behind an unrelated secrets push.
-	const codeOutOfDateWorkerIds = useMemo(() => {
-		const mtimes = localMtimesQ.data;
-		const lastDeploy = configQ.data?.workerLastCodeDeployAt;
-		if (!mtimes || !lastDeploy) return new Set<string>();
-		const ids = new Set<string>();
-		for (const w of workersQ.data ?? []) {
-			const mtime = mtimes[w.workerId]?.code;
-			const last = lastDeploy[w.workerId];
-			if (mtime && last && new Date(mtime) > new Date(last)) ids.add(w.workerId);
+	// Fingerprints by workerId, from the scan. A folder pairs with a worker by the
+	// id in its own workers.json - the same pairing the rows use, and never by
+	// name.
+	const fingerprintsByWorkerId = useMemo(() => {
+		const map = new Map<string, { code: string | null; env: string | null }>();
+		for (const folder of scanQ.data?.workers ?? []) {
+			if (!folder.workerId) continue;
+			map.set(folder.workerId, { code: folder.codeFingerprint, env: folder.envFingerprint });
 		}
-		return ids;
-	}, [workersQ.data, localMtimesQ.data, configQ.data?.workerLastCodeDeployAt]);
+		return map;
+	}, [scanQ.data]);
 
-	// Same idea for .env: local .env changed more recently than the last env
-	// push THIS APP recorded.
-	const envOutOfDateWorkerIds = useMemo(() => {
-		const mtimes = localMtimesQ.data;
-		const lastPush = configQ.data?.workerLastEnvPushAt;
-		if (!mtimes || !lastPush) return new Set<string>();
+	// workerId -> this folder is not what that workspace is running.
+	//
+	// Content first: the hash recorded at the last deploy against the folder's
+	// hash now. That survives a branch switch, which re-stamps every file that
+	// differs and used to make nearly every worker look modified, and it notices a
+	// shared package changing, which touches no file inside the worker at all.
+	//
+	// Timestamps remain the fallback for records written before fingerprints
+	// existed - over-flagging until the next deploy writes one, which is the safer
+	// direction and the one this app already chose.
+	const codeOutOfDateWorkerIds = useMemo(() => {
 		const ids = new Set<string>();
+		const mtimes = localMtimesQ.data;
+		const records = configQ.data?.workerDeploys;
+		const legacy = configQ.data?.workerLastCodeDeployAt;
 		for (const w of workersQ.data ?? []) {
-			const mtime = mtimes[w.workerId]?.env;
-			const last = lastPush[w.workerId];
+			const recorded = records?.[w.workerId];
+			const current = fingerprintsByWorkerId.get(w.workerId)?.code ?? null;
+			if (recorded?.fingerprint && current) {
+				if (recorded.fingerprint !== current) ids.add(w.workerId);
+				continue;
+			}
+			const mtime = mtimes?.[w.workerId]?.code;
+			const last = recorded?.at ?? legacy?.[w.workerId];
 			if (mtime && last && new Date(mtime) > new Date(last)) ids.add(w.workerId);
 		}
 		return ids;
-	}, [workersQ.data, localMtimesQ.data, configQ.data?.workerLastEnvPushAt]);
+	}, [workersQ.data, localMtimesQ.data, configQ.data, fingerprintsByWorkerId]);
+
+	// Same for secrets, against the .env hash recorded at the last push. .env is
+	// deliberately outside the code fingerprint: a changed .env means a push is
+	// due, not a deploy.
+	const envOutOfDateWorkerIds = useMemo(() => {
+		const ids = new Set<string>();
+		const mtimes = localMtimesQ.data;
+		const records = configQ.data?.workerEnvPushes;
+		const legacy = configQ.data?.workerLastEnvPushAt;
+		for (const w of workersQ.data ?? []) {
+			const recorded = records?.[w.workerId];
+			const current = fingerprintsByWorkerId.get(w.workerId)?.env ?? null;
+			if (recorded?.fingerprint && current) {
+				if (recorded.fingerprint !== current) ids.add(w.workerId);
+				continue;
+			}
+			const mtime = mtimes?.[w.workerId]?.env;
+			const last = recorded?.at ?? legacy?.[w.workerId];
+			if (mtime && last && new Date(mtime) > new Date(last)) ids.add(w.workerId);
+		}
+		return ids;
+	}, [workersQ.data, localMtimesQ.data, configQ.data, fingerprintsByWorkerId]);
 
 	// Sync polling intervals for every worker with a registered local folder.
 	// Read from source, so it needs no `ntn` call and covers the whole list at
