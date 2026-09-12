@@ -94,6 +94,21 @@ export function useCommandMutations(
 		qc.invalidateQueries({ queryKey: ["syncStatus"] });
 	}
 
+	// Run before a deploy is confirmed rather than after it is attempted. The
+	// server answers 200 with an ok flag, so the rejection is turned into an
+	// Error here and surfaces through anyDeployError like any other command
+	// failure - one error surface, one place to look.
+	const checkWorkerFolder = useMutation({
+		mutationFn: async (workerId: string) => {
+			const result = await api.checkWorkerFolder(workerId);
+			if (!result.ok) {
+				throw new Error(
+					result.detail ? `${result.error}: ${result.detail}` : (result.error ?? "folder check failed"),
+				);
+			}
+			return result;
+		},
+	});
 	const deployWorker = useMutation({
 		mutationFn: ({ workerId, assumeYes }: { workerId: string; assumeYes?: boolean }) =>
 			api.deployWorker(workerId, verboseLogs, assumeYes),
@@ -231,6 +246,7 @@ export function useCommandMutations(
 														? "ntn api /v1/agents/{id}/credit_limit"
 														: null;
 	const anyDeployError =
+		(checkWorkerFolder.error as Error | null) ??
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
@@ -267,6 +283,7 @@ export function useCommandMutations(
 	return {
 		deployWorker,
 		pnpmDeployWorker,
+		checkWorkerFolder,
 		pushSecrets,
 		setEnvVar,
 		syncTrigger,

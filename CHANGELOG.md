@@ -4,6 +4,29 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-12
+
+Working across more than one Notion workspace, where the same code is deployed to several and a git branch decides which one is current (#53).
+
+### Added
+- Local folders are found by scanning rather than registered one at a time. "Set local folder…" works with no worker selected: it picks a single root, and every worker folder beneath it is found by its `workers.json` or by a `package.json` that depends on the SDK alongside a `new Worker(` in its source. A folder outside that root stays scanned if a worker is already paired to it, so moving the root never drops a deployed worker (#53)
+- Folders with no worker in the connected workspace now appear at all. A list built from `ntn workers list` could only ever show what a workspace already had, which hid exactly the work to do when connecting to a workspace most of the code has never reached. Each says why it is there — first deployment, not on server, or workers.json unreadable — and carries Deploy, which opens the deploy flow already pointed at that folder (#53)
+- Repositories are linked to workspaces, and mismatches are stated. A branch with no workspace prompts for one, preselected from what its folders claim and never recorded without confirmation; a linked repo whose branch belongs elsewhere says so and names both remedies. Prompts sit above the worker list because they can be answered there; mismatches sit below it because they cannot (#53)
+- A status strip in the header: connected workspace, the folder being scanned, and the repository and branch of the selected worker. The repository is named by its origin rather than its local path — a worker can live in a repo of its own, where "main" alone says almost nothing — and links to it (#53)
+- Folders the scan finds that are not workers to act on can be ignored from their row, and are listed with a way back (#53)
+
+### Changed
+- "Needs redeploy" compares content, not file times. A `git checkout` rewrites every file that differs between branches, so a branch switch used to make nearly every worker claim it needed redeploying, while a change in a shared package — which touches no file inside any worker — went unnoticed. Each deploy now records a hash of the worker's source plus every workspace package it depends on, transitively, along with the branch and commit it shipped from. Records written before this keep the old comparison until their next deploy (#53)
+- Refreshing the workers list also confirms the connected workspace and rescans, so an `ntn login` in a terminal is reflected without reloading the page. Changing workspace clears the selected worker, which belonged to the workspace it was chosen in (#53)
+- `workerLocalPaths` is retired. A path recorded once at registration and never revisited had accumulated folders that had moved, one that no longer existed, and a single worker under three ids across two workspaces. "Forget local folder" went with it: there is nothing stored to forget (#53)
+
+### Fixed
+- "Set local folder…" did nothing at all unless a worker was already selected — the modal was gated on a selection the action itself never required (#53)
+- Deploying to the wrong worker is now prevented rather than merely unlikely. `workers.json` is re-read immediately before every deploy, pnpm deploy, env push and batch action, and again before the confirmation dialog, since a branch switch rewrites that file underneath a folder and `ntn` reads it to decide which worker it is updating. The message names the workers and workspaces involved instead of printing three UUIDs (#53)
+- Pushing secrets checks which workspace the `.env` token belongs to first. `.env` is gitignored, so it belongs to a clone rather than a branch: a branch switch leaves the previous workspace's token in place, which is how a worker in one workspace comes to be handed a credential for another. A mismatch stops the push; an unanswerable check does not (#53)
+- Deploying a worker that was listed as "not on server" left the row saying so until the page was reloaded, because nothing invalidated the scan the row was built from (#53)
+- The app icon has a transparent background, and the workers refresh button re-checks for undeployed changes
+
 ## [1.2.0] - 2026-09-04
 
 ### Added

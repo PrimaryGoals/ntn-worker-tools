@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, parse } from "node:path";
 import envPaths from "env-paths";
-import type { AppConfig } from "@ntn-worker-tools/shared";
+import { isPathUnder, normalizePathKey } from "@ntn-worker-tools/shared";
+import type { AppConfig, WorkerDeployRecord } from "@ntn-worker-tools/shared";
 
 const paths = envPaths("ntn-worker-tools", { suffix: "" });
 const configFile = join(paths.config, "config.json");
@@ -10,7 +11,6 @@ const configTempFile = join(paths.config, "config.tmp.json");
 
 const defaultConfig: AppConfig = {
 	ui: { theme: "system" },
-	workerLocalPaths: {},
 };
 
 export async function loadConfig(): Promise<AppConfig> {
@@ -21,7 +21,6 @@ export async function loadConfig(): Promise<AppConfig> {
 			...defaultConfig,
 			...parsed,
 			ui: { ...defaultConfig.ui, ...(parsed.ui ?? {}) },
-			workerLocalPaths: { ...defaultConfig.workerLocalPaths, ...(parsed.workerLocalPaths ?? {}) },
 		};
 	} catch (err) {
 		const nodeErr = err as NodeJS.ErrnoException;
@@ -38,10 +37,6 @@ export async function loadConfig(): Promise<AppConfig> {
 					...defaultConfig,
 					...backupParsed,
 					ui: { ...defaultConfig.ui, ...(backupParsed.ui ?? {}) },
-					workerLocalPaths: {
-						...defaultConfig.workerLocalPaths,
-						...(backupParsed.workerLocalPaths ?? {}),
-					},
 				};
 			} catch {
 				console.warn("[config] Backup also corrupted or missing; using defaults");
@@ -78,4 +73,166 @@ export function getConfigPath(): string {
 
 export function getConfigBackupPath(): string {
 	return configBackupFile;
+}
+
+// How far the scan-root collapse below is allowed to widen: a root must keep at
+// least this many path segments below the drive. Two keeps D:\Code\NTN, where a
+// scan walks ~150 directories; one would allow D:\Code, which walks ~6000.
+const MIN_ROOT_SEGMENTS = 2;
+
+// Seeds scan roots from the folders already registered, so an upgrade doesn't
+// come up with an empty worker list. Each registered folder contributes its
+// parent, and parents sharing an ancestor collapse into it — PMFN's workers,
+// auto-tasks and ntn-sync all collapse to a single root. Paths on different
+// drives never share an ancestor, so they are grouped by root first.
+function seedScanRoots(paths: string[]): string[] {
+	const parents = new Set<string>();
+	for (const p of paths) {
+		const parent = dirname(p);
+		if (parent && parent !== p) parents.add(parent);
+	}
+	if (parents.size === 0) return [];
+
+	const groups = new Map<string, string[][]>();
+	for (const parent of parents) {
+		const { root } = parse(parent);
+		const segments = parent.slice(root.length).split(/[\\/]+/).filter(Boolean);
+		groups.set(root, [...(groups.get(root) ?? []), segments]);
+	}
+
+	const roots: string[] = [];
+	const seen = new Set<string>();
+	const add = (candidate: string) => {
+		const key = normalizePathKey(candidate);
+		if (seen.has(key)) return;
+		seen.add(key);
+		roots.push(candidate);
+	};
+	for (const [root, members] of groups) {
+		let common = members[0] ?? [];
+		for (const segments of members.slice(1)) {
+			let i = 0;
+			while (
+				i < common.length &&
+				i < segments.length &&
+				normalizePathKey(common[i]!) === normalizePathKey(segments[i]!)
+			) {
+				i++;
+			}
+			common = common.slice(0, i);
+		}
+		// Too shallow to collapse safely — keep each parent as its own root
+		// rather than widening the scan to most of the drive.
+		if (common.length >= MIN_ROOT_SEGMENTS) add(join(root, ...common));
+		else for (const segments of members) add(join(root, ...segments));
+	}
+	return roots;
+}
+
+// Carries the old timestamp-only maps into deploy records. The migrated records
+// have no fingerprint, which is what keeps the mtime comparison in place until
+// each worker's next deploy.
+function seedRecords(
+	existing: Record<string, WorkerDeployRecord> | undefined,
+	timestamps: Record<string, string> | undefined,
+): Record<string, WorkerDeployRecord> {
+	const records = { ...(existing ?? {}) };
+	for (const [workerId, at] of Object.entries(timestamps ?? {})) {
+		if (!records[workerId]) records[workerId] = { at };
+	}
+	return records;
+}
+
+// Reduces candidate roots to the one the scan runs from, plus whatever sits
+// outside it. The shallowest candidate wins, since a nested one finds nothing
+// its parent would not. Anything left over is kept as an extra folder rather
+// than discarded: a worker already paired to it must not disappear.
+function splitRoot(
+	candidates: string[],
+	savedFolders: string[],
+): { root: string | undefined; extras: string[] } {
+	const sorted = [...candidates].sort((a, b) => normalizePathKey(a).length - normalizePathKey(b).length);
+	const root = sorted[0];
+	if (root === undefined) return { root: undefined, extras: [] };
+	const extras: string[] = [];
+	const seen = new Set<string>([normalizePathKey(root)]);
+	for (const candidate of [...sorted.slice(1), ...savedFolders]) {
+		if (isPathUnder(candidate, root)) continue;
+		const key = normalizePathKey(candidate);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		extras.push(candidate);
+	}
+	return { root, extras };
+}
+
+// Fingerprints are only comparable within one scheme. Scheme 1 hashed each
+// folder's absolute path alongside its contents, so a worker deployed from
+// D:\Code\... and scanned from d:\code\... never matched itself.
+const FINGERPRINT_SCHEME = 2;
+
+function stripStaleFingerprints(config: AppConfig): { config: AppConfig; changed: boolean } {
+	if ((config.fingerprintScheme ?? 1) >= FINGERPRINT_SCHEME) return { config, changed: false };
+	// Dropped rather than kept: a value from the old scheme reports a change
+	// that never happened, every time. The timestamps stay, which is what the
+	// comparison falls back to until the next deploy writes a fresh hash.
+	const strip = (records: Record<string, WorkerDeployRecord> | undefined) =>
+		Object.fromEntries(
+			Object.entries(records ?? {}).map(([workerId, record]) => [
+				workerId,
+				{ ...record, fingerprint: undefined },
+			]),
+		);
+	return {
+		config: {
+			...config,
+			workerDeploys: strip(config.workerDeploys),
+			workerEnvPushes: strip(config.workerEnvPushes),
+			fingerprintScheme: FINGERPRINT_SCHEME,
+		},
+		changed: true,
+	};
+}
+
+// One-time move from the workerId -> folder map to a scan root and deploy
+// records. Keyed on `scanRoot` being absent, so it seeds once and never again —
+// otherwise clearing the root would silently re-seed it on the next start. Also
+// collapses the earlier multi-root shape, where a second root was allowed.
+// The old workerId -> folder map is read here and nowhere else: it is the only
+// record of where an installation kept its workers before the scan existed.
+function migrateScanRoot(config: AppConfig): { config: AppConfig; changed: boolean } {
+	if (config.scanRoot !== undefined) return { config, changed: false };
+	// Read through a cast: the field is gone from AppConfig, but a config
+	// written before it was retired still carries it, and it is the only
+	// record of where that installation kept its workers.
+	const legacyPaths = (config as { workerLocalPaths?: Record<string, string> })
+		.workerLocalPaths;
+	const saved = Object.values(legacyPaths ?? {});
+	const legacyRoots = (config as { scanRoots?: string[] }).scanRoots;
+	const candidates = legacyRoots?.length ? legacyRoots : seedScanRoots(saved);
+	const { root, extras } = splitRoot(candidates, saved);
+	const next: AppConfig & { scanRoots?: string[] } = {
+		...config,
+		scanRoot: root ?? "",
+		extraWorkerFolders: extras,
+		workerDeploys: seedRecords(config.workerDeploys, config.workerLastCodeDeployAt),
+		workerEnvPushes: seedRecords(config.workerEnvPushes, config.workerLastEnvPushAt),
+	};
+	// The multi-root field is gone rather than left to rot beside its
+	// replacement, where a later reader could pick the wrong one.
+	delete next.scanRoots;
+	return { config: next, changed: true };
+}
+
+// Every migration, applied in order. Each is keyed on its own evidence, so
+// they run once and stay quiet afterwards.
+export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
+	let current = config;
+	let changed = false;
+	for (const migration of [migrateScanRoot, stripStaleFingerprints]) {
+		const result = migration(current);
+		current = result.config;
+		changed = changed || result.changed;
+	}
+	return { config: current, changed };
 }

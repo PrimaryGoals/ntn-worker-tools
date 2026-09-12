@@ -16,6 +16,7 @@ import type {
 	LogsPayload,
 	RunHealthPayload,
 	RunsPayload,
+	ScanResult,
 	SessionEventsPayload,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
@@ -97,12 +98,43 @@ export const api = {
 	sessionLogout: () =>
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
+	getScan: () => request<ScanResult>("/api/scan"),
+	setBranchWorkspace: (repoRoot: string, branch: string, workspaceId: string) =>
+		request<AppConfig>("/api/config/branch-workspace", {
+			method: "POST",
+			body: JSON.stringify({ repoRoot, branch, workspaceId }),
+		}),
+	clearBranchWorkspace: (repoRoot: string, branch: string) =>
+		request<AppConfig>(
+			`/api/config/branch-workspace?repoRoot=${encodeURIComponent(repoRoot)}&branch=${encodeURIComponent(branch)}`,
+			{ method: "DELETE" },
+		),
+	ignoreFolder: (path: string) =>
+		request<AppConfig>("/api/config/ignored-folders", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
+	unignoreFolder: (path: string) =>
+		request<AppConfig>(`/api/config/ignored-folders?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
+	setScanRoot: (path: string) =>
+		request<AppConfig>("/api/config/scan-root", { method: "POST", body: JSON.stringify({ path }) }),
+	removeExtraWorkerFolder: (path: string) =>
+		request<AppConfig>(`/api/config/extra-worker-folders?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
 	updateUiConfig: (patch: Partial<AppConfig["ui"]>) =>
 		request<AppConfig>("/api/config/ui", {
 			method: "PATCH",
 			body: JSON.stringify(patch),
 		}),
 	getFsHome: () => request<{ path: string }>("/api/fs/home"),
+	revealPath: (path: string) =>
+		request<{ ok: true; path: string }>("/api/fs/reveal", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
 	getFsListing: (path: string) =>
 		request<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
 	getWhoami: (verbose = false) =>
@@ -182,16 +214,13 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ url, webhookSecret }),
 		}),
-	setWorkerLocalPath: (workerId: string, path: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, {
-			method: "POST",
-			body: JSON.stringify({ path }),
-		}),
-	clearWorkerLocalPath: (workerId: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
+	checkWorkerFolder: (workerId: string) =>
+		request<{ ok: boolean; error?: string; detail?: string }>(
+			`/api/workers/${workerId}/folder-check`,
+		),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
 	// `assumeYes` adds `--yes`, confirming a deploy that touches linked

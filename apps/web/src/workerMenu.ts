@@ -74,7 +74,6 @@ export interface WorkerMenuState {
 export interface WorkerMenuActions {
 	setLocalPath: () => void;
 	reveal: () => void;
-	clearLocalPath: () => void;
 	renameWorker: () => void;
 	ntnDeploy: () => void;
 	pnpmDeploy: () => void;
@@ -123,7 +122,9 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "setLocalPath",
-					label: localPath ? "Change local folder…" : "Set local folder…",
+					// Always the same label now: it adds a folder to scan, and does
+					// not change anything about the selected worker.
+					label: "Set local folder…",
 					onSelect: actions.setLocalPath,
 				},
 				{
@@ -132,13 +133,6 @@ export function buildWorkerMenuGroups(
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
 					onSelect: actions.reveal,
-				},
-				{
-					id: "clearLocalPath",
-					label: "Forget local folder",
-					disabled: noFolder,
-					disabledReason: NO_FOLDER,
-					onSelect: actions.clearLocalPath,
 				},
 			],
 		},

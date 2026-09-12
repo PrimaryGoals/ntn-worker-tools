@@ -207,8 +207,6 @@ export interface AppConfig {
 		theme: "system" | "light" | "dark";
 		panelSizes?: Record<string, number>;
 	};
-	// workerId -> absolute path of the local source directory
-	workerLocalPaths?: Record<string, string>;
 	// workerId -> ISO timestamp of the last successful code deploy THIS APP
 	// initiated (ntn workers deploy / pnpm run deploy / deploy-updated /
 	// deploy-new). Deliberately not re-derived from the worker's live
@@ -231,6 +229,180 @@ export interface AppConfig {
 	// per-worker) — shown in the runs panel for every worker to split runs
 	// into before/after the marker.
 	timeMarker?: string;
+	// The single directory scanned for worker folders, chosen with "Set local
+	// folder…". Exactly one by design: it is the root the scan starts from, and
+	// a second root either duplicates the first or makes it ambiguous which
+	// root a worker was found under. Replaces workerLocalPaths as the stored
+	// link to disk — folder-to-worker pairs are re-read from each folder's
+	// workers.json rather than saved, so a branch switch cannot leave a stale
+	// pairing behind.
+	scanRoot?: string;
+	// Worker folders outside scanRoot that are kept anyway: a worker already
+	// paired to a folder must not vanish because the root moved or never
+	// covered it. Scanned in addition to the root.
+	extraWorkerFolders?: string[];
+	// Folders the scan finds that aren't workers to act on (templates,
+	// scaffolds). Compared through normalizePathKey.
+	ignoredFolders?: string[];
+	// repo root -> branch name -> workspaceId. Only ever written from an
+	// explicit choice: git cannot say which workspace a new branch belongs to.
+	// The reflog names a source branch only sometimes and expires, and a client
+	// branch cut from main looks identical to a feature branch.
+	branchWorkspaces?: Record<string, Record<string, string>>;
+	// repo root -> workspaceIds that repo is never deployed to, so a repo with
+	// no branch for the connected workspace can be dismissed once instead of
+	// warning forever.
+	repoWorkspacesNotUsed?: Record<string, string[]>;
+	// workspaceId -> display name, cached from `ntn whoami` as workspaces are
+	// seen. `ntn` has no command to list workspaces, so a name is only known
+	// once connected (or resolved read-only via NOTION_WORKSPACE_ID).
+	workspaceNames?: Record<string, string>;
+	// workerId -> what this app last deployed to that worker. Worker IDs are
+	// unique to a workspace, so each workspace's record is independent.
+	// Supersedes workerLastCodeDeployAt: comparing file mtimes breaks on every
+	// branch switch, because checkout re-stamps every file that differs.
+	workerDeploys?: Record<string, WorkerDeployRecord>;
+	// Same, for env pushes. Supersedes workerLastEnvPushAt.
+	workerEnvPushes?: Record<string, WorkerDeployRecord>;
+	// How the recorded fingerprints were computed. Bumped when the scheme
+	// changes, since values from an older one cannot be compared with values
+	// from a newer and would report changes that never happened.
+	fingerprintScheme?: number;
+}
+
+// One deploy (or env push) this app performed, used to decide whether a folder
+// still matches what its workspace is running.
+export interface WorkerDeployRecord {
+	at: string;
+	// Hash of the worker's source plus every workspace: package it depends on,
+	// excluding workers.json and .env. Absent on records migrated from the old
+	// timestamp-only maps; those keep the mtime comparison until the next
+	// deploy records a fingerprint, which over-flags rather than hiding a real
+	// change.
+	fingerprint?: string;
+	// Where the deploy came from, so a row can say which branch's code a
+	// workspace is running. Absent outside git, and on migrated records.
+	branch?: string;
+	commit?: string;
+}
+
+// Case-insensitive key for comparing local paths. Windows treats D:\Code and
+// d:\code as one directory, and both spellings are already in the wild (this
+// app's own config holds the same folder under two capitalizations). Separators
+// are unified and a trailing one dropped, so a root stored with or without it
+// still matches the folders found beneath it. Case folding is decided from the
+// string's own drive letter rather than process.platform, so the server and the
+// browser bundle always agree.
+export function normalizePathKey(path: string): string {
+	const unified = path.replace(/\\/g, "/").replace(/\/+$/, "");
+	return /^[a-zA-Z]:/.test(unified) ? unified.toLowerCase() : unified;
+}
+
+// One worker folder found by walking the scan roots.
+export interface ScanWorker {
+	path: string;
+	// Folder name. Doubles as the default name on a first deployment, which is
+	// why it is carried rather than derived in the UI.
+	name: string;
+	// The scan root this folder was found under.
+	root: string;
+	// From the folder's workers.json. Both null when it has none, which is a
+	// folder that has never been deployed from here.
+	workspaceId: string | null;
+	workerId: string | null;
+	// A workers.json that won't parse, or that names no worker. Surfaced rather
+	// than treated as never-deployed: deploying over it would create a second
+	// worker instead of updating the intended one.
+	workersJsonInvalid: boolean;
+	// Matched by a `new Worker(` declaration in its own source rather than by a
+	// workers.json — the only way to find a folder that has never been deployed.
+	hasWorkerSource: boolean;
+	// The git repo this folder sits in, and that repo's checked-out branch.
+	// Both null outside git, which is allowed: such folders are treated as
+	// single-workspace and get no branch check at all.
+	repoRoot: string | null;
+	branch: string | null;
+	// That repo's origin. A worker can live in a repository of its own, so the
+	// remote is what identifies it — the local path only says where this clone
+	// happens to sit.
+	remoteUrl: string | null;
+	// How git treats this folder's workers.json — the input to the "not
+	// committed on this branch" flag.
+	workersJsonState: WorkersJsonState;
+	// Content hash of everything this worker deploys: its own source plus the
+	// workspace packages it depends on, excluding workers.json and .env.
+	// Compared against the fingerprint recorded at the last deploy, which is
+	// what makes "needs redeploy" survive a branch switch. Null when it could
+	// not be computed.
+	codeFingerprint: string | null;
+	// Content hash of .env, compared against the last push. Null when absent.
+	envFingerprint: string | null;
+}
+
+// How git treats a worker folder's workers.json. "ignored" is the one that
+// matters: a branch switch cannot restore an ignored file, so it holds one
+// workspace's worker ID for every branch at once.
+export type WorkersJsonState = "tracked" | "untracked" | "ignored" | "absent" | "no-git";
+
+export interface ScanRepo {
+	root: string;
+	// Checked-out branch, or null when detached or unreadable.
+	branch: string | null;
+	// The `origin` remote, verbatim. Null when the repo has no origin at all.
+	remoteUrl: string | null;
+	// How many scanned worker folders sit in this repo.
+	workerCount: number;
+}
+
+// Turns a git remote into a URL a browser can open, or null when it cannot be
+// made into one. Credentials embedded in a remote (https://user:token@host/…)
+// are stripped: that string is about to be rendered and linked, and a token
+// has no business in either.
+export function gitRemoteWebUrl(remote: string | null | undefined): string | null {
+	if (!remote) return null;
+	const trimmed = remote.trim().replace(/\.git$/i, "");
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/^(https?:\/\/)[^@/]+@/i, "$1");
+	// scp-style: git@github.com:owner/repo
+	const scp = /^[^@/]+@([^:/]+):(.+)$/.exec(trimmed);
+	if (scp?.[1] && scp[2]) return `https://${scp[1]}/${scp[2]}`;
+	const ssh = /^ssh:\/\/(?:[^@/]+@)?([^/]+)\/(.+)$/i.exec(trimmed);
+	if (ssh?.[1] && ssh[2]) return `https://${ssh[1]}/${ssh[2]}`;
+	return null;
+}
+
+// The repository as owner/name, for places where the whole URL is more than
+// the line can carry. Everything up to the host is dropped, so GitHub gives
+// PrimaryGoals/PMFN while a nested GitLab path keeps its groups. Null when
+// the remote yields no path at all, leaving callers to show the full URL.
+export function gitRemoteShortLabel(remote: string | null | undefined): string | null {
+	const url = gitRemoteWebUrl(remote);
+	if (!url) return null;
+	const path = url.replace(/^https?:\/\/[^/]+\/?/i, "").replace(/\/+$/, "");
+	return path || null;
+}
+
+export interface ScanResult {
+	roots: string[];
+	workers: ScanWorker[];
+	// Every git repo the scanned folders belong to. Folders outside git
+	// contribute nothing here, which is what makes git optional.
+	repos: ScanRepo[];
+	// Roots that could not be read (renamed folder, disconnected drive), so the
+	// UI can say so instead of quietly listing fewer workers.
+	unreadableRoots: string[];
+	// How many folders were skipped because they are in ignoredFolders.
+	ignoredCount: number;
+	durationMs: number;
+}
+
+// True when `path` is `root` itself or sits beneath it. Compared through
+// normalizePathKey, so Windows casing and separator style never decide the
+// answer — the same folder spelled two ways is still the same folder.
+export function isPathUnder(path: string, root: string): boolean {
+	const p = normalizePathKey(path);
+	const r = normalizePathKey(root);
+	return p === r || p.startsWith(r + "/");
 }
 
 export interface LocalPathPayload {

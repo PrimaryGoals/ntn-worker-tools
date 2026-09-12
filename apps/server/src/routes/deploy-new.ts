@@ -3,6 +3,7 @@ import { basename, join, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { DeployNewInspection, DeployResult } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
+import { invalidateScan } from "../scan-cache.js";
 import { getConfig, recordCodeDeploy, updateConfig } from "../state.js";
 
 // The only two files this flow is ever allowed to delete, and only inside
@@ -253,10 +254,9 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				}
 
 				if (newWorkerId) {
-					await updateConfig({
-						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-					});
-					await recordCodeDeploy(newWorkerId);
+					await recordCodeDeploy(newWorkerId, abs);
+					// A new workers.json exists now; the cached scan predates it.
+					invalidateScan();
 				}
 			}
 
@@ -370,10 +370,9 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 					/* the script may write workers.json somewhere else — nothing to register here */
 				}
 				if (newWorkerId) {
-					await updateConfig({
-						workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [newWorkerId]: abs },
-					});
-					await recordCodeDeploy(newWorkerId);
+					await recordCodeDeploy(newWorkerId, abs);
+					// A new workers.json exists now; the cached scan predates it.
+					invalidateScan();
 				}
 			}
 

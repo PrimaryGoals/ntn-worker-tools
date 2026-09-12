@@ -11,6 +11,7 @@ import deployNewRoutes from "./routes/deploy-new.js";
 import fsRoutes from "./routes/fs.js";
 import oauthRoutes from "./routes/oauth.js";
 import runsRoutes from "./routes/runs.js";
+import scanRoutes from "./routes/scan.js";
 import sessionRoutes from "./routes/session.js";
 import syncRoutes from "./routes/sync.js";
 import webhookRoutes from "./routes/webhook.js";
@@ -116,6 +117,7 @@ app.setErrorHandler((err, _req, reply) => {
 await app.register(sessionRoutes, { sessionToken });
 await app.register(configRoutes);
 await app.register(fsRoutes);
+await app.register(scanRoutes);
 await app.register(deployNewRoutes);
 await app.register(workersRoutes);
 await app.register(syncRoutes);

@@ -8,26 +8,65 @@ export function useConfigMutations(
 ) {
 	const qc = useQueryClient();
 
-	const setLocalPath = useMutation({
-		mutationFn: ({ workerId, path }: { workerId: string; path: string }) =>
-			api.setWorkerLocalPath(workerId, path),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["config"] });
-			// Registering a path brings a new (or changed) local folder into the
-			// out-of-date comparison — rescan its mtime.
-			qc.invalidateQueries({ queryKey: ["localMtimes"] });
-			// Only close the folder picker after the workerId-match check server-side
-			// has accepted the path. On failure (e.g. worker mismatch) it stays open
-			// so the user sees the inline error and can navigate somewhere else.
+	// Recording which workspace a branch belongs to. Config-only: the banner
+	// derives from it, and nothing needs rescanning because the folders on disk
+	// have not changed.
+	const setBranchWorkspace = useMutation({
+		mutationFn: ({
+			repoRoot,
+			branch,
+			workspaceId,
+		}: {
+			repoRoot: string;
+			branch: string;
+			workspaceId: string;
+		}) => api.setBranchWorkspace(repoRoot, branch, workspaceId),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
+	const clearBranchWorkspace = useMutation({
+		mutationFn: ({ repoRoot, branch }: { repoRoot: string; branch: string }) =>
+			api.clearBranchWorkspace(repoRoot, branch),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
+	// Hiding a folder the scan finds but that is not a worker to act on. The
+	// scan reads ignoredFolders, so invalidating it is what makes the row go.
+	const ignoreFolder = useMutation({
+		mutationFn: (path: string) => api.ignoreFolder(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+		},
+	});
+	const unignoreFolder = useMutation({
+		mutationFn: (path: string) => api.unignoreFolder(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
+		},
+	});
+	// Choosing the scan root is what "Set local folder…" now does. It needs no
+	// selected worker, so unlike setLocalPath there is no id to check against,
+	// and there is one root, so this replaces rather than appends.
+	const setScanRoot = useMutation({
+		mutationFn: (path: string) => api.setScanRoot(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
 			setFolderPickerOpen(false);
 		},
 	});
-	const clearLocalPath = useMutation({
-		mutationFn: (workerId: string) => api.clearWorkerLocalPath(workerId),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["config"] });
-			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+	const removeExtraWorkerFolder = useMutation({
+		mutationFn: (path: string) => api.removeExtraWorkerFolder(path),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			qc.invalidateQueries({ queryKey: ["scan"] });
 		},
+	});
+	// Reveals any directory, not just a registered worker folder - the header
+	// uses it to open the repository a worker lives in.
+	const revealPath = useMutation({
+		mutationFn: (path: string) => api.revealPath(path),
+		onError: (err) => window.alert(`Reveal failed: ${(err as Error).message}`),
 	});
 	const revealWorker = useMutation({
 		mutationFn: api.revealWorker,
@@ -80,9 +119,14 @@ export function useConfigMutations(
 	}, []);
 
 	return {
-		setLocalPath,
-		clearLocalPath,
+		setBranchWorkspace,
+		clearBranchWorkspace,
+		ignoreFolder,
+		unignoreFolder,
+		setScanRoot,
+		removeExtraWorkerFolder,
 		revealWorker,
+		revealPath,
 		renameWorker,
 		markTime,
 		clearTimeMarker,

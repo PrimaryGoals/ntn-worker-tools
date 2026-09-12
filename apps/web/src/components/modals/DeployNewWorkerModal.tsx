@@ -11,12 +11,17 @@ import { FolderPickerModal } from "./FolderPickerModal";
 // client workspace (production). Two phases: pick a directory, then confirm
 // workspace/name/cleanup before the actual `ntn workers deploy --name` call.
 export function DeployNewWorkerModal({
+	initialPath,
 	startPath,
 	whoami,
 	existingWorkers,
 	onClose,
 	onDeployed,
 }: {
+	// A folder chosen from the worker list: skips the picker and opens straight
+	// on confirmation. Null when opened from the menu, where picking is step
+	// one. "Change folder…" still returns to the picker either way.
+	initialPath?: string | null;
 	startPath: string | null;
 	whoami: Whoami | null;
 	existingWorkers: Worker[];
@@ -24,7 +29,7 @@ export function DeployNewWorkerModal({
 	onDeployed: (result: DeployResult) => void;
 }) {
 	const qc = useQueryClient();
-	const [path, setPath] = useState<string | null>(null);
+	const [path, setPath] = useState<string | null>(initialPath ?? null);
 	const [workspaceConfirmed, setWorkspaceConfirmed] = useState(false);
 	const [name, setName] = useState("");
 	const [nameEdited, setNameEdited] = useState(false);
@@ -56,6 +61,9 @@ export function DeployNewWorkerModal({
 			qc.invalidateQueries({ queryKey: ["workers"] });
 			qc.invalidateQueries({ queryKey: ["config"] });
 			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+			// The folder just gained a new workers.json. Without this the scan
+			// keeps the old id and the row stays "not on server" until a reload.
+			qc.invalidateQueries({ queryKey: ["scan"] });
 			onDeployed(result);
 		},
 	});
@@ -71,6 +79,9 @@ export function DeployNewWorkerModal({
 			qc.invalidateQueries({ queryKey: ["workers"] });
 			qc.invalidateQueries({ queryKey: ["config"] });
 			qc.invalidateQueries({ queryKey: ["localMtimes"] });
+			// The folder just gained a new workers.json. Without this the scan
+			// keeps the old id and the row stays "not on server" until a reload.
+			qc.invalidateQueries({ queryKey: ["scan"] });
 			onDeployed(result);
 		},
 	});
