@@ -101,11 +101,6 @@ export const api = {
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
 	getScan: () => request<ScanResult>("/api/scan"),
-	setBranchWorkspace: (repoRoot: string, branch: string, workspaceId: string) =>
-		request<AppConfig>("/api/config/branch-workspace", {
-			method: "POST",
-			body: JSON.stringify({ repoRoot, branch, workspaceId }),
-		}),
 	// Replaces each named repo's links wholesale; repos left out are untouched.
 	saveBranchWorkspaces: (repos: Record<string, Record<string, string>>) =>
 		request<AppConfig>("/api/config/branch-workspaces", {
@@ -116,11 +111,6 @@ export const api = {
 	// Runs git fetch on the server first, so this can take seconds per repo.
 	listRepoBranches: (root: string) =>
 		request<RepoBranchesResult>(`/api/repos/branches?root=${encodeURIComponent(root)}`),
-	clearBranchWorkspace: (repoRoot: string, branch: string) =>
-		request<AppConfig>(
-			`/api/config/branch-workspace?repoRoot=${encodeURIComponent(repoRoot)}&branch=${encodeURIComponent(branch)}`,
-			{ method: "DELETE" },
-		),
 	ignoreFolder: (path: string) =>
 		request<AppConfig>("/api/config/ignored-folders", {
 			method: "POST",

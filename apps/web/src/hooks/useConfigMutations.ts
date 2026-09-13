@@ -8,30 +8,10 @@ export function useConfigMutations(
 ) {
 	const qc = useQueryClient();
 
-	// Recording which workspace a branch belongs to. Config-only: the banner
-	// derives from it, and nothing needs rescanning because the folders on disk
-	// have not changed.
-	const setBranchWorkspace = useMutation({
-		mutationFn: ({
-			repoRoot,
-			branch,
-			workspaceId,
-		}: {
-			repoRoot: string;
-			branch: string;
-			workspaceId: string;
-		}) => api.setBranchWorkspace(repoRoot, branch, workspaceId),
-		onSuccess: (config) => qc.setQueryData(["config"], config),
-	});
 	// The map dialog's Save: every column at once, replacing what each had.
 	const saveBranchWorkspaces = useMutation({
 		mutationFn: (repos: Record<string, Record<string, string>>) =>
 			api.saveBranchWorkspaces(repos),
-		onSuccess: (config) => qc.setQueryData(["config"], config),
-	});
-	const clearBranchWorkspace = useMutation({
-		mutationFn: ({ repoRoot, branch }: { repoRoot: string; branch: string }) =>
-			api.clearBranchWorkspace(repoRoot, branch),
 		onSuccess: (config) => qc.setQueryData(["config"], config),
 	});
 	// Hiding a folder the scan finds but that is not a worker to act on. The
@@ -125,9 +105,7 @@ export function useConfigMutations(
 	}, []);
 
 	return {
-		setBranchWorkspace,
 		saveBranchWorkspaces,
-		clearBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
 		setScanRoot,

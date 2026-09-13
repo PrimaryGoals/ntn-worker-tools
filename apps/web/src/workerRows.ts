@@ -28,8 +28,9 @@ export function localOnlyLabel(state: LocalOnlyState): string {
 
 export interface LocalOnlyResult {
 	rows: LocalOnlyRow[];
-	// repo root key -> rows withheld because that repo is mismatched, so the
-	// banner can account for what is missing instead of leaving a gap.
+	// repo root key -> rows withheld because that repo is not deployable into
+	// the connected workspace from its current branch, so what is missing can be
+	// accounted for instead of leaving a gap.
 	suppressedByRepo: Map<string, number>;
 }
 
@@ -40,10 +41,10 @@ export function buildLocalOnlyRows(
 	scanned: ScanWorker[],
 	servers: Worker[],
 	connectedWorkspaceId: string | null,
-	// Repos whose branch belongs to another workspace. Nothing in them can
-	// pair, and offering to deploy each folder into the connected workspace
-	// would invite exactly what the repo banner is warning against.
-	mismatchedRepoRoots: Set<string> = new Set(),
+	// Repos whose checked-out branch is not linked to the connected workspace.
+	// Offering to deploy their folders here would put code meant for another
+	// workspace (or for none yet) into this one.
+	hiddenRepoRoots: Set<string> = new Set(),
 ): LocalOnlyResult {
 	const serverIds = new Set(servers.map((worker) => worker.workerId));
 	const rows: LocalOnlyRow[] = [];
@@ -54,7 +55,7 @@ export function buildLocalOnlyRows(
 		if (folder.workerId && serverIds.has(folder.workerId)) continue;
 
 		const repoKey = folder.repoRoot ? normalizePathKey(folder.repoRoot) : null;
-		if (repoKey && mismatchedRepoRoots.has(repoKey)) {
+		if (repoKey && hiddenRepoRoots.has(repoKey)) {
 			suppressedByRepo.set(repoKey, (suppressedByRepo.get(repoKey) ?? 0) + 1);
 			continue;
 		}
