@@ -15,6 +15,7 @@ All notable changes to this project are documented here. Format loosely follows 
 - Saving the branch map refreshes the workers panel, as the refresh button does (#59)
 
 ### Removed
+- "Deploy to new workspace" in the Worker menu. Undeployed folders in the worker list carry their own Deploy button, which opens the same dialog already pointed at that folder, and the branch map decides which folders a workspace is offered (#61)
 - The blue "Link repo @ branch to a workspace" prompt, and the single-link `POST`/`DELETE /api/config/branch-workspace` routes behind it. Links are made in the branch map (#59)
 
 ## [1.5.0] - 2026-09-12
