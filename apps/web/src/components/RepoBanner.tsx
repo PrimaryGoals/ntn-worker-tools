@@ -140,6 +140,11 @@ export function RepoBanner({
 							</>
 						)}
 					</div>
+					{/* Neither remedy is something the app can see happen: both run in a
+					    terminal, and nothing here polls for them. */}
+					<div className="mt-1 font-medium text-red-600 dark:text-red-400">
+						Then refresh this browser tab
+					</div>
 					{suppressedCount > 0 ? (
 						<div className="mt-1 text-[11px] text-neutral-500">
 							{suppressedCount} folder{suppressedCount === 1 ? " is" : "s are"} not listed
