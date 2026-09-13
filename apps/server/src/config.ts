@@ -224,12 +224,28 @@ function migrateScanRoot(config: AppConfig): { config: AppConfig; changed: boole
 	return { config: next, changed: true };
 }
 
+// Fields no longer part of AppConfig and read by nothing. `workerLocalPaths` is
+// the exception while `scanRoot` is still absent: migrateScanRoot seeds from
+// it, so this runs after that and only once a root exists. The others were
+// written by earlier versions — per-worker git detection, and per-worker time
+// markers from before the single global `timeMarker`.
+const RETIRED_FIELDS = ["workerLocalPaths", "workerIsGitRepo", "workerGitRoot", "timeMarkers"];
+
+function dropRetiredFields(config: AppConfig): { config: AppConfig; changed: boolean } {
+	if (config.scanRoot === undefined) return { config, changed: false };
+	const present = RETIRED_FIELDS.filter((field) => field in config);
+	if (present.length === 0) return { config, changed: false };
+	const next: Record<string, unknown> = { ...config };
+	for (const field of present) delete next[field];
+	return { config: next as unknown as AppConfig, changed: true };
+}
+
 // Every migration, applied in order. Each is keyed on its own evidence, so
 // they run once and stay quiet afterwards.
 export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
 	let current = config;
 	let changed = false;
-	for (const migration of [migrateScanRoot, stripStaleFingerprints]) {
+	for (const migration of [migrateScanRoot, stripStaleFingerprints, dropRetiredFields]) {
 		const result = migration(current);
 		current = result.config;
 		changed = changed || result.changed;
