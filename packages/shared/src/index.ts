@@ -344,6 +344,31 @@ export interface ScanWorker {
 // workspace's worker ID for every branch at once.
 export type WorkersJsonState = "tracked" | "untracked" | "ignored" | "absent" | "no-git";
 
+// A repository offered as a column in the branch-to-workspace map: every repo
+// the scan finds, plus any with saved links that still exists on disk, so a
+// link made before the scan root moved stays visible and editable.
+export interface MapRepo {
+	root: string;
+	remoteUrl: string | null;
+	// False for a repo known only from saved links.
+	scanned: boolean;
+}
+
+// One branch name, however git knows it. origin/x and a local x are one entry.
+export interface RepoBranch {
+	name: string;
+	local: boolean;
+	remote: boolean;
+}
+
+export interface RepoBranchesResult {
+	root: string;
+	hasOrigin: boolean;
+	// Set when the fetch failed; branches then lists what git already knew.
+	fetchError: string | null;
+	branches: RepoBranch[];
+}
+
 export interface ScanRepo {
 	root: string;
 	// Checked-out branch, or null when detached or unreadable.
