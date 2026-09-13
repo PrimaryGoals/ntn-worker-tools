@@ -231,17 +231,19 @@ ntn-worker-tools keeps track of the last time you deployed code or pushed secret
 </details>
 
 <details>
-<summary>Deploy to new workspace</summary>
+<summary>Deploying to a new workspace</summary>
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-You'll only use this option when you develop your workers on one workspace and then deploy them on other workspaces. **ntn-worker-tools** handles the administrative plumbing to make this work.
+You'll only do this when you develop your workers on one workspace and then deploy them on other workspaces. **ntn-worker-tools** handles the administrative plumbing to make this work.
 
 The recommended pattern: develop using a VCS like git, commit your changes, and create a branch per workspace you deploy to — this is because redeploying to a new workspace overwrites <code>workers.json</code>, and possibly <code>package.json</code>.
 
-Run <code>ntn logout</code> to leave your development workspace, then <code>ntn login</code> to connect to the new one. Your worker list will be empty the first time, but **Deploy to new workspace** will ask you to select the directory where your worker's code lives.
+1. Check out the branch for the new workspace, and map it to that workspace in **Map Repo+Branch:Workspace**.
+2. Run <code>ntn logout</code> to leave your development workspace, then <code>ntn login</code> to connect to the new one, and refresh the browser tab.
+3. Folders on that branch that aren't deployed yet appear in the worker list as a *first deployment*, each with a **Deploy** button that opens this dialog for that folder.
 
 You'll have to delete the local <code>workers.json</code> before you can deploy to a new environment. While deleting <code>.env</code> isn't required, you'll have to edit it before deploying to the new workspace.
 

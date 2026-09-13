@@ -575,7 +575,6 @@ function AppContent() {
 			ntnDeploy: () => confirmDeployAfterFolderCheck("ntn"),
 			pnpmDeploy: () => confirmDeployAfterFolderCheck("pnpm"),
 			deployUpdatedWorkers: () => setDeployUpdatedWorkersOpen(true),
-			deployToNewWorkspace: () => setDeployNewWorkerOpen(true),
 			pushSecrets: () => {
 				if (!selectedWorkerId || !localPath) return;
 				if (

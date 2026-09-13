@@ -18,9 +18,9 @@ export function DeployNewWorkerModal({
 	onClose,
 	onDeployed,
 }: {
-	// A folder chosen from the worker list: skips the picker and opens straight
-	// on confirmation. Null when opened from the menu, where picking is step
-	// one. "Change folder…" still returns to the picker either way.
+	// The folder whose row's Deploy button opened this: skips the picker and
+	// opens straight on confirmation. "Change folder…" still returns to the
+	// picker. Null starts on the picker.
 	initialPath?: string | null;
 	startPath: string | null;
 	whoami: Whoami | null;

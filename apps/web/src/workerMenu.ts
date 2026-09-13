@@ -81,7 +81,6 @@ export interface WorkerMenuActions {
 	ntnDeploy: () => void;
 	pnpmDeploy: () => void;
 	deployUpdatedWorkers: () => void;
-	deployToNewWorkspace: () => void;
 	pushSecrets: () => void;
 	openTokenPush: () => void;
 	oauthShowRedirectUrl: () => void;
@@ -196,12 +195,6 @@ export function buildWorkerMenuGroups(
 					label: "Deploy updated workers",
 					dropdownOnly: true,
 					onSelect: actions.deployUpdatedWorkers,
-				},
-				{
-					id: "deployToNewWorkspace",
-					label: "Deploy to new workspace",
-					dropdownOnly: true,
-					onSelect: actions.deployToNewWorkspace,
 				},
 			],
 		},
