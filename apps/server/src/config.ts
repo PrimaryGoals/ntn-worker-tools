@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { constants, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join, parse } from "node:path";
 import envPaths from "env-paths";
 import { isPathUnder, normalizePathKey } from "@ntn-worker-tools/shared";
@@ -73,6 +74,33 @@ export function getConfigPath(): string {
 
 export function getConfigBackupPath(): string {
 	return configBackupFile;
+}
+
+// The app version recorded as `writtenBy`. Read from the root package.json,
+// three levels above both src/ and dist/.
+export const APP_VERSION = (() => {
+	try {
+		const raw = readFileSync(join(import.meta.dirname, "..", "..", "..", "package.json"), "utf8");
+		return (JSON.parse(raw) as { version?: string }).version ?? "unknown";
+	} catch {
+		return "unknown";
+	}
+})();
+
+// Keeps the file as it was before a conversion, as config.v<version>.json.
+// config.backup.json cannot do this: every save overwrites it, so two saves
+// after an upgrade it holds the converted file. Never overwrites an existing
+// copy, so the first file seen at each version is the one kept. Returns the
+// copy's path, or null when there was no file to copy.
+export async function preserveConfigCopy(version: number): Promise<string | null> {
+	const copy = join(paths.config, `config.v${version}.json`);
+	try {
+		await copyFile(configFile, copy, constants.COPYFILE_EXCL);
+		return copy;
+	} catch {
+		// No config.json (a first run), or a copy already kept for this version.
+		return null;
+	}
 }
 
 // How far the scan-root collapse below is allowed to widen: a root must keep at
@@ -240,15 +268,49 @@ function dropRetiredFields(config: AppConfig): { config: AppConfig; changed: boo
 	return { config: next as unknown as AppConfig, changed: true };
 }
 
-// Every migration, applied in order. Each is keyed on its own evidence, so
-// they run once and stay quiet afterwards.
-export function migrateConfig(config: AppConfig): { config: AppConfig; changed: boolean } {
-	let current = config;
-	let changed = false;
-	for (const migration of [migrateScanRoot, stripStaleFingerprints, dropRetiredFields]) {
-		const result = migration(current);
-		current = result.config;
-		changed = changed || result.changed;
+// MIGRATIONS[n] carries a file from configVersion n to n + 1, so adding a step
+// raises CONFIG_VERSION with it. Version 0 is every file from before versioning,
+// including 1.5.0 files that are already partly converted - which is why its
+// step is the content-keyed conversions above, each of which skips itself when
+// there is nothing to do. Later steps are keyed on the version alone.
+const MIGRATIONS: Array<(config: AppConfig) => AppConfig> = [
+	(config) =>
+		[migrateScanRoot, stripStaleFingerprints, dropRetiredFields].reduce(
+			(current, step) => step(current).config,
+			config,
+		),
+];
+
+export const CONFIG_VERSION = MIGRATIONS.length;
+
+export interface MigrationResult {
+	config: AppConfig;
+	// Converted, and so needs saving.
+	changed: boolean;
+	// The version the file was at when read.
+	fromVersion: number;
+	// Written by a newer server than this one. Nothing is converted, and the
+	// file must not be saved over: this server would drop what it cannot read.
+	newer: boolean;
+}
+
+// Brings a file up to CONFIG_VERSION, one step at a time, and stamps it.
+export function migrateConfig(config: AppConfig): MigrationResult {
+	const fromVersion = config.configVersion ?? 0;
+	if (fromVersion > CONFIG_VERSION) {
+		return { config, changed: false, fromVersion, newer: true };
 	}
-	return { config: current, changed };
+	if (fromVersion === CONFIG_VERSION) {
+		return { config, changed: false, fromVersion, newer: false };
+	}
+	let current = config;
+	for (let version = fromVersion; version < CONFIG_VERSION; version++) {
+		current = MIGRATIONS[version]!(current);
+	}
+	return {
+		config: { ...current, configVersion: CONFIG_VERSION },
+		changed: true,
+		fromVersion,
+		newer: false,
+	};
 }

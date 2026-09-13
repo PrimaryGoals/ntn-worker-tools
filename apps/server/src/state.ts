@@ -1,5 +1,13 @@
 import type { AppConfig, WorkerDeployRecord } from "@ntn-worker-tools/shared";
-import { loadConfig, migrateConfig, saveConfig } from "./config.js";
+import {
+	APP_VERSION,
+	CONFIG_VERSION,
+	getConfigPath,
+	loadConfig,
+	migrateConfig,
+	preserveConfigCopy,
+	saveConfig,
+} from "./config.js";
 import { computeFingerprints } from "./fingerprint.js";
 import { headInfoFor } from "./git.js";
 
@@ -8,7 +16,28 @@ import { headInfoFor } from "./git.js";
 // re-deriving them on every start would undo a root the user later removed.
 const migration = migrateConfig(await loadConfig());
 let config: AppConfig = migration.config;
+
+// A file from a newer server is read but never saved over. Saving would write
+// back only the fields this version knows, silently dropping the rest - which
+// is exactly how switching an install between releases used to lose settings.
+const newerFileMessage = migration.newer
+	? `${getConfigPath()} was saved by NTN Worker Tools ${config.writtenBy ?? "(unknown)"} ` +
+		`(config version ${migration.fromVersion}), which is newer than this one ` +
+		`(${APP_VERSION}, config version ${CONFIG_VERSION}). Changes are not being saved, ` +
+		`so nothing the newer version recorded is lost. Run the newer version to make changes.`
+	: null;
+if (newerFileMessage) console.warn(`[config] ${newerFileMessage}`);
+
 if (migration.changed) {
+	// Before anything is written, so the pre-conversion file survives the
+	// backup rotation that every save performs.
+	const copy = await preserveConfigCopy(migration.fromVersion);
+	if (copy) {
+		console.log(
+			`[config] Converted config from version ${migration.fromVersion} to ${CONFIG_VERSION}; the original is kept at ${copy}`,
+		);
+	}
+	config = stamped(config);
 	try {
 		await saveConfig(config);
 	} catch (err) {
@@ -20,13 +49,28 @@ if (migration.changed) {
 	}
 }
 
+// The deploy or push has already happened by the time it is recorded. Under a
+// newer file the record cannot be saved, and reporting that as a failure would
+// misstate an action that succeeded - so it is skipped, and said so in the log.
+function skipRecordForNewerFile(workerId: string): boolean {
+	if (!newerFileMessage) return false;
+	console.warn(`[config] Not recording the deploy or push for ${workerId}: ${newerFileMessage}`);
+	return true;
+}
+
+// Every save records which app version wrote it.
+function stamped(next: AppConfig): AppConfig {
+	return { ...next, writtenBy: APP_VERSION };
+}
+
 export function getConfig(): AppConfig {
 	return config;
 }
 
 export async function updateConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+	if (newerFileMessage) throw new Error(newerFileMessage);
 	const oldConfig = config;
-	config = { ...config, ...patch };
+	config = stamped({ ...config, ...patch });
 	try {
 		await saveConfig(config);
 	} catch (err) {
@@ -72,6 +116,7 @@ async function deployRecord(
 // deploy / pnpm run deploy / deploy-updated / deploy-new). The folder is what
 // makes a fingerprint possible; without it only the timestamp is recorded.
 export async function recordCodeDeploy(workerId: string, dir?: string | null): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
 	const record = await deployRecord(dir, "code");
 	await updateConfig({
 		workerLastCodeDeployAt: { ...(config.workerLastCodeDeployAt ?? {}), [workerId]: record.at },
@@ -83,6 +128,7 @@ export async function recordCodeDeploy(workerId: string, dir?: string | null): P
 // env/set). env/set passes no folder: it targets a worker by id and never reads
 // a local .env, so there is nothing to fingerprint.
 export async function recordEnvPush(workerId: string, dir?: string | null): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
 	const record = await deployRecord(dir, "env");
 	await updateConfig({
 		workerLastEnvPushAt: { ...(config.workerLastEnvPushAt ?? {}), [workerId]: record.at },
