@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { isPathUnder, normalizePathKey } from "@ntn-worker-tools/shared";
 import type { AppConfig } from "@ntn-worker-tools/shared";
+import { lookupWorkspaceName, rememberWorkspaceName } from "../identity-names.js";
 import { runScan } from "../scan.js";
 import { getConfig, updateConfig } from "../state.js";
 
@@ -84,6 +85,38 @@ export default async function configRoutes(app: FastifyInstance) {
 		}
 		return updateConfig({ scanRoot: abs, extraWorkerFolders: alive });
 	});
+
+	// Adds a workspace to the ones the app can name, by id. `ntn` cannot list
+	// workspaces, so without this a workspace is known only once connected to or
+	// named by a scanned workers.json - too late to map branches to it ahead of
+	// a first deployment.
+	app.post<{ Body: { workspaceId?: string } }>(
+		"/api/config/workspace-names",
+		async (req, reply): Promise<AppConfig> => {
+			// Accepted with or without dashes; stored in the dashed form ntn reports.
+			const hex = (req.body?.workspaceId ?? "").trim().toLowerCase().replace(/-/g, "");
+			if (!/^[0-9a-f]{32}$/.test(hex)) {
+				return reply.code(400).send({
+					error: "A workspace ID is 32 hexadecimal characters, with or without dashes.",
+				}) as unknown as AppConfig;
+			}
+			const workspaceId = [
+				hex.slice(0, 8),
+				hex.slice(8, 12),
+				hex.slice(12, 16),
+				hex.slice(16, 20),
+				hex.slice(20),
+			].join("-");
+			const name = await lookupWorkspaceName(workspaceId);
+			if (!name) {
+				return reply.code(404).send({
+					error: `ntn has no login for workspace ${workspaceId}. Run ntn login for it once, then add it again.`,
+				}) as unknown as AppConfig;
+			}
+			await rememberWorkspaceName(workspaceId, name);
+			return getConfig();
+		},
+	);
 
 	// Replaces the links of every repository named, in one write - the map
 	// dialog saves all its columns at once, and unticking a branch there is how

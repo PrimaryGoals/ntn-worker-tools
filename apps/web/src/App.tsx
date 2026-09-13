@@ -464,6 +464,41 @@ function AppContent() {
 	const unmappedStatuses = repoStatuses.filter(
 		(status) => status.kind === "not-in-workspace" && suppressedFor(status) > 0,
 	);
+
+	// First run: with no folder to scan the app has almost nothing to show, so
+	// setup starts by asking for one. Checked once per page load, and only once
+	// both the session and `ntn whoami` have answered - opening the picker over a
+	// "run ntn login" message would hide the step that has to come first. It can
+	// be closed; it comes back on the next load until a folder is chosen.
+	const freshStartCheckedRef = useRef(false);
+	// Set while a first-run folder choice is waiting on its scan. The map opens
+	// once when that scan lands, and never again by itself: cancelling it, or
+	// reloading before then, leaves the "not mapped" line to offer it.
+	const [setupMapPending, setSetupMapPending] = useState(false);
+	useEffect(() => {
+		if (freshStartCheckedRef.current || !whoamiQ.data || !configQ.data) return;
+		freshStartCheckedRef.current = true;
+		if (configQ.data.scanRoot) return;
+		setScanRoot.reset();
+		setFolderPickerOpen(true);
+		setSetupMapPending(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [whoamiQ.data, configQ.data]);
+	useEffect(() => {
+		if (!setupMapPending) return;
+		const root = configQ.data?.scanRoot;
+		const scan = scanQ.data;
+		if (!root || !scan || scanQ.isFetching) return;
+		// The scan that ran before a folder was chosen covers nothing; wait for
+		// the one that walked the folder.
+		if (!scan.roots.some((r) => normalizePathKey(r) === normalizePathKey(root))) return;
+		setSetupMapPending(false);
+		// Only repos holding worker folders are reported, so a folder with no
+		// workers in git opens nothing.
+		if (scan.repos.length > 0) openBranchMap();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [setupMapPending, configQ.data, scanQ.data, scanQ.isFetching]);
+
 	const localOnlyRows = localOnly.rows;
 	const filteredLocalOnly = useMemo(() => {
 		const q = workerFilter.trim().toLowerCase();
@@ -575,7 +610,6 @@ function AppContent() {
 			ntnDeploy: () => confirmDeployAfterFolderCheck("ntn"),
 			pnpmDeploy: () => confirmDeployAfterFolderCheck("pnpm"),
 			deployUpdatedWorkers: () => setDeployUpdatedWorkersOpen(true),
-			deployToNewWorkspace: () => setDeployNewWorkerOpen(true),
 			pushSecrets: () => {
 				if (!selectedWorkerId || !localPath) return;
 				if (

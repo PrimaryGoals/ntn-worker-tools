@@ -52,15 +52,7 @@ export async function resolveWorkspaceName(workspaceId: string | null): Promise<
 	if (!workspaceId) return null;
 	const known = getConfig().workspaceNames?.[workspaceId];
 	if (known) return known;
-	let name: string | null = null;
-	try {
-		// `ntn whoami --plain` is tab separated; column 6 is the workspace name.
-		const out = await runNtnPlain(["whoami"], { env: { NOTION_WORKSPACE_ID: workspaceId } });
-		const columns = out.trim().split("\t");
-		name = columns[5]?.trim() || null;
-	} catch {
-		/* leave null — the id still identifies it */
-	}
+	const name = await lookupWorkspaceName(workspaceId);
 	if (!name) return null;
 	try {
 		await updateConfig({
@@ -72,9 +64,26 @@ export async function resolveWorkspaceName(workspaceId: string | null): Promise<
 	return name;
 }
 
+// Asks `ntn` for a workspace's name by id, without switching the login. Null
+// when the login has no token for it (ntn exits non-zero), or when the answer
+// is for a different workspace than the one asked: a name stored under the
+// wrong id would mislabel every row that shows it.
+export async function lookupWorkspaceName(workspaceId: string): Promise<string | null> {
+	try {
+		// `ntn whoami --plain` is tab separated; column 5 is the workspace id and
+		// column 6 its name.
+		const out = await runNtnPlain(["whoami"], { env: { NOTION_WORKSPACE_ID: workspaceId } });
+		const columns = out.trim().split("\t");
+		if (columns[4]?.trim().toLowerCase() !== workspaceId.toLowerCase()) return null;
+		return columns[5]?.trim() || null;
+	} catch {
+		return null;
+	}
+}
+
 // Records the name behind a workspace id. `ntn` cannot list workspaces, so the
 // only names this app can ever offer are ones it has seen - every whoami is a
-// chance to learn one, and the branch-linking prompt is where they are spent.
+// chance to learn one, and the branch map is where they are spent.
 export async function rememberWorkspaceName(workspaceId: string, name: string): Promise<void> {
 	if (!workspaceId || !name) return;
 	if (getConfig().workspaceNames?.[workspaceId] === name) return;

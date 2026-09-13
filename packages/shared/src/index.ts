@@ -268,6 +268,13 @@ export interface AppConfig {
 	// changes, since values from an older one cannot be compared with values
 	// from a newer and would report changes that never happened.
 	fingerprintScheme?: number;
+	// The layout this file follows. Absent means a file from before versioning
+	// (0). Raised only when the layout changes, with a conversion step for it,
+	// so a server can tell a file it must convert from one it must not touch.
+	configVersion?: number;
+	// The app version (root package.json) that last saved this file. For
+	// diagnosis only; nothing branches on it.
+	writtenBy?: string;
 }
 
 // One deploy (or env push) this app performed, used to decide whether a folder
