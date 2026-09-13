@@ -408,16 +408,16 @@ function AppContent() {
 		(status) =>
 			!dismissedBranchPrompts.includes(`${status.repo.root}@${status.repo.branch}`),
 	);
-	// An unlinked repo is a question you can answer right now, so it sits above
-	// the list. A mismatch is not actionable from here - the remedy is a branch
-	// switch or a different login - so it goes below, rather than pushing the
-	// workers you came to look at off the top of the panel.
-	const topRepoBanners = visibleRepoBanners.filter((status) => status.kind === "unlinked");
-	const bottomRepoBanners = visibleRepoBanners.filter((status) => status.kind !== "unlinked");
-	const renderRepoBanner = (status: RepoStatus, placement: "top" | "bottom") => (
+	// All above the list. A mismatch leads: it explains why workers are missing
+	// from the list below it, and below the list it went unnoticed. Unlinked
+	// prompts follow, as questions that can be answered right here.
+	const orderedRepoBanners = [
+		...visibleRepoBanners.filter((status) => status.kind !== "unlinked"),
+		...visibleRepoBanners.filter((status) => status.kind === "unlinked"),
+	];
+	const renderRepoBanner = (status: RepoStatus) => (
 			<RepoBanner
 				key={status.repo.root}
-				placement={placement}
 				suppressedCount={
 					localOnly.suppressedByRepo.get(normalizePathKey(status.repo.root)) ?? 0
 				}
@@ -889,7 +889,7 @@ function AppContent() {
 										/>
 									) : (
 									<>
-										{topRepoBanners.map((status) => renderRepoBanner(status, "top"))}
+										{orderedRepoBanners.map(renderRepoBanner)}
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
@@ -917,7 +917,6 @@ function AppContent() {
 											setPendingContextMenu({ workerId: id, x, y });
 										}}
 									/>
-										{bottomRepoBanners.map((status) => renderRepoBanner(status, "bottom"))}
 									</>
 									)}
 								</Panel>

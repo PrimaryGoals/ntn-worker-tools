@@ -9,7 +9,6 @@ export function RepoBanner({
 	status,
 	workspaces,
 	saving,
-	placement = "top",
 	suppressedCount = 0,
 	onLink,
 	onDismiss,
@@ -19,9 +18,6 @@ export function RepoBanner({
 	// whose name it has learned.
 	workspaces: KnownWorkspace[];
 	saving: boolean;
-	// Where this sits relative to the worker list, which decides which edge
-	// carries the rule. An unanswerable mismatch belongs below the list.
-	placement?: "top" | "bottom";
 	// Folders in this repo left out of the list because nothing in a
 	// mismatched repo can pair. Stated here so they do not just vanish.
 	suppressedCount?: number;
@@ -60,7 +56,7 @@ export function RepoBanner({
 	);
 
 	return (
-		<div className={`${placement === "bottom" ? "border-t" : "border-b"} px-3 py-2 text-xs ${tone}`}>
+		<div className={`border-b px-3 py-2 text-xs ${tone}`}>
 			{status.kind === "unlinked" ? (
 				<>
 					<div>Link {repoLine} to a workspace.</div>
@@ -116,23 +112,31 @@ export function RepoBanner({
 				<>
 					<div className="font-medium">Workspace and branch do not match.</div>
 					<div className="mt-0.5">
-						{repoLine} is linked to{" "}
-						<span className="font-medium">
-							{nameFor(status.linkedWorkspaceId)}
-						</span>
-						. You are connected to <span className="font-medium">{connected?.name}</span>.
+						You are connected to workspace{" "}
+						<span className="font-medium">{connected?.name}</span>.
 					</div>
-					<div className="mt-1 text-[11px]">
+					<div>
+						Your repo is <span className="font-mono font-medium">{status.label}</span>
+						{" @ "}
+						<span className="font-mono font-medium">{branch}</span>
+					</div>
+					<div>
+						Which is linked to workspace:{" "}
+						<span className="font-medium">{nameFor(status.linkedWorkspaceId)}</span>.
+					</div>
+					<div className="mt-1.5">
+						Change the connected workspace (<span className="font-mono">ntn login</span>),
+					</div>
+					<div>
 						{status.kind === "wrong-branch" ? (
 							<>
-								Change the connected workspace, or switch this repo to{" "}
-								<span className="font-mono font-medium">{status.connectedBranch}</span>, which
-								is linked to {connected?.name}.
+								or switch this repo (
+								<span className="font-mono">git switch {status.connectedBranch}</span>)
 							</>
 						) : (
 							<>
-								Change the connected workspace, or switch to a branch linked to{" "}
-								{connected?.name} — no branch here is.
+								or switch this repo to a branch linked to {connected?.name} — no branch here
+								is.
 							</>
 						)}
 					</div>
