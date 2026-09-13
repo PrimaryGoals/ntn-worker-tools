@@ -119,13 +119,13 @@ export function BranchWorkspaceMapModal({
 	useEffect(() => {
 		const h = (e: KeyboardEvent) => {
 			if (e.key !== "Escape") return;
-			// The checklist closes first; a second Escape closes the dialog.
+			// Closes the checklist only. Leaving the dialog takes Save or Cancel,
+			// so a stray key cannot throw away a grid of edits.
 			if (openCell) setOpenCell(null);
-			else if (!saving) onClose();
 		};
 		window.addEventListener("keydown", h);
 		return () => window.removeEventListener("keydown", h);
-	}, [openCell, saving, onClose]);
+	}, [openCell]);
 
 	function toggle(repoKey: string, branch: string, workspaceId: string) {
 		setDraft((prev) => {
@@ -147,9 +147,10 @@ export function BranchWorkspaceMapModal({
 	const openRepo = openCell ? repos.find((r) => r.key === openCell.repoKey) : undefined;
 
 	return (
+		// No click-away: the backdrop does nothing, and there is no close button.
+		// Save or Cancel are the only ways out.
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-			onClick={() => (saving ? undefined : onClose())}
 			role="presentation"
 		>
 			<div
@@ -162,22 +163,14 @@ export function BranchWorkspaceMapModal({
 				aria-modal="true"
 				aria-label="Map repository branches to workspaces"
 			>
-				<div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
+				<div className="border-b border-neutral-200 px-4 py-2 dark:border-neutral-800">
 					<h2 className="text-sm font-semibold">Map Repo+Branch:Workspace</h2>
-					<button
-						type="button"
-						onClick={onClose}
-						disabled={saving}
-						className="rounded px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-50 dark:hover:bg-neutral-900"
-					>
-						✕
-					</button>
 				</div>
 
 				<div className="flex min-h-0 flex-col gap-3 p-4">
 					<p className="text-xs text-neutral-600 dark:text-neutral-400">
-						Choose which branches of each repository deploy to each workspace. A branch can belong
-						to one workspace per repository.
+						Choose which branches of each repository to associate with each workspace. A branch can
+						belong to one workspace per repository.
 					</p>
 
 					{reposQ.isPending ? (
@@ -200,8 +193,8 @@ export function BranchWorkspaceMapModal({
 							<table className="border-separate border-spacing-0 text-xs">
 								<thead>
 									<tr>
-										<th className="sticky left-0 top-0 z-20 min-w-40 border-b border-r border-neutral-200 bg-neutral-50 px-3 py-2 text-left font-semibold text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
-											Workspace
+										<th className="sticky left-0 top-0 z-20 min-w-40 whitespace-nowrap border-b border-r border-neutral-200 bg-neutral-50 px-3 py-2 text-left font-semibold text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
+											↓ Workspace | Repo →
 										</th>
 										{repos.map(({ repo, key, label }) => {
 											const col = branchesByRepo.get(key);
