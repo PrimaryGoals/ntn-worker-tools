@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import type { RunHealth } from "@ntn-worker-tools/shared";
 import { computeRunHealth } from "@ntn-worker-tools/shared";
@@ -15,10 +15,17 @@ export function useWorkerData(
 	verboseLogs: boolean,
 	runsViewMode: RunsViewMode,
 ) {
+	const qc = useQueryClient();
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const whoamiQ = useQuery({
 		queryKey: ["whoami"],
-		queryFn: () => api.getWhoami(),
+		queryFn: async () => {
+			const whoami = await api.getWhoami();
+			// The server records the connected workspace's name as it answers,
+			// so the config read before this may not have it yet.
+			qc.invalidateQueries({ queryKey: ["config"] });
+			return whoami;
+		},
 		retry: false,
 	});
 	const configQ = useQuery({ queryKey: ["config"], queryFn: api.getConfig });
@@ -28,7 +35,14 @@ export function useWorkerData(
 	// it runs on load and on an explicit refresh.
 	const scanQ = useQuery({
 		queryKey: ["scan"],
-		queryFn: () => api.getScan(),
+		queryFn: async () => {
+			const result = await api.getScan();
+			// The scan learns workspace names from the workers.json files it reads
+			// and saves them to the config on the server. Without a re-read, the map
+			// and banners would go on naming only the workspaces known before it.
+			qc.invalidateQueries({ queryKey: ["config"] });
+			return result;
+		},
 		enabled: !!whoamiQ.data,
 	});
 	const persistedPanelSizes = configQ.data?.ui?.panelSizes ?? {};
