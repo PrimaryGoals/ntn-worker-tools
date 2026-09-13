@@ -44,9 +44,9 @@ export function useConfigMutations(
 			qc.invalidateQueries({ queryKey: ["scan"] });
 		},
 	});
-	// Choosing the scan root is what "Set local folder…" now does. It needs no
-	// selected worker, so unlike setLocalPath there is no id to check against,
-	// and there is one root, so this replaces rather than appends.
+	// Choosing the scan root is what "Scan folder for workers…" does. It needs
+	// no selected worker, and there is one root, so this replaces rather than
+	// appends.
 	const setScanRoot = useMutation({
 		mutationFn: (path: string) => api.setScanRoot(path),
 		onSuccess: (config) => {

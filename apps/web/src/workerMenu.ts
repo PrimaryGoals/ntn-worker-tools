@@ -13,7 +13,8 @@ import { PRIMARY_GOALS_URL } from "./constants";
 //
 // Anything that ignores the selected worker (workspace- or app-scoped) is
 // marked `dropdownOnly`: a right-click on one worker's row must not imply
-// those act on that worker.
+// those act on that worker. The reverse, `contextMenuOnly`, is for an action
+// that only reads well pointed at a row — revealing that row's folder.
 
 export interface WorkerMenuItem {
 	id: string;
@@ -27,6 +28,7 @@ export interface WorkerMenuItem {
 	// Distinct from `disabled`, which the dropdown still shows as a hint.
 	hidden?: boolean;
 	dropdownOnly?: boolean;
+	contextMenuOnly?: boolean;
 }
 
 export interface WorkerMenuGroup {
@@ -72,7 +74,8 @@ export interface WorkerMenuState {
 // The callbacks stay App's business — confirms, modals and mutations all live
 // there. This module owns only the menu's shape.
 export interface WorkerMenuActions {
-	setLocalPath: () => void;
+	scanForWorkers: () => void;
+	mapBranches: () => void;
 	reveal: () => void;
 	renameWorker: () => void;
 	ntnDeploy: () => void;
@@ -95,7 +98,7 @@ export interface WorkerMenuActions {
 	updatePollingInterval: () => void;
 }
 
-const NO_FOLDER = "No local folder registered — use Set local folder… first.";
+const NO_FOLDER = "No local folder found — use Scan folder for workers… first.";
 const NEEDS_FOLDER = "Requires a registered local folder.";
 
 export function buildWorkerMenuGroups(
@@ -117,19 +120,33 @@ export function buildWorkerMenuGroups(
 
 	return [
 		{
-			id: "localFolder",
-			label: "Local folder",
+			// Both act on every folder and repository at once, not on the selected
+			// worker, so they lead the dropdown and stay out of the right-click menu.
+			id: "folders",
+			label: null,
+			dropdownOnly: true,
 			items: [
 				{
-					id: "setLocalPath",
-					// Always the same label now: it adds a folder to scan, and does
-					// not change anything about the selected worker.
-					label: "Set local folder…",
-					onSelect: actions.setLocalPath,
+					id: "scanForWorkers",
+					label: "Scan folder for workers…",
+					onSelect: actions.scanForWorkers,
 				},
+				{
+					id: "mapBranches",
+					label: "Map Repo+Branch:Workspace…",
+					onSelect: actions.mapBranches,
+				},
+			],
+		},
+		{
+			id: "reveal",
+			label: null,
+			contextMenuFooter: true,
+			items: [
 				{
 					id: "reveal",
 					label: "Reveal in Explorer",
+					contextMenuOnly: true,
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
 					onSelect: actions.reveal,
@@ -139,6 +156,7 @@ export function buildWorkerMenuGroups(
 		{
 			id: "rename",
 			contextMenuFooter: true,
+			separatorBefore: true,
 			label: null,
 			items: [
 				{
@@ -323,7 +341,7 @@ export function buildWorkerMenuGroups(
 export function dropdownGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] {
 	return groups
 		.filter((g) => !g.hidden)
-		.map((g) => ({ ...g, items: g.items.filter((i) => !i.hidden) }))
+		.map((g) => ({ ...g, items: g.items.filter((i) => !i.hidden && !i.contextMenuOnly) }))
 		.filter((g) => g.items.length > 0);
 }
 

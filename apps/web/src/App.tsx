@@ -184,6 +184,8 @@ function AppContent() {
 		setVerboseLogs,
 		folderPickerOpen,
 		setFolderPickerOpen,
+		branchMapOpen,
+		setBranchMapOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
 		renameWorkerOpen,
@@ -565,12 +567,13 @@ function AppContent() {
 			hasTimeMarker: !!configQ.data?.timeMarker,
 		},
 		{
-			setLocalPath: () => {
+			scanForWorkers: () => {
 				// No worker needed: this picks a folder to scan for workers, rather
 				// than a folder to attach to one selected worker.
 				setScanRoot.reset();
 				setFolderPickerOpen(true);
 			},
+			mapBranches: () => setBranchMapOpen(true),
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
 			},
@@ -754,7 +757,6 @@ function AppContent() {
 				repoRemoteUrl={selectedWorkerFolder?.remoteUrl ?? null}
 				onRevealRepo={(path) => revealPath.mutate(path)}
 				workerName={selectedWorkerName}
-				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}
 			/>
 
