@@ -23,6 +23,12 @@ export function useConfigMutations(
 		}) => api.setBranchWorkspace(repoRoot, branch, workspaceId),
 		onSuccess: (config) => qc.setQueryData(["config"], config),
 	});
+	// The map dialog's Save: every column at once, replacing what each had.
+	const saveBranchWorkspaces = useMutation({
+		mutationFn: (repos: Record<string, Record<string, string>>) =>
+			api.saveBranchWorkspaces(repos),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
 	const clearBranchWorkspace = useMutation({
 		mutationFn: ({ repoRoot, branch }: { repoRoot: string; branch: string }) =>
 			api.clearBranchWorkspace(repoRoot, branch),
@@ -44,9 +50,9 @@ export function useConfigMutations(
 			qc.invalidateQueries({ queryKey: ["scan"] });
 		},
 	});
-	// Choosing the scan root is what "Set local folder…" now does. It needs no
-	// selected worker, so unlike setLocalPath there is no id to check against,
-	// and there is one root, so this replaces rather than appends.
+	// Choosing the scan root is what "Scan folder for workers…" does. It needs
+	// no selected worker, and there is one root, so this replaces rather than
+	// appends.
 	const setScanRoot = useMutation({
 		mutationFn: (path: string) => api.setScanRoot(path),
 		onSuccess: (config) => {
@@ -120,6 +126,7 @@ export function useConfigMutations(
 
 	return {
 		setBranchWorkspace,
+		saveBranchWorkspaces,
 		clearBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,

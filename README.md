@@ -108,18 +108,18 @@ If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/
 All options are shown below, but some are only enabled when conditions are met, based on the worker selected.
 
 <details>
-<summary><strong>Set Local Folder</strong></summary>
+<summary><strong>Scan Folder for Workers</strong></summary>
 
 <table>
 <tr>
 <td width="31%" valign="top">
 
-When you select a worker that's already deployed to your Notion workspace, you can choose the local folder containing its code. The association is stored in an application profile on disk. Once made, the other menu items that depend on a local folder become active.
+Choose one folder to scan. Every worker project beneath it is found by its `workers.json`, or by a `package.json` that depends on the Workers SDK. No worker needs to be selected first. Once a worker's folder is found, the menu items that depend on a local folder become active.
 
 </td>
 <td>
 
-![Set local folder](images/manual/menu-set-local-folder.png)
+![Scan folder for workers](images/manual/menu-set-local-folder.png)
 
 </td>
 </tr>
@@ -128,22 +128,16 @@ When you select a worker that's already deployed to your Notion workspace, you c
 </details>
 
 <details>
-<summary><strong>Reveal in Explorer</strong></summary>
+<summary><strong>Map Repo+Branch:Workspace</strong></summary>
 
-<table>
-<tr>
-<td width="25%" valign="top">
+Opens a grid with workspaces down the left and repositories across the top, both in alphabetical order. Each cell lists the branches of that repository that deploy to that workspace.
 
-With any worker selected, you can reveal its code in your file explorer from the menu, or click its path shown next to the worker in the list.
+- Opening the grid runs `git fetch` for each repository, so branches that exist only on GitHub are listed too, marked *(origin)*. If a fetch fails, the column shows the branches already known locally, with a warning in its header.
+- Click a cell to tick or untick branches. A branch can belong to one workspace per repository, so a branch already linked elsewhere is greyed and names that workspace.
+- A linked branch that no longer exists is marked *missing*, so removing its link is a deliberate choice.
+- Nothing is saved until you click **Save**.
 
-</td>
-<td width="75%">
-
-![Reveal in Explorer](images/manual/menu-reveal-in-explorer.png)
-
-</td>
-</tr>
-</table>
+These are the same links the repository banners above the worker list create one at a time.
 
 </details>
 

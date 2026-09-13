@@ -128,6 +128,41 @@ export default async function configRoutes(app: FastifyInstance) {
 		},
 	);
 
+	// Replaces the links of every repository named, in one write - the map
+	// dialog saves all its columns at once, and unticking a branch there is how
+	// a link is removed. A repository left out of the body keeps what it has.
+	// The shape itself enforces one workspace per branch.
+	app.put<{ Body: { repos?: Record<string, Record<string, string>> } }>(
+		"/api/config/branch-workspaces",
+		async (req, reply): Promise<AppConfig> => {
+			const repos = req.body?.repos;
+			if (!repos || typeof repos !== "object") {
+				return reply.code(400).send({ error: "repos required" }) as unknown as AppConfig;
+			}
+			const all = { ...(getConfig().branchWorkspaces ?? {}) };
+			for (const [repoRoot, links] of Object.entries(repos)) {
+				if (!repoRoot.trim() || !links || typeof links !== "object") {
+					return reply
+						.code(400)
+						.send({ error: "each repo needs a map of branch to workspaceId" }) as unknown as AppConfig;
+				}
+				const clean: Record<string, string> = {};
+				for (const [branch, workspaceId] of Object.entries(links)) {
+					if (typeof workspaceId !== "string" || !branch.trim() || !workspaceId.trim()) {
+						return reply
+							.code(400)
+							.send({ error: "branch and workspaceId must be non-empty", detail: branch }) as unknown as AppConfig;
+					}
+					clean[branch.trim()] = workspaceId.trim();
+				}
+				const key = normalizePathKey(resolve(repoRoot.trim()));
+				if (Object.keys(clean).length > 0) all[key] = clean;
+				else delete all[key];
+			}
+			return updateConfig({ branchWorkspaces: all });
+		},
+	);
+
 	// Folders the scan finds that are not workers to act on: a template, a
 	// scaffold, a project that merely depends on the SDK. Reversible by design —
 	// this remembers a path, it does not touch the folder.

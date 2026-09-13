@@ -14,6 +14,8 @@ import type {
 	LocalInfo,
 	LocalMtimes,
 	LogsPayload,
+	MapRepo,
+	RepoBranchesResult,
 	RunHealthPayload,
 	RunsPayload,
 	ScanResult,
@@ -104,6 +106,16 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ repoRoot, branch, workspaceId }),
 		}),
+	// Replaces each named repo's links wholesale; repos left out are untouched.
+	saveBranchWorkspaces: (repos: Record<string, Record<string, string>>) =>
+		request<AppConfig>("/api/config/branch-workspaces", {
+			method: "PUT",
+			body: JSON.stringify({ repos }),
+		}),
+	listMapRepos: () => request<MapRepo[]>("/api/repos"),
+	// Runs git fetch on the server first, so this can take seconds per repo.
+	listRepoBranches: (root: string) =>
+		request<RepoBranchesResult>(`/api/repos/branches?root=${encodeURIComponent(root)}`),
 	clearBranchWorkspace: (repoRoot: string, branch: string) =>
 		request<AppConfig>(
 			`/api/config/branch-workspace?repoRoot=${encodeURIComponent(repoRoot)}&branch=${encodeURIComponent(branch)}`,

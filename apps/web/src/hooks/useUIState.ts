@@ -23,6 +23,7 @@ export function useUIState() {
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 	const [verboseLogs, setVerboseLogs] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+	const [branchMapOpen, setBranchMapOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
 	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
@@ -54,6 +55,8 @@ export function useUIState() {
 		setVerboseLogs,
 		folderPickerOpen,
 		setFolderPickerOpen,
+		branchMapOpen,
+		setBranchMapOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
 		renameWorkerOpen,

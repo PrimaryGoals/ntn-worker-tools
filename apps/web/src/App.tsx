@@ -22,6 +22,7 @@ import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
 import { AgentStatusModal } from "./components/modals/AgentStatusModal";
+import { BranchWorkspaceMapModal } from "./components/modals/BranchWorkspaceMapModal";
 import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
@@ -184,6 +185,8 @@ function AppContent() {
 		setVerboseLogs,
 		folderPickerOpen,
 		setFolderPickerOpen,
+		branchMapOpen,
+		setBranchMapOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
 		renameWorkerOpen,
@@ -321,6 +324,7 @@ function AppContent() {
 	const {
 		setScanRoot,
 		setBranchWorkspace,
+		saveBranchWorkspaces,
 		ignoreFolder,
 		unignoreFolder,
 		revealWorker,
@@ -565,11 +569,15 @@ function AppContent() {
 			hasTimeMarker: !!configQ.data?.timeMarker,
 		},
 		{
-			setLocalPath: () => {
+			scanForWorkers: () => {
 				// No worker needed: this picks a folder to scan for workers, rather
 				// than a folder to attach to one selected worker.
 				setScanRoot.reset();
 				setFolderPickerOpen(true);
+			},
+			mapBranches: () => {
+				saveBranchWorkspaces.reset();
+				setBranchMapOpen(true);
 			},
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
@@ -754,7 +762,6 @@ function AppContent() {
 				repoRemoteUrl={selectedWorkerFolder?.remoteUrl ?? null}
 				onRevealRepo={(path) => revealPath.mutate(path)}
 				workerName={selectedWorkerName}
-				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}
 			/>
 
@@ -1413,6 +1420,18 @@ function AppContent() {
 						clearTransientOutputs();
 						setScanRoot.mutate(path);
 					}}
+				/>
+			) : null}
+			{branchMapOpen ? (
+				<BranchWorkspaceMapModal
+					workspaces={workspaceChoices}
+					savedLinks={configQ.data?.branchWorkspaces ?? {}}
+					saving={saveBranchWorkspaces.isPending}
+					error={saveBranchWorkspaces.error as Error | null}
+					onClose={() => setBranchMapOpen(false)}
+					onSave={(links) =>
+						saveBranchWorkspaces.mutate(links, { onSuccess: () => setBranchMapOpen(false) })
+					}
 				/>
 			) : null}
 			{renameWorkerOpen && selectedWorkerId ? (

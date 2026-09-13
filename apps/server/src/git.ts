@@ -1,7 +1,12 @@
 import { access } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { normalizePathKey } from "@ntn-worker-tools/shared";
-import type { ScanRepo, WorkersJsonState } from "@ntn-worker-tools/shared";
+import type {
+	RepoBranch,
+	RepoBranchesResult,
+	ScanRepo,
+	WorkersJsonState,
+} from "@ntn-worker-tools/shared";
 import { runShellAllowingFailure } from "./ntn.js";
 
 // git calls here are metadata reads that finish in milliseconds. The shared
@@ -99,8 +104,7 @@ export async function loadGitState(
 		}
 		// The remote is what names the repository; the root only says where this
 		// clone sits. Absent for a repo with no origin, which is not an error.
-		const remote = await git(["remote", "get-url", "origin"], root);
-		const remoteUrl = remote.exitCode === 0 && remote.stdout.trim() ? remote.stdout.trim() : null;
+		const remoteUrl = await originUrl(root);
 		repos.push({ root, branch, remoteUrl, workerCount: repoFolders.length });
 
 		const withFile = repoFolders.filter((f) => f.hasWorkersJson);
@@ -148,4 +152,83 @@ export async function loadGitState(
 // git wants repo-relative, forward-slashed paths regardless of platform.
 function toGitPath(root: string, file: string): string {
 	return relative(root, file).split(sep).join("/");
+}
+
+// The origin remote, verbatim, or null when the repo has none.
+export async function originUrl(root: string): Promise<string | null> {
+	const remote = await git(["remote", "get-url", "origin"], root);
+	return remote.exitCode === 0 && remote.stdout.trim() ? remote.stdout.trim() : null;
+}
+
+// Whether a directory is itself the root of a repository, for saved links whose
+// repo may since have been moved or deleted.
+export async function isRepoRoot(dir: string): Promise<boolean> {
+	try {
+		await access(join(dir, ".git"));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// A fetch talks to the network and can stall on a slow host, so it gets far
+// longer than the metadata reads above — but still a bound, since the dialog
+// waits on it column by column.
+const FETCH_TIMEOUT_MS = 60_000;
+
+// Every branch a repo can be linked by, after bringing origin up to date.
+// origin/x and a local x are one entry: a link names the branch, and a branch
+// checked out from origin later must still count as linked. A fetch that fails
+// is reported alongside what git already knew, never instead of it.
+export async function listBranches(root: string): Promise<RepoBranchesResult> {
+	const origin = await originUrl(root);
+	let fetchError: string | null = null;
+	if (origin) {
+		const fetched = await runShellAllowingFailure("git", ["fetch", "--prune", "--quiet", "origin"], {
+			cwd: root,
+			timeoutMs: FETCH_TIMEOUT_MS,
+			// Nobody is at a terminal to answer a credential prompt, and a
+			// credential manager's sign-in window would hold the fetch open until
+			// the timeout. Failing fast lets the column fall back to local refs.
+			env: { GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+		});
+		if (fetched.exitCode !== 0) {
+			fetchError =
+				fetched.stderr.trim().split("\n").pop()?.trim() || `git fetch exited ${fetched.exitCode}`;
+		}
+	}
+
+	const refs = await git(
+		["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes/origin"],
+		root,
+	);
+	const byName = new Map<string, RepoBranch>();
+	if (refs.exitCode === 0) {
+		for (const line of refs.stdout.split("\n")) {
+			const ref = line.trim();
+			let name: string;
+			let local = false;
+			if (ref.startsWith("refs/heads/")) {
+				name = ref.slice("refs/heads/".length);
+				local = true;
+			} else if (ref.startsWith("refs/remotes/origin/")) {
+				name = ref.slice("refs/remotes/origin/".length);
+				// origin/HEAD points at another branch; it is not one to link.
+				if (name === "HEAD") continue;
+			} else {
+				continue;
+			}
+			const entry = byName.get(name) ?? { name, local: false, remote: false };
+			if (local) entry.local = true;
+			else entry.remote = true;
+			byName.set(name, entry);
+		}
+	} else {
+		fetchError ??= refs.stderr.trim() || "Could not read branches";
+	}
+
+	const branches = [...byName.values()].sort((a, b) =>
+		a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+	);
+	return { root, hasOrigin: origin !== null, fetchError, branches };
 }

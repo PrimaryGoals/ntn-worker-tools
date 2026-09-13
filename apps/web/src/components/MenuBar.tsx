@@ -11,7 +11,6 @@ export function MenuBar({
 	error,
 	spaceName,
 	workerName,
-	localPath,
 	scanRoot,
 	branch,
 	repoRoot,
@@ -28,7 +27,6 @@ export function MenuBar({
 	// The workspace `ntn whoami` reports; null until that call resolves.
 	spaceName: string | null;
 	workerName: string | null;
-	localPath: string | null;
 	// The one folder the scan walks, shown as Source so the directory being
 	// read is visible without opening a menu.
 	scanRoot: string | null;
@@ -104,17 +102,6 @@ export function MenuBar({
 												disabled={group.disabled}
 												disabledReason={group.disabledReason}
 											>
-												{/* The registered folder reads as part of the group
-												    whose actions operate on it, rather than as a
-												    detached footer at the bottom of the menu. */}
-												{group.id === "localFolder" && localPath ? (
-													<div
-														className="border-b border-neutral-200 px-3 py-1 font-mono text-[10px] text-neutral-500 dark:border-neutral-800"
-														title={localPath}
-													>
-														{localPath}
-													</div>
-												) : null}
 												{items}
 											</MenuItemSubmenu>
 										) : (
