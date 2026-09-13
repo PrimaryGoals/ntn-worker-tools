@@ -83,6 +83,10 @@ The web app runs at `http://localhost:5173`, the API server at `http://localhost
 
 If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/.env` and set `PORT` to something else. (Port 5173 is set in `apps/web/vite.config.ts` — if you change it there too, also set `WEB_URL` in `.env` so the printed sign-in link stays correct.)
 
+### First run
+
+Sign in with the link the server prints, and make sure `ntn login` has been run. With no folder chosen yet, the app then asks for the folder to scan for workers. If that folder holds any git repositories with workers in them, **Map Repo+Branch:Workspace** opens next, so you can choose which branches belong to which workspace. Both can be closed and reopened from the Worker menu.
+
 ## User Interface
 
 ![Overview of the main window](images/manual/ui-overview.png)
@@ -136,6 +140,7 @@ Opens a grid with workspaces down the left and repositories across the top, both
 - Click a cell to tick or untick branches. A branch can belong to one workspace per repository, so a branch already linked elsewhere is greyed and names that workspace.
 - A linked branch that no longer exists is marked *missing*, so removing its link is a deliberate choice.
 - Nothing is saved until you click **Save**.
+- A workspace the app hasn't seen yet can be added by its ID, below the grid. Its name is looked up through `ntn`, so it must be a workspace you have run `ntn login` for.
 
 The mapping decides what the worker list offers. A repository with no branch mapped to the workspace you are connected to keeps its undeployed folders out of the list, summed up in one line with a **Map…** button. A repository that has a branch mapped to it, but is checked out on another, shows a warning above the list naming the branch to switch to. Workers already deployed to the workspace are always listed.
 
