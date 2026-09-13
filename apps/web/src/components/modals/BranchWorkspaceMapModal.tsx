@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { gitRemoteShortLabel, normalizePathKey } from "@ntn-worker-tools/shared";
 import type { MapRepo, RepoBranch, RepoBranchesResult } from "@ntn-worker-tools/shared";
@@ -90,6 +90,19 @@ export function BranchWorkspaceMapModal({
 
 	const [draft, setDraft] = useState<Links>(() => structuredClone(savedLinks));
 	const [openCell, setOpenCell] = useState<CellRef | null>(null);
+
+	// A workspace this app has not yet seen named, added by ID so branches can be
+	// mapped to it before anything is deployed there. It joins the rows through
+	// the config, like any learned name.
+	const qc = useQueryClient();
+	const [newWorkspaceId, setNewWorkspaceId] = useState("");
+	const addWorkspace = useMutation({
+		mutationFn: (workspaceId: string) => api.addWorkspace(workspaceId),
+		onSuccess: (config) => {
+			qc.setQueryData(["config"], config);
+			setNewWorkspaceId("");
+		},
+	});
 
 	// Rows: every workspace the app can name, alphabetically, plus any a saved
 	// link points at without a known name — otherwise those links would be
@@ -315,6 +328,45 @@ export function BranchWorkspaceMapModal({
 							</table>
 						</div>
 					)}
+
+					<form
+						className="flex flex-wrap items-center gap-2 text-xs"
+						onSubmit={(e) => {
+							e.preventDefault();
+							if (newWorkspaceId.trim() && !addWorkspace.isPending) {
+								addWorkspace.mutate(newWorkspaceId.trim());
+							}
+						}}
+					>
+						<label htmlFor="add-workspace-id" className="text-neutral-600 dark:text-neutral-400">
+							Add workspace by ID
+						</label>
+						<input
+							id="add-workspace-id"
+							type="text"
+							value={newWorkspaceId}
+							onChange={(e) => {
+								setNewWorkspaceId(e.target.value);
+								if (addWorkspace.error) addWorkspace.reset();
+							}}
+							placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+							autoComplete="off"
+							spellCheck={false}
+							className="w-80 max-w-full rounded border border-neutral-300 bg-white px-2 py-1 font-mono dark:border-neutral-700 dark:bg-neutral-900"
+						/>
+						<button
+							type="submit"
+							disabled={!newWorkspaceId.trim() || addWorkspace.isPending}
+							className="rounded border border-neutral-300 px-2 py-1 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:hover:bg-neutral-900"
+						>
+							{addWorkspace.isPending ? "Looking up…" : "Add"}
+						</button>
+						{addWorkspace.error ? (
+							<span className="basis-full text-red-600 dark:text-red-400">
+								{(addWorkspace.error as Error).message}
+							</span>
+						) : null}
+					</form>
 
 					{error ? <div className="text-xs text-red-600 dark:text-red-400">{error.message}</div> : null}
 

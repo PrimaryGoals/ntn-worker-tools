@@ -108,6 +108,13 @@ export const api = {
 			body: JSON.stringify({ repos }),
 		}),
 	listMapRepos: () => request<MapRepo[]>("/api/repos"),
+	// Looks the name up through ntn, so it fails for a workspace this login has
+	// never connected to.
+	addWorkspace: (workspaceId: string) =>
+		request<AppConfig>("/api/config/workspace-names", {
+			method: "POST",
+			body: JSON.stringify({ workspaceId }),
+		}),
 	// Runs git fetch on the server first, so this can take seconds per repo.
 	listRepoBranches: (root: string) =>
 		request<RepoBranchesResult>(`/api/repos/branches?root=${encodeURIComponent(root)}`),
