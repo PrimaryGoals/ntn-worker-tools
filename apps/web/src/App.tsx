@@ -22,6 +22,7 @@ import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
 import { AgentStatusModal } from "./components/modals/AgentStatusModal";
+import { BranchWorkspaceMapModal } from "./components/modals/BranchWorkspaceMapModal";
 import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
@@ -323,6 +324,7 @@ function AppContent() {
 	const {
 		setScanRoot,
 		setBranchWorkspace,
+		saveBranchWorkspaces,
 		ignoreFolder,
 		unignoreFolder,
 		revealWorker,
@@ -573,7 +575,10 @@ function AppContent() {
 				setScanRoot.reset();
 				setFolderPickerOpen(true);
 			},
-			mapBranches: () => setBranchMapOpen(true),
+			mapBranches: () => {
+				saveBranchWorkspaces.reset();
+				setBranchMapOpen(true);
+			},
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
 			},
@@ -1415,6 +1420,18 @@ function AppContent() {
 						clearTransientOutputs();
 						setScanRoot.mutate(path);
 					}}
+				/>
+			) : null}
+			{branchMapOpen ? (
+				<BranchWorkspaceMapModal
+					workspaces={workspaceChoices}
+					savedLinks={configQ.data?.branchWorkspaces ?? {}}
+					saving={saveBranchWorkspaces.isPending}
+					error={saveBranchWorkspaces.error as Error | null}
+					onClose={() => setBranchMapOpen(false)}
+					onSave={(links) =>
+						saveBranchWorkspaces.mutate(links, { onSuccess: () => setBranchMapOpen(false) })
+					}
 				/>
 			) : null}
 			{renameWorkerOpen && selectedWorkerId ? (

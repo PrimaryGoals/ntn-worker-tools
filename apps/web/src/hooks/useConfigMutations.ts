@@ -23,6 +23,12 @@ export function useConfigMutations(
 		}) => api.setBranchWorkspace(repoRoot, branch, workspaceId),
 		onSuccess: (config) => qc.setQueryData(["config"], config),
 	});
+	// The map dialog's Save: every column at once, replacing what each had.
+	const saveBranchWorkspaces = useMutation({
+		mutationFn: (repos: Record<string, Record<string, string>>) =>
+			api.saveBranchWorkspaces(repos),
+		onSuccess: (config) => qc.setQueryData(["config"], config),
+	});
 	const clearBranchWorkspace = useMutation({
 		mutationFn: ({ repoRoot, branch }: { repoRoot: string; branch: string }) =>
 			api.clearBranchWorkspace(repoRoot, branch),
@@ -120,6 +126,7 @@ export function useConfigMutations(
 
 	return {
 		setBranchWorkspace,
+		saveBranchWorkspaces,
 		clearBranchWorkspace,
 		ignoreFolder,
 		unignoreFolder,
