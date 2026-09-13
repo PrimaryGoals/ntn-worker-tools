@@ -7,8 +7,8 @@ import type { KnownWorkspace } from "../../repoStatus";
 
 // Every repository's branch links on one grid: workspaces down the side,
 // repositories across the top, and in each cell the branches of that repo
-// that deploy to that workspace. The banners answer one repo and one branch at
-// a time, as they come up; this is where the whole picture is set at once.
+// that deploy to that workspace. It is the only place links are made, and the
+// worker list follows from it: see buildRepoStatuses.
 //
 // Nothing is written until Save. A branch belongs to one workspace per repo,
 // which the draft's shape (repo -> branch -> workspace) enforces by itself.

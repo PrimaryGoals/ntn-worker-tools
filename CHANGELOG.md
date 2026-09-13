@@ -8,7 +8,14 @@ All notable changes to this project are documented here. Format loosely follows 
 - "Map Repo+Branch:Workspace…" in the Worker menu opens a grid of every known workspace against every repository, for setting which branches deploy where in one place rather than one banner at a time. Columns cover the scanned repositories plus any with saved links still on disk. Each fetches its branches on open, listing local and origin branches as one entry per name, and falls back to what git already knows with a warning when the fetch fails. A branch belongs to one workspace per repository; linked branches that no longer exist are kept visible as missing. Nothing is written until Save, which replaces each repository's links in a single request (#57)
 
 ### Changed
+- Records for deleted workers are forgotten. Deploy and push history is kept per worker ID, so a worker deleted on the server left its records in the config for good. At startup the server now lists every known workspace and drops records whose worker appears in none of them; if any workspace cannot be listed, or a listing answers for a different workspace, nothing is dropped. Fields retired by earlier versions (`workerLocalPaths`, `workerIsGitRepo`, `workerGitRoot`, `timeMarkers`) are removed once the scan root exists
 - "Set local folder…" is now "Scan folder for workers…", at the top of the Worker menu instead of inside a "Local folder" submenu. "Reveal in Explorer" left the dropdown and remains in the right-click menu, where it acts on the row you clicked (#57)
+- The branch map decides what the worker list offers. A repository counts as part of a workspace only when one of its branches is mapped to it. One with no branch mapped to the connected workspace is no longer a mismatch: its undeployed folders are left out of the list, summed up in one line with a Map… button, rather than raising a warning with no branch to switch to or appearing as first deployments of another workspace's code. Workers already deployed are always listed (#59)
+- "Workspace and branch do not match." now appears only for a repository that has a branch mapped to the connected workspace but is checked out on another (including an unmapped branch or a detached HEAD). It sits above the worker list instead of below it where it went unnoticed, states the connected workspace, the repo and branch, and that branch's workspace on separate lines, names both remedies as commands (`ntn login`, or `git switch` to the mapped branch), and ends with a red reminder to refresh the tab (#59)
+- Saving the branch map refreshes the workers panel, as the refresh button does (#59)
+
+### Removed
+- The blue "Link repo @ branch to a workspace" prompt, and the single-link `POST`/`DELETE /api/config/branch-workspace` routes behind it. Links are made in the branch map (#59)
 
 ## [1.5.0] - 2026-09-12
 

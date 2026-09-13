@@ -137,7 +137,7 @@ Opens a grid with workspaces down the left and repositories across the top, both
 - A linked branch that no longer exists is marked *missing*, so removing its link is a deliberate choice.
 - Nothing is saved until you click **Save**.
 
-These are the same links the repository banners above the worker list create one at a time.
+The mapping decides what the worker list offers. A repository with no branch mapped to the workspace you are connected to keeps its undeployed folders out of the list, summed up in one line with a **Map…** button. A repository that has a branch mapped to it, but is checked out on another, shows a warning above the list naming the branch to switch to. Workers already deployed to the workspace are always listed.
 
 </details>
 

@@ -1,41 +1,26 @@
 import { gitRemoteShortLabel, normalizePathKey } from "@ntn-worker-tools/shared";
-import type { AppConfig, ScanRepo, ScanWorker } from "@ntn-worker-tools/shared";
+import type { AppConfig, ScanRepo } from "@ntn-worker-tools/shared";
 
 // Where a repository stands relative to the workspace you are connected to.
-// Checked per repo, before anything per-worker: if the checked-out branch
-// belongs to another workspace then every folder in it targets that workspace,
-// and per-worker states would all repeat the same fact less usefully.
+// The branch links are the only source: a repo belongs to a workspace when one
+// of its branches is linked to it, and nothing else - not what its folders'
+// workers.json files name - puts it there. That is what keeps code meant for
+// one workspace from being offered as a first deployment in another.
 export type RepoStatusKind =
-	| "aligned" // this branch is linked to the connected workspace
-	| "unlinked" // no workspace recorded for this branch yet
-	| "wrong-branch" // branch belongs elsewhere, and a branch here belongs to the connected workspace
-	| "no-branch-here" // branch belongs elsewhere, and no branch here belongs to the connected workspace
-	| "detached"; // no branch name to link at all
-
-// What the folders in a repo say about themselves, which is the best available
-// guess at the answer — but only a guess. On a client branch cut from main,
-// every folder still names the old workspace until it is deployed, so this
-// preselects an answer rather than recording one.
-export interface RepoClaim {
-	workspaceId: string;
-	count: number;
-}
+	| "aligned" // the checked-out branch is linked to the connected workspace
+	| "wrong-branch" // a branch here is linked to the connected workspace, but not the one checked out
+	| "not-in-workspace"; // no branch here is linked to the connected workspace
 
 export interface RepoStatus {
 	repo: ScanRepo;
 	kind: RepoStatusKind;
 	// owner/name from the origin remote, falling back to the folder name.
 	label: string;
-	// The workspace this branch is linked to, when there is one.
+	// The workspace the checked-out branch is linked to, when it is linked.
 	linkedWorkspaceId: string | null;
-	linkedWorkspaceName: string | null;
-	// For "wrong-branch": the branch here that does belong to the connected
-	// workspace, which is what makes the remedy a branch switch.
-	connectedBranch: string | null;
-	// Most-claimed first.
-	claims: RepoClaim[];
-	// How many folders in this repo name any workspace at all.
-	claimTotal: number;
+	// For "wrong-branch": the branches here linked to the connected workspace,
+	// alphabetical, which is what makes the remedy a branch switch.
+	connectedBranches: string[];
 }
 
 export interface KnownWorkspace {
@@ -44,9 +29,9 @@ export interface KnownWorkspace {
 	connected: boolean;
 }
 
-// Workspaces that can be offered as an answer: the one you are connected to,
-// plus any whose name has been learned. `ntn` cannot list workspaces, so this is
-// everything the app can honestly name.
+// Every workspace the app can name: the one you are connected to, plus any
+// whose name has been learned. `ntn` cannot list workspaces, so this is
+// everything the map can offer as a row.
 export function knownWorkspaces(
 	config: AppConfig | undefined,
 	connectedWorkspaceId: string | null,
@@ -63,7 +48,7 @@ export function knownWorkspaces(
 			connected: true,
 		});
 	}
-	// Connected first, then by name: the answer is often the one in front of you.
+	// Connected first, then by name.
 	return [...byId.values()].sort((a, b) =>
 		a.connected === b.connected
 			? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
@@ -88,67 +73,27 @@ function repoLabel(repo: ScanRepo): string {
 	);
 }
 
-function claimsFor(repoRoot: string, workers: ScanWorker[]): { claims: RepoClaim[]; total: number } {
-	const counts = new Map<string, number>();
-	let total = 0;
-	for (const worker of workers) {
-		if (!worker.repoRoot || !worker.workspaceId) continue;
-		if (normalizePathKey(worker.repoRoot) !== normalizePathKey(repoRoot)) continue;
-		counts.set(worker.workspaceId, (counts.get(worker.workspaceId) ?? 0) + 1);
-		total++;
-	}
-	const claims = [...counts.entries()]
-		.map(([workspaceId, count]) => ({ workspaceId, count }))
-		.sort((a, b) => b.count - a.count);
-	return { claims, total };
-}
-
 export function buildRepoStatuses(
 	repos: ScanRepo[],
-	workers: ScanWorker[],
 	config: AppConfig | undefined,
 	connectedWorkspaceId: string | null,
-	workspaceName: (id: string) => string | null,
 ): RepoStatus[] {
 	return repos.map((repo) => {
 		const links = branchLinks(config, repo.root);
-		const { claims, total } = claimsFor(repo.root, workers);
-		const base = {
-			repo,
-			label: repoLabel(repo),
-			linkedWorkspaceId: null as string | null,
-			linkedWorkspaceName: null as string | null,
-			connectedBranch: null as string | null,
-			claims,
-			claimTotal: total,
-		};
+		const linkedWorkspaceId = repo.branch ? (links[repo.branch] ?? null) : null;
+		const connectedBranches = Object.entries(links)
+			.filter(([, id]) => id === connectedWorkspaceId)
+			.map(([branch]) => branch)
+			.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+		const base = { repo, label: repoLabel(repo), linkedWorkspaceId, connectedBranches };
 
-		// A detached HEAD names no branch, so there is nothing to link.
-		if (!repo.branch) return { ...base, kind: "detached" as const };
-
-		const linked = links[repo.branch] ?? null;
-		const withLink = {
-			...base,
-			linkedWorkspaceId: linked,
-			linkedWorkspaceName: linked ? workspaceName(linked) : null,
-		};
-
-		if (!linked) return { ...withLink, kind: "unlinked" as const };
-		if (linked === connectedWorkspaceId) return { ...withLink, kind: "aligned" as const };
-
-		// Linked elsewhere. Whether a branch here belongs to the connected
-		// workspace decides the remedy: switch branches, or switch workspace.
-		const connectedBranch =
-			Object.entries(links).find(([, id]) => id === connectedWorkspaceId)?.[0] ?? null;
-		return {
-			...withLink,
-			connectedBranch,
-			kind: connectedBranch ? ("wrong-branch" as const) : ("no-branch-here" as const),
-		};
+		// Until the connected workspace is known there is nothing to compare
+		// against, and hiding every folder while whoami loads would only flicker.
+		if (!connectedWorkspaceId) return { ...base, kind: "aligned" as const };
+		if (linkedWorkspaceId === connectedWorkspaceId) return { ...base, kind: "aligned" as const };
+		// Covers a detached HEAD and an unlinked branch too: neither is linked to
+		// the connected workspace, and a branch here is.
+		if (connectedBranches.length > 0) return { ...base, kind: "wrong-branch" as const };
+		return { ...base, kind: "not-in-workspace" as const };
 	});
-}
-
-// Repos worth a banner. An aligned repo needs no announcement.
-export function bannerStatuses(statuses: RepoStatus[]): RepoStatus[] {
-	return statuses.filter((status) => status.kind !== "aligned");
 }

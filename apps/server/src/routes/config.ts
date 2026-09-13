@@ -85,49 +85,6 @@ export default async function configRoutes(app: FastifyInstance) {
 		return updateConfig({ scanRoot: abs, extraWorkerFolders: alive });
 	});
 
-	// Which workspace a branch belongs to. Only ever written from an explicit
-	// answer: git cannot say which workspace a new branch is for - the reflog
-	// names a source branch only sometimes and expires, and a client branch cut
-	// from main looks identical to a feature branch. Keyed by normalized repo
-	// root, so the same repo spelled two ways is one entry.
-	app.post<{ Body: { repoRoot?: string; branch?: string; workspaceId?: string } }>(
-		"/api/config/branch-workspace",
-		async (req, reply): Promise<AppConfig> => {
-			const repoRoot = req.body?.repoRoot?.trim();
-			const branch = req.body?.branch?.trim();
-			const workspaceId = req.body?.workspaceId?.trim();
-			if (!repoRoot || !branch || !workspaceId) {
-				return reply
-					.code(400)
-					.send({ error: "repoRoot, branch and workspaceId are required" }) as unknown as AppConfig;
-			}
-			const key = normalizePathKey(resolve(repoRoot));
-			const all = getConfig().branchWorkspaces ?? {};
-			return updateConfig({
-				branchWorkspaces: { ...all, [key]: { ...(all[key] ?? {}), [branch]: workspaceId } },
-			});
-		},
-	);
-
-	// Clears one branch assignment, for an answer given in error.
-	app.delete<{ Querystring: { repoRoot?: string; branch?: string } }>(
-		"/api/config/branch-workspace",
-		async (req, reply): Promise<AppConfig> => {
-			const repoRoot = req.query.repoRoot?.trim();
-			const branch = req.query.branch?.trim();
-			if (!repoRoot || !branch) {
-				return reply
-					.code(400)
-					.send({ error: "repoRoot and branch are required" }) as unknown as AppConfig;
-			}
-			const key = normalizePathKey(resolve(repoRoot));
-			const all = getConfig().branchWorkspaces ?? {};
-			const forRepo = { ...(all[key] ?? {}) };
-			delete forRepo[branch];
-			return updateConfig({ branchWorkspaces: { ...all, [key]: forRepo } });
-		},
-	);
-
 	// Replaces the links of every repository named, in one write - the map
 	// dialog saves all its columns at once, and unticking a branch there is how
 	// a link is removed. A repository left out of the body keeps what it has.

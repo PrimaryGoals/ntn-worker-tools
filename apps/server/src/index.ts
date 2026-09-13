@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { getConfigPath } from "./config.js";
 import { NtnError } from "./ntn.js";
+import { pruneDeletedWorkerRecords } from "./prune-workers.js";
 import agentsRoutes from "./routes/agents.js";
 import configRoutes from "./routes/config.js";
 import deployNewRoutes from "./routes/deploy-new.js";
@@ -158,6 +159,9 @@ try {
 			"",
 		].join("\n"),
 	);
+	// After listening, not before: it shells out to `ntn` once per known
+	// workspace, and startup should not wait on the network for housekeeping.
+	void pruneDeletedWorkerRecords();
 } catch (err) {
 	// The probe above catches this in the overwhelming majority of cases —
 	// this remains only as a fallback for the now-tiny window between the

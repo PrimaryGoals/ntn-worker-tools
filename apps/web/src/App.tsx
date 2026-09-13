@@ -5,8 +5,8 @@ import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
 import { normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
-import { bannerStatuses, buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
-import { RepoBanner } from "./components/RepoBanner";
+import { buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
+import { RepoBanner, UnmappedReposLine } from "./components/RepoBanner";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
@@ -323,7 +323,6 @@ function AppContent() {
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
 		setScanRoot,
-		setBranchWorkspace,
 		saveBranchWorkspaces,
 		ignoreFolder,
 		unignoreFolder,
@@ -335,6 +334,34 @@ function AppContent() {
 		savePanelSize,
 		schedulePanelSave,
 	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
+
+	// Everything the workers panel reads, re-read. The refresh button and a
+	// saved branch map both use it.
+	function refreshWorkersPanel() {
+		// The connected workspace can change under the app: `ntn login` in a
+		// terminal switches it, and everything else here is read against whoever
+		// is connected now - the worker list, the scan pairing, the header
+		// itself. So confirm the identity first.
+		whoamiQ.refetch();
+		runHealthQ.refetch();
+		syncPausedQ.refetch();
+		// The out-of-date badges are a memo over these three, and nothing else
+		// re-reads them: local edits made outside the app are invisible until a
+		// deploy/env push invalidates them or the page reloads. Without these the
+		// button would refresh the dots but leave a stale "needs redeploy".
+		localMtimesQ.refetch();
+		workersQ.refetch();
+		configQ.refetch();
+		// The rows for folders with no worker in this workspace are built from
+		// the scan, so without this a folder deployed since the last scan keeps
+		// saying "not on server" however often you refresh.
+		scanQ.refetch();
+	}
+
+	function openBranchMap() {
+		saveBranchWorkspaces.reset();
+		setBranchMapOpen(true);
+	}
 
 	function openAdjustTimeMarker() {
 		markTime.reset();
@@ -371,9 +398,6 @@ function AppContent() {
 		}
 	}
 
-	// Scanned folders with no worker in the connected workspace. Without these
-	// the list can only show what the server already has, so a workspace that
-	// most of the code has never been deployed to looks empty.
 	// Where each repository stands against the connected workspace. Computed
 	// here rather than on the server: the scan already reports every repo with
 	// its branch, and the config and whoami are both already in hand, so this
@@ -382,12 +406,8 @@ function AppContent() {
 		() =>
 			buildRepoStatuses(
 				scanQ.data?.repos ?? [],
-				scanQ.data?.workers ?? [],
 				configQ.data,
 				whoamiQ.data?.spaceId ?? null,
-				(id) =>
-					configQ.data?.workspaceNames?.[id] ??
-					(id === whoamiQ.data?.spaceId ? (whoamiQ.data?.spaceName ?? null) : null),
 			),
 		[scanQ.data, configQ.data, whoamiQ.data],
 	);
@@ -400,61 +420,24 @@ function AppContent() {
 			),
 		[configQ.data, whoamiQ.data],
 	);
-	// Dismissing an unanswerable prompt is session-local on purpose: the right
-	// answer is a workspace this app has never seen, and recording a guess
-	// would be worse than asking again once it has.
-	const [dismissedBranchPrompts, setDismissedBranchPrompts] = useState<string[]>([]);
-	const visibleRepoBanners = bannerStatuses(repoStatuses).filter(
-		(status) =>
-			!dismissedBranchPrompts.includes(`${status.repo.root}@${status.repo.branch}`),
-	);
-	// An unlinked repo is a question you can answer right now, so it sits above
-	// the list. A mismatch is not actionable from here - the remedy is a branch
-	// switch or a different login - so it goes below, rather than pushing the
-	// workers you came to look at off the top of the panel.
-	const topRepoBanners = visibleRepoBanners.filter((status) => status.kind === "unlinked");
-	const bottomRepoBanners = visibleRepoBanners.filter((status) => status.kind !== "unlinked");
-	const renderRepoBanner = (status: RepoStatus, placement: "top" | "bottom") => (
-			<RepoBanner
-				key={status.repo.root}
-				placement={placement}
-				suppressedCount={
-					localOnly.suppressedByRepo.get(normalizePathKey(status.repo.root)) ?? 0
-				}
-				status={status}
-				workspaces={workspaceChoices}
-				saving={setBranchWorkspace.isPending}
-				onLink={(workspaceId) => {
-					if (!status.repo.branch) return;
-					setBranchWorkspace.mutate({
-						repoRoot: status.repo.root,
-						branch: status.repo.branch,
-						workspaceId,
-					});
-				}}
-				onDismiss={() =>
-					setDismissedBranchPrompts((prev) => [
-						...prev,
-						`${status.repo.root}@${status.repo.branch}`,
-					])
-				}
-			/>
-	);
+	const workspaceName = (id: string) =>
+		workspaceChoices.find((workspace) => workspace.id === id)?.name ?? id;
+	const connectedWorkspaceName = whoamiQ.data?.spaceName ?? null;
 
-	// Nothing in a mismatched repo can pair, and a row per folder offering a
-	// first deployment would invite the very thing its banner warns about.
-	const mismatchedRepoRoots = useMemo(
+	// Every repo not deployable into the connected workspace from where it is
+	// checked out. Their undeployed folders are withheld from the list: a row
+	// per folder offering a first deployment would put another workspace's code
+	// here. Workers already on the server are never withheld.
+	const hiddenRepoRoots = useMemo(
 		() =>
 			new Set(
 				repoStatuses
-					.filter(
-						(status) =>
-							status.kind === "wrong-branch" || status.kind === "no-branch-here",
-					)
+					.filter((status) => status.kind !== "aligned")
 					.map((status) => normalizePathKey(status.repo.root)),
 			),
 		[repoStatuses],
 	);
+	const wrongBranchStatuses = repoStatuses.filter((status) => status.kind === "wrong-branch");
 	// Where each worker's code lives, for the rows and the bulk modal. Derived
 	// from the scan rather than a saved map, so a folder that moved is simply
 	// found where it is now, and one that is gone stops being claimed.
@@ -471,9 +454,15 @@ function AppContent() {
 				scanQ.data?.workers ?? [],
 				workersQ.data ?? [],
 				whoamiQ.data?.spaceId ?? null,
-				mismatchedRepoRoots,
+				hiddenRepoRoots,
 			),
-		[scanQ.data, workersQ.data, whoamiQ.data, mismatchedRepoRoots],
+		[scanQ.data, workersQ.data, whoamiQ.data, hiddenRepoRoots],
+	);
+	const suppressedFor = (status: RepoStatus) =>
+		localOnly.suppressedByRepo.get(normalizePathKey(status.repo.root)) ?? 0;
+	// Only repos that actually withheld something are worth counting.
+	const unmappedStatuses = repoStatuses.filter(
+		(status) => status.kind === "not-in-workspace" && suppressedFor(status) > 0,
 	);
 	const localOnlyRows = localOnly.rows;
 	const filteredLocalOnly = useMemo(() => {
@@ -575,10 +564,7 @@ function AppContent() {
 				setScanRoot.reset();
 				setFolderPickerOpen(true);
 			},
-			mapBranches: () => {
-				saveBranchWorkspaces.reset();
-				setBranchMapOpen(true);
-			},
+			mapBranches: openBranchMap,
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
 			},
@@ -807,28 +793,7 @@ function AppContent() {
 																// clears the output panel, which would be a
 																// surprising side effect of a refresh click.
 																if (browserTab !== "workers") switchBrowserTab("workers");
-																// The connected workspace can change under the app: `ntn
-																// login` in a terminal switches it, and everything else
-																// here is read against whoever is connected now - the
-																// worker list, the scan pairing, the header itself. So
-																// confirm the identity first.
-																whoamiQ.refetch();
-																runHealthQ.refetch();
-																syncPausedQ.refetch();
-																// The out-of-date badges are a memo over these
-																// three, and nothing else re-reads them: local
-																// edits made outside the app are invisible until
-																// a deploy/env push invalidates them or the page
-																// reloads. Without these the button would refresh
-																// the dots but leave a stale "needs redeploy".
-																localMtimesQ.refetch();
-																workersQ.refetch();
-																configQ.refetch();
-																// The rows for folders with no worker in this
-																// workspace are built from the scan, so without this
-																// a folder deployed since the last scan keeps saying
-																// "not on server" however often you refresh.
-																scanQ.refetch();
+																refreshWorkersPanel();
 															}}
 														/>
 													),
@@ -889,7 +854,26 @@ function AppContent() {
 										/>
 									) : (
 									<>
-										{topRepoBanners.map((status) => renderRepoBanner(status, "top"))}
+										{/* Above the list: they explain why workers or folders
+										    are missing from it, and below it they went unnoticed. */}
+										{wrongBranchStatuses.map((status) => (
+											<RepoBanner
+												key={status.repo.root}
+												status={status}
+												connectedName={connectedWorkspaceName}
+												workspaceName={workspaceName}
+												suppressedCount={suppressedFor(status)}
+											/>
+										))}
+										<UnmappedReposLine
+											statuses={unmappedStatuses}
+											suppressedCount={unmappedStatuses.reduce(
+												(sum, status) => sum + suppressedFor(status),
+												0,
+											)}
+											connectedName={connectedWorkspaceName}
+											onMap={openBranchMap}
+										/>
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
@@ -917,7 +901,6 @@ function AppContent() {
 											setPendingContextMenu({ workerId: id, x, y });
 										}}
 									/>
-										{bottomRepoBanners.map((status) => renderRepoBanner(status, "bottom"))}
 									</>
 									)}
 								</Panel>
@@ -1430,7 +1413,15 @@ function AppContent() {
 					error={saveBranchWorkspaces.error as Error | null}
 					onClose={() => setBranchMapOpen(false)}
 					onSave={(links) =>
-						saveBranchWorkspaces.mutate(links, { onSuccess: () => setBranchMapOpen(false) })
+						saveBranchWorkspaces.mutate(links, {
+							// The banners and rows follow from the saved config at
+							// once; the refresh also picks up any branch switched or
+							// login changed while the dialog was open.
+							onSuccess: () => {
+								setBranchMapOpen(false);
+								refreshWorkersPanel();
+							},
+						})
 					}
 				/>
 			) : null}
