@@ -5,12 +5,15 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { getConfigPath } from "./config.js";
 import { NtnError } from "./ntn.js";
+import { pruneDeletedWorkerRecords } from "./prune-workers.js";
 import agentsRoutes from "./routes/agents.js";
 import configRoutes from "./routes/config.js";
 import deployNewRoutes from "./routes/deploy-new.js";
 import fsRoutes from "./routes/fs.js";
 import oauthRoutes from "./routes/oauth.js";
 import runsRoutes from "./routes/runs.js";
+import scanRoutes from "./routes/scan.js";
+import repoRoutes from "./routes/repos.js";
 import sessionRoutes from "./routes/session.js";
 import syncRoutes from "./routes/sync.js";
 import webhookRoutes from "./routes/webhook.js";
@@ -116,6 +119,8 @@ app.setErrorHandler((err, _req, reply) => {
 await app.register(sessionRoutes, { sessionToken });
 await app.register(configRoutes);
 await app.register(fsRoutes);
+await app.register(scanRoutes);
+await app.register(repoRoutes);
 await app.register(deployNewRoutes);
 await app.register(workersRoutes);
 await app.register(syncRoutes);
@@ -154,6 +159,9 @@ try {
 			"",
 		].join("\n"),
 	);
+	// After listening, not before: it shells out to `ntn` once per known
+	// workspace, and startup should not wait on the network for housekeeping.
+	void pruneDeletedWorkerRecords();
 } catch (err) {
 	// The probe above catches this in the overwhelming majority of cases —
 	// this remains only as a fallback for the now-tiny window between the

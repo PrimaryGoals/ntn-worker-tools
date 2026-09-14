@@ -14,8 +14,11 @@ import type {
 	LocalInfo,
 	LocalMtimes,
 	LogsPayload,
+	MapRepo,
+	RepoBranchesResult,
 	RunHealthPayload,
 	RunsPayload,
+	ScanResult,
 	SessionEventsPayload,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
@@ -97,12 +100,50 @@ export const api = {
 	sessionLogout: () =>
 		request<{ ok: true }>("/api/session/logout", { method: "POST" }),
 	getConfig: () => request<AppConfig>("/api/config"),
+	getScan: () => request<ScanResult>("/api/scan"),
+	// Replaces each named repo's links wholesale; repos left out are untouched.
+	saveBranchWorkspaces: (repos: Record<string, Record<string, string>>) =>
+		request<AppConfig>("/api/config/branch-workspaces", {
+			method: "PUT",
+			body: JSON.stringify({ repos }),
+		}),
+	listMapRepos: () => request<MapRepo[]>("/api/repos"),
+	// Looks the name up through ntn, so it fails for a workspace this login has
+	// never connected to.
+	addWorkspace: (workspaceId: string) =>
+		request<AppConfig>("/api/config/workspace-names", {
+			method: "POST",
+			body: JSON.stringify({ workspaceId }),
+		}),
+	// Runs git fetch on the server first, so this can take seconds per repo.
+	listRepoBranches: (root: string) =>
+		request<RepoBranchesResult>(`/api/repos/branches?root=${encodeURIComponent(root)}`),
+	ignoreFolder: (path: string) =>
+		request<AppConfig>("/api/config/ignored-folders", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
+	unignoreFolder: (path: string) =>
+		request<AppConfig>(`/api/config/ignored-folders?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
+	setScanRoot: (path: string) =>
+		request<AppConfig>("/api/config/scan-root", { method: "POST", body: JSON.stringify({ path }) }),
+	removeExtraWorkerFolder: (path: string) =>
+		request<AppConfig>(`/api/config/extra-worker-folders?path=${encodeURIComponent(path)}`, {
+			method: "DELETE",
+		}),
 	updateUiConfig: (patch: Partial<AppConfig["ui"]>) =>
 		request<AppConfig>("/api/config/ui", {
 			method: "PATCH",
 			body: JSON.stringify(patch),
 		}),
 	getFsHome: () => request<{ path: string }>("/api/fs/home"),
+	revealPath: (path: string) =>
+		request<{ ok: true; path: string }>("/api/fs/reveal", {
+			method: "POST",
+			body: JSON.stringify({ path }),
+		}),
 	getFsListing: (path: string) =>
 		request<FsListing>(`/api/fs/list?path=${encodeURIComponent(path)}`),
 	getWhoami: (verbose = false) =>
@@ -182,16 +223,13 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ url, webhookSecret }),
 		}),
-	setWorkerLocalPath: (workerId: string, path: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, {
-			method: "POST",
-			body: JSON.stringify({ path }),
-		}),
-	clearWorkerLocalPath: (workerId: string) =>
-		request<AppConfig>(`/api/workers/${workerId}/local-path`, { method: "DELETE" }),
 	getWorkerLocalInfo: (workerId: string) =>
 		request<LocalInfo>(`/api/workers/${workerId}/local-info`),
 	getLocalMtimes: () => request<LocalMtimes>("/api/workers/local-mtimes"),
+	checkWorkerFolder: (workerId: string) =>
+		request<{ ok: boolean; error?: string; detail?: string }>(
+			`/api/workers/${workerId}/folder-check`,
+		),
 	revealWorker: (workerId: string) =>
 		request<{ ok: true; path: string }>(`/api/workers/${workerId}/reveal`, { method: "POST" }),
 	// `assumeYes` adds `--yes`, confirming a deploy that touches linked

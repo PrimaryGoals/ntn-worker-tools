@@ -83,6 +83,10 @@ The web app runs at `http://localhost:5173`, the API server at `http://localhost
 
 If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/.env` and set `PORT` to something else. (Port 5173 is set in `apps/web/vite.config.ts` — if you change it there too, also set `WEB_URL` in `.env` so the printed sign-in link stays correct.)
 
+### First run
+
+Sign in with the link the server prints, and make sure `ntn login` has been run. With no folder chosen yet, the app then asks for the folder to scan for workers. If that folder holds any git repositories with workers in them, **Map Repo+Branch:Workspace** opens next, so you can choose which branches belong to which workspace. Both can be closed and reopened from the Worker menu.
+
 ## User Interface
 
 ![Overview of the main window](images/manual/ui-overview.png)
@@ -108,18 +112,18 @@ If port 5174 is already in use, copy `apps/server/.env.example` to `apps/server/
 All options are shown below, but some are only enabled when conditions are met, based on the worker selected.
 
 <details>
-<summary><strong>Set Local Folder</strong></summary>
+<summary><strong>Scan Folder for Workers</strong></summary>
 
 <table>
 <tr>
 <td width="31%" valign="top">
 
-When you select a worker that's already deployed to your Notion workspace, you can choose the local folder containing its code. The association is stored in an application profile on disk. Once made, the other menu items that depend on a local folder become active.
+Choose one folder to scan. Every worker project beneath it is found by its `workers.json`, or by a `package.json` that depends on the Workers SDK. No worker needs to be selected first. Once a worker's folder is found, the menu items that depend on a local folder become active.
 
 </td>
 <td>
 
-![Set local folder](images/manual/menu-set-local-folder.png)
+![Scan folder for workers](images/manual/menu-set-local-folder.png)
 
 </td>
 </tr>
@@ -128,22 +132,17 @@ When you select a worker that's already deployed to your Notion workspace, you c
 </details>
 
 <details>
-<summary><strong>Reveal in Explorer</strong></summary>
+<summary><strong>Map Repo+Branch:Workspace</strong></summary>
 
-<table>
-<tr>
-<td width="25%" valign="top">
+Opens a grid with workspaces down the left and repositories across the top, both in alphabetical order. Each cell lists the branches of that repository that deploy to that workspace.
 
-With any worker selected, you can reveal its code in your file explorer from the menu, or click its path shown next to the worker in the list.
+- Opening the grid runs `git fetch` for each repository, so branches that exist only on GitHub are listed too, marked *(origin)*. If a fetch fails, the column shows the branches already known locally, with a warning in its header.
+- Click a cell to tick or untick branches. A branch can belong to one workspace per repository, so a branch already linked elsewhere is greyed and names that workspace.
+- A linked branch that no longer exists is marked *missing*, so removing its link is a deliberate choice.
+- Nothing is saved until you click **Save**.
+- A workspace the app hasn't seen yet can be added by its ID, below the grid. Its name is looked up through `ntn`, so it must be a workspace you have run `ntn login` for.
 
-</td>
-<td width="75%">
-
-![Reveal in Explorer](images/manual/menu-reveal-in-explorer.png)
-
-</td>
-</tr>
-</table>
+The mapping decides what the worker list offers. A repository with no branch mapped to the workspace you are connected to keeps its undeployed folders out of the list, summed up in one line with a **Map…** button. A repository that has a branch mapped to it, but is checked out on another, shows a warning above the list naming the branch to switch to. Workers already deployed to the workspace are always listed.
 
 </details>
 
@@ -237,17 +236,19 @@ ntn-worker-tools keeps track of the last time you deployed code or pushed secret
 </details>
 
 <details>
-<summary>Deploy to new workspace</summary>
+<summary>Deploying to a new workspace</summary>
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-You'll only use this option when you develop your workers on one workspace and then deploy them on other workspaces. **ntn-worker-tools** handles the administrative plumbing to make this work.
+You'll only do this when you develop your workers on one workspace and then deploy them on other workspaces. **ntn-worker-tools** handles the administrative plumbing to make this work.
 
 The recommended pattern: develop using a VCS like git, commit your changes, and create a branch per workspace you deploy to — this is because redeploying to a new workspace overwrites <code>workers.json</code>, and possibly <code>package.json</code>.
 
-Run <code>ntn logout</code> to leave your development workspace, then <code>ntn login</code> to connect to the new one. Your worker list will be empty the first time, but **Deploy to new workspace** will ask you to select the directory where your worker's code lives.
+1. Check out the branch for the new workspace, and map it to that workspace in **Map Repo+Branch:Workspace**.
+2. Run <code>ntn logout</code> to leave your development workspace, then <code>ntn login</code> to connect to the new one, and refresh the browser tab.
+3. Folders on that branch that aren't deployed yet appear in the worker list as a *first deployment*, each with a **Deploy** button that opens this dialog for that folder.
 
 You'll have to delete the local <code>workers.json</code> before you can deploy to a new environment. While deleting <code>.env</code> isn't required, you'll have to edit it before deploying to the new workspace.
 

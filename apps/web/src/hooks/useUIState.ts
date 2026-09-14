@@ -23,10 +23,14 @@ export function useUIState() {
 	const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 	const [verboseLogs, setVerboseLogs] = useState(false);
 	const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+	const [branchMapOpen, setBranchMapOpen] = useState(false);
 	const [tokenPushOpen, setTokenPushOpen] = useState(false);
 	const [renameWorkerOpen, setRenameWorkerOpen] = useState(false);
 	const [adjustTimeMarkerOpen, setAdjustTimeMarkerOpen] = useState(false);
 	const [deployNewWorkerOpen, setDeployNewWorkerOpen] = useState(false);
+	// The folder a first-deployment row was opened for, so the modal can skip
+	// its picker. Null when the flow starts from the menu instead.
+	const [deployNewWorkerPath, setDeployNewWorkerPath] = useState<string | null>(null);
 	const [deployUpdatedWorkersOpen, setDeployUpdatedWorkersOpen] = useState(false);
 	const [syncScheduleOpen, setSyncScheduleOpen] = useState(false);
 	// Which Deploy menu item is awaiting confirmation, or null when none is.
@@ -51,6 +55,8 @@ export function useUIState() {
 		setVerboseLogs,
 		folderPickerOpen,
 		setFolderPickerOpen,
+		branchMapOpen,
+		setBranchMapOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
 		renameWorkerOpen,
@@ -59,6 +65,8 @@ export function useUIState() {
 		setAdjustTimeMarkerOpen,
 		deployNewWorkerOpen,
 		setDeployNewWorkerOpen,
+		deployNewWorkerPath,
+		setDeployNewWorkerPath,
 		deployUpdatedWorkersOpen,
 		setDeployUpdatedWorkersOpen,
 		syncScheduleOpen,

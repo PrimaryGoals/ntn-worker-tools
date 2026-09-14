@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
-import { api, type ApiRequestError } from "./api";
+import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
+import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { buildLocalOnlyRows } from "./workerRows";
+import { buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
+import { RepoBanner, UnmappedReposLine } from "./components/RepoBanner";
 import { agentDefinitionUrl } from "./constants";
 import { BrandingSplash } from "./components/ui/BrandingSplash";
 import { CommandOutputList, OutputWithCommands } from "./components/ui/CommandOutput";
@@ -18,6 +22,7 @@ import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
 import { AgentStatusModal } from "./components/modals/AgentStatusModal";
+import { BranchWorkspaceMapModal } from "./components/modals/BranchWorkspaceMapModal";
 import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
@@ -52,7 +57,6 @@ import {
 	formatWebhookUrls,
 	formatWhoami,
 	formatWorkerUsage,
-	friendlySetPathError,
 	ntnCmd,
 	SEPARATOR,
 } from "./format";
@@ -181,6 +185,8 @@ function AppContent() {
 		setVerboseLogs,
 		folderPickerOpen,
 		setFolderPickerOpen,
+		branchMapOpen,
+		setBranchMapOpen,
 		tokenPushOpen,
 		setTokenPushOpen,
 		renameWorkerOpen,
@@ -188,6 +194,8 @@ function AppContent() {
 		adjustTimeMarkerOpen,
 		setAdjustTimeMarkerOpen,
 		deployNewWorkerOpen,
+		deployNewWorkerPath,
+		setDeployNewWorkerPath,
 		setDeployNewWorkerOpen,
 		deployUpdatedWorkersOpen,
 		setDeployUpdatedWorkersOpen,
@@ -214,6 +222,7 @@ function AppContent() {
 	const [agentCreditLimitOpen, setAgentCreditLimitOpen] = useState(false);
 	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
 	const {
+		checkWorkerFolder,
 		deployWorker,
 		pnpmDeployWorker,
 		pushSecrets,
@@ -252,6 +261,8 @@ function AppContent() {
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		localMtimesQ,
+		scanQ,
 		runsQ,
 		crossWorkerRunsQ,
 		crossWorkerUsageQ,
@@ -274,6 +285,15 @@ function AppContent() {
 		syncStatusQ,
 		oauthCapabilityKey,
 	} = useWorkerData(selectedWorkerId, selectedRunId, verboseLogs, runsViewMode);
+	// The scan can span several repos, and a worker may sit in one of its own
+	// entirely, so the header names the repository as well as the branch. Both
+	// are null when no scanned folder claims the selected worker.
+	const selectedWorkerFolder = useMemo(
+		() => scanQ.data?.workers.find((worker) => worker.workerId === selectedWorkerId) ?? null,
+		[scanQ.data, selectedWorkerId],
+	);
+	const selectedWorkerBranch = selectedWorkerFolder?.branch ?? null;
+	const selectedWorkerRepoRoot = selectedWorkerFolder?.repoRoot ?? null;
 	const {
 		agentsQ,
 		agentHealthQ,
@@ -302,15 +322,46 @@ function AppContent() {
 		null;
 	const crossWorkerView = runsViewMode === "crossWorker";
 	const {
-		setLocalPath,
-		clearLocalPath,
+		setScanRoot,
+		saveBranchWorkspaces,
+		ignoreFolder,
+		unignoreFolder,
 		revealWorker,
+		revealPath,
 		renameWorker,
 		markTime,
 		clearTimeMarker,
 		savePanelSize,
 		schedulePanelSave,
 	} = useConfigMutations(setFolderPickerOpen, persistedPanelSizes);
+
+	// Everything the workers panel reads, re-read. The refresh button and a
+	// saved branch map both use it.
+	function refreshWorkersPanel() {
+		// The connected workspace can change under the app: `ntn login` in a
+		// terminal switches it, and everything else here is read against whoever
+		// is connected now - the worker list, the scan pairing, the header
+		// itself. So confirm the identity first.
+		whoamiQ.refetch();
+		runHealthQ.refetch();
+		syncPausedQ.refetch();
+		// The out-of-date badges are a memo over these three, and nothing else
+		// re-reads them: local edits made outside the app are invisible until a
+		// deploy/env push invalidates them or the page reloads. Without these the
+		// button would refresh the dots but leave a stale "needs redeploy".
+		localMtimesQ.refetch();
+		workersQ.refetch();
+		configQ.refetch();
+		// The rows for folders with no worker in this workspace are built from
+		// the scan, so without this a folder deployed since the last scan keeps
+		// saying "not on server" however often you refresh.
+		scanQ.refetch();
+	}
+
+	function openBranchMap() {
+		saveBranchWorkspaces.reset();
+		setBranchMapOpen(true);
+	}
 
 	function openAdjustTimeMarker() {
 		markTime.reset();
@@ -347,6 +398,115 @@ function AppContent() {
 		}
 	}
 
+	// Where each repository stands against the connected workspace. Computed
+	// here rather than on the server: the scan already reports every repo with
+	// its branch, and the config and whoami are both already in hand, so this
+	// costs no call at all.
+	const repoStatuses = useMemo(
+		() =>
+			buildRepoStatuses(
+				scanQ.data?.repos ?? [],
+				configQ.data,
+				whoamiQ.data?.spaceId ?? null,
+			),
+		[scanQ.data, configQ.data, whoamiQ.data],
+	);
+	const workspaceChoices = useMemo(
+		() =>
+			knownWorkspaces(
+				configQ.data,
+				whoamiQ.data?.spaceId ?? null,
+				whoamiQ.data?.spaceName ?? null,
+			),
+		[configQ.data, whoamiQ.data],
+	);
+	const workspaceName = (id: string) =>
+		workspaceChoices.find((workspace) => workspace.id === id)?.name ?? id;
+	const connectedWorkspaceName = whoamiQ.data?.spaceName ?? null;
+
+	// Every repo not deployable into the connected workspace from where it is
+	// checked out. Their undeployed folders are withheld from the list: a row
+	// per folder offering a first deployment would put another workspace's code
+	// here. Workers already on the server are never withheld.
+	const hiddenRepoRoots = useMemo(
+		() =>
+			new Set(
+				repoStatuses
+					.filter((status) => status.kind !== "aligned")
+					.map((status) => normalizePathKey(status.repo.root)),
+			),
+		[repoStatuses],
+	);
+	const wrongBranchStatuses = repoStatuses.filter((status) => status.kind === "wrong-branch");
+	// Where each worker's code lives, for the rows and the bulk modal. Derived
+	// from the scan rather than a saved map, so a folder that moved is simply
+	// found where it is now, and one that is gone stops being claimed.
+	const workerFolders = useMemo(() => {
+		const map: Record<string, string> = {};
+		for (const folder of scanQ.data?.workers ?? []) {
+			if (folder.workerId) map[folder.workerId] = folder.path;
+		}
+		return map;
+	}, [scanQ.data]);
+	const localOnly = useMemo(
+		() =>
+			buildLocalOnlyRows(
+				scanQ.data?.workers ?? [],
+				workersQ.data ?? [],
+				whoamiQ.data?.spaceId ?? null,
+				hiddenRepoRoots,
+			),
+		[scanQ.data, workersQ.data, whoamiQ.data, hiddenRepoRoots],
+	);
+	const suppressedFor = (status: RepoStatus) =>
+		localOnly.suppressedByRepo.get(normalizePathKey(status.repo.root)) ?? 0;
+	// Only repos that actually withheld something are worth counting.
+	const unmappedStatuses = repoStatuses.filter(
+		(status) => status.kind === "not-in-workspace" && suppressedFor(status) > 0,
+	);
+
+	// First run: with no folder to scan the app has almost nothing to show, so
+	// setup starts by asking for one. Checked once per page load, and only once
+	// both the session and `ntn whoami` have answered - opening the picker over a
+	// "run ntn login" message would hide the step that has to come first. It can
+	// be closed; it comes back on the next load until a folder is chosen.
+	const freshStartCheckedRef = useRef(false);
+	// Set while a first-run folder choice is waiting on its scan. The map opens
+	// once when that scan lands, and never again by itself: cancelling it, or
+	// reloading before then, leaves the "not mapped" line to offer it.
+	const [setupMapPending, setSetupMapPending] = useState(false);
+	useEffect(() => {
+		if (freshStartCheckedRef.current || !whoamiQ.data || !configQ.data) return;
+		freshStartCheckedRef.current = true;
+		if (configQ.data.scanRoot) return;
+		setScanRoot.reset();
+		setFolderPickerOpen(true);
+		setSetupMapPending(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [whoamiQ.data, configQ.data]);
+	useEffect(() => {
+		if (!setupMapPending) return;
+		const root = configQ.data?.scanRoot;
+		const scan = scanQ.data;
+		if (!root || !scan || scanQ.isFetching) return;
+		// The scan that ran before a folder was chosen covers nothing; wait for
+		// the one that walked the folder.
+		if (!scan.roots.some((r) => normalizePathKey(r) === normalizePathKey(root))) return;
+		setSetupMapPending(false);
+		// Only repos holding worker folders are reported, so a folder with no
+		// workers in git opens nothing.
+		if (scan.repos.length > 0) openBranchMap();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [setupMapPending, configQ.data, scanQ.data, scanQ.isFetching]);
+
+	const localOnlyRows = localOnly.rows;
+	const filteredLocalOnly = useMemo(() => {
+		const q = workerFilter.trim().toLowerCase();
+		if (!q) return localOnlyRows;
+		return localOnlyRows.filter(
+			(row) => row.name.toLowerCase().includes(q) || row.path.toLowerCase().includes(q),
+		);
+	}, [localOnlyRows, workerFilter]);
 	const filteredWorkers = useMemo(() => {
 		const q = workerFilter.trim().toLowerCase();
 		if (!q) return sortedWorkers;
@@ -357,6 +517,23 @@ function AppContent() {
 	const selectedWorkerName =
 		workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null;
 
+	// Check the folder still belongs to this worker before the confirmation
+	// dialog, not when the deploy runs. Confirming a deploy that was never
+	// going to be allowed wastes the decision the dialog is asking for, and
+	// the answer reads the same either way - it is the same check.
+	async function confirmDeployAfterFolderCheck(kind: "ntn" | "pnpm") {
+		if (!selectedWorkerId || !localPath) return;
+		clearTransientOutputs();
+		checkWorkerFolder.reset();
+		try {
+			await checkWorkerFolder.mutateAsync(selectedWorkerId);
+		} catch {
+			// Reported through anyDeployError; the dialog stays shut.
+			return;
+		}
+		setDeployConfirmKind(kind);
+	}
+
 	function selectWorker(id: string) {
 		setSelectedWorkerId(id);
 		setSelectedRunId(null);
@@ -365,6 +542,29 @@ function AppContent() {
 		setRunsViewMode("worker");
 		clearTransientOutputs();
 	}
+
+	// A selection belongs to the workspace it was made in. The connected
+	// workspace can change underneath the app - `ntn login` in a terminal, then
+	// refresh - and holding the old id would leave the details pane querying a
+	// worker the new workspace does not have. Cleared the same way selecting
+	// clears, so the runs panel and outputs stop describing something gone.
+	const connectedSpaceId = whoamiQ.data?.spaceId ?? null;
+	const lastSpaceIdRef = useRef<string | null>(null);
+	useEffect(() => {
+		if (!connectedSpaceId) return;
+		const previous = lastSpaceIdRef.current;
+		lastSpaceIdRef.current = connectedSpaceId;
+		// First resolution is not a change: nothing was selected against an
+		// earlier workspace.
+		if (!previous || previous === connectedSpaceId) return;
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		setRunsViewMode("worker");
+		clearTransientOutputs();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [connectedSpaceId]);
 
 	// Whether the sync that pause/resume act on — the first sync capability,
 	// the one every sync menu item uses — is currently paused. Read from the
@@ -393,34 +593,23 @@ function AppContent() {
 			hasTimeMarker: !!configQ.data?.timeMarker,
 		},
 		{
-			setLocalPath: () => {
-				if (!selectedWorkerId) return;
-				setLocalPath.reset();
+			scanForWorkers: () => {
+				// No worker needed: this picks a folder to scan for workers, rather
+				// than a folder to attach to one selected worker.
+				setScanRoot.reset();
 				setFolderPickerOpen(true);
 			},
+			mapBranches: openBranchMap,
 			reveal: () => {
 				if (selectedWorkerId) revealWorker.mutate(selectedWorkerId);
-			},
-			clearLocalPath: () => {
-				if (!selectedWorkerId) return;
-				if (window.confirm("Forget the local folder for this worker?")) {
-					clearLocalPath.mutate(selectedWorkerId);
-				}
 			},
 			renameWorker: () => {
 				renameWorker.reset();
 				setRenameWorkerOpen(true);
 			},
-			ntnDeploy: () => {
-				if (!selectedWorkerId || !localPath) return;
-				setDeployConfirmKind("ntn");
-			},
-			pnpmDeploy: () => {
-				if (!selectedWorkerId || !localPath) return;
-				setDeployConfirmKind("pnpm");
-			},
+			ntnDeploy: () => confirmDeployAfterFolderCheck("ntn"),
+			pnpmDeploy: () => confirmDeployAfterFolderCheck("pnpm"),
 			deployUpdatedWorkers: () => setDeployUpdatedWorkersOpen(true),
-			deployToNewWorkspace: () => setDeployNewWorkerOpen(true),
 			pushSecrets: () => {
 				if (!selectedWorkerId || !localPath) return;
 				if (
@@ -587,13 +776,13 @@ function AppContent() {
 				loading={whoamiQ.isLoading}
 				error={whoamiQ.error as Error | null}
 				spaceName={whoamiQ.data?.spaceName ?? null}
+				scanRoot={configQ.data?.scanRoot || null}
+				branch={selectedWorkerBranch}
+				repoRoot={selectedWorkerRepoRoot}
+				repoRemoteUrl={selectedWorkerFolder?.remoteUrl ?? null}
+				onRevealRepo={(path) => revealPath.mutate(path)}
 				workerName={selectedWorkerName}
-				localPath={localPath}
 				groups={dropdownGroups(workerMenuGroups)}
-				setLocalPathError={friendlySetPathError(
-					setLocalPath.error as ApiRequestError | null,
-					selectedWorkerName,
-				)}
 			/>
 
 			<PanelGroup
@@ -619,21 +808,26 @@ function AppContent() {
 												{
 													id: "workers" as const,
 													label: "Workers",
-													// Each tab carries its own refresh, scoped to that
-													// tab's health sweep. Clicking one also moves you to
+													// Each tab carries its own refresh, scoped to what
+													// that tab shows. Clicking one also moves you to
 													// that tab — refreshing a view you can't see would
 													// be a no-op from the user's side.
 													after: (
 														<RefreshButton
-															title="Refresh worker health"
-															spinning={runHealthQ.isFetching || syncPausedQ.isFetching}
+															title="Refresh workers"
+															spinning={
+																whoamiQ.isFetching ||
+																runHealthQ.isFetching ||
+																syncPausedQ.isFetching ||
+																localMtimesQ.isFetching ||
+																scanQ.isFetching
+															}
 															onClick={() => {
 																// Only switch when needed: switchBrowserTab
 																// clears the output panel, which would be a
 																// surprising side effect of a refresh click.
 																if (browserTab !== "workers") switchBrowserTab("workers");
-																runHealthQ.refetch();
-																syncPausedQ.refetch();
+																refreshWorkersPanel();
 															}}
 														/>
 													),
@@ -693,17 +887,46 @@ function AppContent() {
 											}}
 										/>
 									) : (
+									<>
+										{/* Above the list: they explain why workers or folders
+										    are missing from it, and below it they went unnoticed. */}
+										{wrongBranchStatuses.map((status) => (
+											<RepoBanner
+												key={status.repo.root}
+												status={status}
+												connectedName={connectedWorkspaceName}
+												workspaceName={workspaceName}
+												suppressedCount={suppressedFor(status)}
+											/>
+										))}
+										<UnmappedReposLine
+											statuses={unmappedStatuses}
+											suppressedCount={unmappedStatuses.reduce(
+												(sum, status) => sum + suppressedFor(status),
+												0,
+											)}
+											connectedName={connectedWorkspaceName}
+											onMap={openBranchMap}
+										/>
 									<WorkersList
 										loading={workersQ.isLoading}
 										error={workersQ.error as Error | null}
 										workers={filteredWorkers}
 										selectedId={selectedWorkerId}
 										runHealth={workerHealth}
-										localPaths={configQ.data?.workerLocalPaths ?? {}}
+										localPaths={workerFolders}
 									syncSchedules={syncSchedulesQ.data ?? {}}
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										localOnly={filteredLocalOnly}
+										ignoredFolders={configQ.data?.ignoredFolders ?? []}
+										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}
+										onUnignoreFolder={(path) => unignoreFolder.mutate(path)}
+										onDeployFolder={(path) => {
+											setDeployNewWorkerPath(path);
+											setDeployNewWorkerOpen(true);
+										}}
 										filtered={!!workerFilter.trim()}
 										onSelect={selectWorker}
 										onContextMenu={(id, x, y) => {
@@ -712,6 +935,7 @@ function AppContent() {
 											setPendingContextMenu({ workerId: id, x, y });
 										}}
 									/>
+									</>
 									)}
 								</Panel>
 							</div>
@@ -937,7 +1161,7 @@ function AppContent() {
 				{runningCommand ? (
 					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
 				) : anyDeployError ? (
-					<div className="p-3 text-sm text-red-400">
+					<div className="whitespace-pre-wrap p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
 					</div>
 				) : deployResult && syncStatusFollowup?.state === "done" ? (
@@ -1198,23 +1422,41 @@ function AppContent() {
 					}}
 				/>
 			) : null}
-			{folderPickerOpen && selectedWorkerId ? (
+			{folderPickerOpen ? (
 				<FolderPickerModal
-					workerName={
-						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null
-					}
-					startPath={localPath}
-					submitting={setLocalPath.isPending}
-					error={friendlySetPathError(
-						setLocalPath.error as ApiRequestError | null,
-						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? null,
-					)}
+					workerName={null}
+					title="Choose a folder to scan for workers"
+					selectLabel="Use this folder"
+					requireWorkerProject={false}
+					startPath={configQ.data?.scanRoot || localPath}
+					submitting={setScanRoot.isPending}
+					error={setScanRoot.error as Error | null}
 					onClose={() => setFolderPickerOpen(false)}
-					onResetError={() => setLocalPath.reset()}
+					onResetError={() => setScanRoot.reset()}
 					onSelect={(path) => {
 						clearTransientOutputs();
-						setLocalPath.mutate({ workerId: selectedWorkerId, path });
+						setScanRoot.mutate(path);
 					}}
+				/>
+			) : null}
+			{branchMapOpen ? (
+				<BranchWorkspaceMapModal
+					workspaces={workspaceChoices}
+					savedLinks={configQ.data?.branchWorkspaces ?? {}}
+					saving={saveBranchWorkspaces.isPending}
+					error={saveBranchWorkspaces.error as Error | null}
+					onClose={() => setBranchMapOpen(false)}
+					onSave={(links) =>
+						saveBranchWorkspaces.mutate(links, {
+							// The banners and rows follow from the saved config at
+							// once; the refresh also picks up any branch switched or
+							// login changed while the dialog was open.
+							onSuccess: () => {
+								setBranchMapOpen(false);
+								refreshWorkersPanel();
+							},
+						})
+					}
 				/>
 			) : null}
 			{renameWorkerOpen && selectedWorkerId ? (
@@ -1310,12 +1552,17 @@ function AppContent() {
 			) : null}
 			{deployNewWorkerOpen ? (
 				<DeployNewWorkerModal
+					initialPath={deployNewWorkerPath}
 					startPath={localPath}
 					whoami={whoamiQ.data ?? null}
 					existingWorkers={workersQ.data ?? []}
-					onClose={() => setDeployNewWorkerOpen(false)}
+					onClose={() => {
+						setDeployNewWorkerOpen(false);
+						setDeployNewWorkerPath(null);
+					}}
 					onDeployed={(result) => {
 						setDeployNewWorkerOpen(false);
+						setDeployNewWorkerPath(null);
 						clearTransientOutputs();
 						setDeployResult(result);
 					}}
@@ -1324,7 +1571,7 @@ function AppContent() {
 			{deployUpdatedWorkersOpen ? (
 				<DeployUpdatedWorkersModal
 					workers={sortedWorkers}
-					localPaths={configQ.data?.workerLocalPaths ?? {}}
+					localPaths={workerFolders}
 					codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 					envOutOfDateWorkerIds={envOutOfDateWorkerIds}
 					syncWorkerIds={syncWorkerIds}

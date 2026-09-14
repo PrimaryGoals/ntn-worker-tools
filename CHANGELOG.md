@@ -4,6 +4,41 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-12
+
+Working across more than one Notion workspace, where the same code is deployed to several and a git branch decides which one is current (#53, #57, #59, #61).
+
+### Added
+- Local folders are found by scanning rather than registered one at a time. "Scan folder for workers…" works with no worker selected: it picks a single root, and every worker folder beneath it is found by its `workers.json` or by a `package.json` that depends on the SDK alongside a `new Worker(` in its source. A folder outside that root stays scanned if a worker is already paired to it, so moving the root never drops a deployed worker (#53, #57)
+- Folders with no worker in the connected workspace now appear at all. A list built from `ntn workers list` could only ever show what a workspace already had, which hid exactly the work to do when connecting to a workspace most of the code has never reached. Each says why it is there — first deployment, not on server, or workers.json unreadable — and carries Deploy, which opens the deploy flow already pointed at that folder (#53)
+- "Map Repo+Branch:Workspace…" in the Worker menu: a grid of every known workspace against every repository, for choosing which branches deploy to which workspace. Columns cover the scanned repositories plus any with saved links still on disk; rows and columns are alphabetical and scroll as they grow. Each column fetches its branches on open, listing local and origin branches as one entry per name, and falls back to what git already knows with a warning when the fetch fails. A cell holds several branches, but a branch belongs to one workspace per repository; linked branches that no longer exist stay visible as missing. The dialog closes only through Save or Cancel, and Save replaces each repository's links in a single request (#57)
+- The branch map decides what the worker list offers. A repository counts as part of a workspace only when one of its branches is mapped to it. Checked out on a mapped branch, its folders are listed; checked out on another branch while one is mapped to the connected workspace, "Workspace and branch do not match." sits above the list with the connected workspace, the repo and branch, and that branch's workspace on separate lines, names both remedies as commands (`ntn login`, or `git switch` to the mapped branch), and ends with a red reminder to refresh the tab. A repository with no branch mapped to the connected workspace is not a mismatch: its undeployed folders are left out, summed up in one line with a Map… button. Workers already deployed are always listed (#59)
+- "Add workspace by ID" in the branch map, for mapping branches to a workspace before anything is deployed there. The name is looked up through `ntn whoami` without switching the login, so it works for any workspace this login has a token for
+- First-run setup. With no folder to scan, the folder picker opens once `ntn whoami` answers; once a chosen folder's scan finds repositories with workers, the branch map opens to finish setup. The picker can be closed and returns on the next load until a folder is chosen; the map opens by itself only once
+- A status strip in the header: connected workspace, the folder being scanned, and the repository and branch of the selected worker. The repository is named by its origin rather than its local path — a worker can live in a repo of its own, where "main" alone says almost nothing — and links to it (#53)
+- Folders the scan finds that are not workers to act on can be ignored from their row, and are listed with a way back (#53)
+- The config file carries a layout version (`configVersion`) and the app version that last saved it (`writtenBy`). Conversions run as numbered steps from the file's version up to the server's, instead of each guessing from what the file contains. Before converting, the original is kept as `config.v<version>.json`, which later saves never overwrite. A file saved by a newer version is read but never saved over: changes are refused with a message naming both versions, so running an older release against it cannot silently drop what the newer one recorded. Deploys and pushes still run in that state; only their records are skipped
+- API routes behind the map: `GET /api/repos`, `GET /api/repos/branches`, `PUT /api/config/branch-workspaces` and `POST /api/config/workspace-names` (#57)
+
+### Changed
+- "Needs redeploy" compares content, not file times. A `git checkout` rewrites every file that differs between branches, so a branch switch used to make nearly every worker claim it needed redeploying, while a change in a shared package — which touches no file inside any worker — went unnoticed. Each deploy now records a hash of the worker's source plus every workspace package it depends on, transitively, along with the branch and commit it shipped from. Records written before this keep the old comparison until their next deploy (#53)
+- Refreshing the workers list also confirms the connected workspace and rescans, so an `ntn login` in a terminal is reflected without reloading the page. Changing workspace clears the selected worker, which belonged to the workspace it was chosen in. Saving the branch map runs the same refresh (#53, #59)
+- The Worker menu opens with "Scan folder for workers…" and "Map Repo+Branch:Workspace…" at the top level, replacing the "Local folder" submenu and its "Set local folder…". "Reveal in Explorer" left the dropdown and remains in the right-click menu, where it acts on the row you clicked (#57)
+- `workerLocalPaths` is retired. A path recorded once at registration and never revisited had accumulated folders that had moved, one that no longer existed, and a single worker under three ids across two workspaces. "Forget local folder" went with it: there is nothing stored to forget. Fields retired by earlier versions (`workerLocalPaths`, `workerIsGitRepo`, `workerGitRoot`, `timeMarkers`) are removed from the config once a scan root exists (#53)
+- Records for deleted workers are forgotten. Deploy and push history is kept per worker ID, so a worker deleted on the server left its records in the config for good. At startup the server now lists every known workspace and drops records whose worker appears in none of them; if any workspace cannot be listed, or a listing answers for a different workspace, nothing is dropped
+
+### Fixed
+- "Set local folder…" did nothing at all unless a worker was already selected — the modal was gated on a selection the action itself never required (#53)
+- Deploying to the wrong worker is now prevented rather than merely unlikely. `workers.json` is re-read immediately before every deploy, pnpm deploy, env push and batch action, and again before the confirmation dialog, since a branch switch rewrites that file underneath a folder and `ntn` reads it to decide which worker it is updating. The message names the workers and workspaces involved instead of printing three UUIDs (#53)
+- Pushing secrets checks which workspace the `.env` token belongs to first. `.env` is gitignored, so it belongs to a clone rather than a branch: a branch switch leaves the previous workspace's token in place, which is how a worker in one workspace comes to be handed a credential for another. A mismatch stops the push; an unanswerable check does not (#53)
+- Deploying a worker that was listed as "not on server" left the row saying so until the page was reloaded, because nothing invalidated the scan the row was built from (#53)
+- The branch map and banners could name fewer workspaces than the app knew. The scan and `ntn whoami` save workspace names on the server as they answer, and the browser never re-read the config afterwards
+- A workspace name looked up by ID is only recorded when `ntn whoami` answers for that same workspace, so a name can never be stored under the wrong ID
+- The app icon has a transparent background, and the workers refresh button re-checks for undeployed changes
+
+### Removed
+- "Deploy to new workspace" in the Worker menu. Undeployed folders in the worker list carry their own Deploy button, which opens the same dialog already pointed at that folder, and the branch map decides which folders a workspace is offered (#61)
+
 ## [1.2.0] - 2026-09-04
 
 ### Added

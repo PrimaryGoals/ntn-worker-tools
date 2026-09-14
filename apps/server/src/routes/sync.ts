@@ -11,7 +11,7 @@ import { DEFAULT_SYNC_SCHEDULE, isValidSyncSchedule } from "@ntn-worker-tools/sh
 import { runNtnJson, runNtnJsonWithTrace, runNtnRawAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 import { applySyncScheduleUpdates, findSyncSchedules } from "../sync-schedule.js";
-import { getConfig } from "../state.js";
+import { folderForWorker, foldersByWorkerId } from "../scan-cache.js";
 
 // trigger/pause/resume/state-reset are identical apart from the ntn
 // subcommand — one handler parameterized by that subcommand replaces four
@@ -54,7 +54,7 @@ export default async function syncRoutes(app: FastifyInstance) {
 	// folders. Workers without a local folder are absent rather than empty:
 	// the list shows no badge for them, which isn't the same as "no syncs".
 	app.get("/api/workers/sync-schedules", async (): Promise<SyncSchedulesByWorker> => {
-		const paths = getConfig().workerLocalPaths ?? {};
+		const paths = Object.fromEntries(await foldersByWorkerId());
 		const entries = await Promise.all(
 			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string[]]> => {
 				const { entries: found } = await findSyncSchedules(path);
@@ -78,7 +78,7 @@ export default async function syncRoutes(app: FastifyInstance) {
 	// whose source actually declares a sync — the only ones that show a badge
 	// to sit next to — rather than every worker in the workspace.
 	app.get("/api/workers/sync-paused", async (): Promise<SyncPausedByWorker> => {
-		const paths = getConfig().workerLocalPaths ?? {};
+		const paths = Object.fromEntries(await foldersByWorkerId());
 		const entries = await Promise.all(
 			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string[]]> => {
 				const { entries: found } = await findSyncSchedules(path);
@@ -113,7 +113,7 @@ export default async function syncRoutes(app: FastifyInstance) {
 	app.get<{ Params: { id: string } }>(
 		"/api/workers/:id/sync/schedules",
 		async (req, reply): Promise<SyncSchedulesPayload> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply.code(400).send({
 					error: "no local path registered for this worker",
@@ -128,7 +128,7 @@ export default async function syncRoutes(app: FastifyInstance) {
 		"/api/workers/:id/sync/schedules",
 		async (req, reply): Promise<SyncScheduleUpdateResult> => {
 			const started = Date.now();
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply.code(400).send({
 					error: "no local path registered for this worker",

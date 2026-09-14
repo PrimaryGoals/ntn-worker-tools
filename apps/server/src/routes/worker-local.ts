@@ -13,6 +13,9 @@ import type {
 import { runNtnJson, runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { SCAN_IGNORED_DIR_NAMES } from "../scan-ignore.js";
 import { isVerbose } from "../route-helpers.js";
+import { tokenWorkspaceMismatch } from "../token-workspace.js";
+import { folderForWorker, foldersByWorkerId, invalidateScan } from "../scan-cache.js";
+import { folderIdentityMismatch, readWorkerIdentity } from "../workers-json.js";
 import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
 
 
@@ -71,7 +74,7 @@ async function scanLocalMtimes(dir: string): Promise<{ code: number | null; env:
 // but only when actually needed.
 async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<void> {
 	const cfg = getConfig();
-	const ids = Object.keys(cfg.workerLocalPaths ?? {});
+	const ids = [...(await foldersByWorkerId()).keys()];
 	const missing = ids.filter(
 		(id) => !cfg.workerLastCodeDeployAt?.[id] || !cfg.workerLastEnvPushAt?.[id],
 	);
@@ -103,7 +106,7 @@ async function seedMissingWorkerTimestamps(workers: Worker[] | null): Promise<vo
 export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.get("/api/workers/local-mtimes", async (): Promise<LocalMtimes> => {
 		await seedMissingWorkerTimestamps(null);
-		const paths = getConfig().workerLocalPaths ?? {};
+		const paths = Object.fromEntries(await foldersByWorkerId());
 		const entries = await Promise.all(
 			Object.entries(paths).map(async ([workerId, path]): Promise<[string, LocalMtimeInfo]> => {
 				const { code, env } = await scanLocalMtimes(path);
@@ -119,75 +122,10 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		return Object.fromEntries(entries);
 	});
 
-	app.post<{ Params: { id: string }; Body: { path: string } }>(
-		"/api/workers/:id/local-path",
-		async (req, reply): Promise<AppConfig> => {
-			const raw = req.body?.path;
-			if (typeof raw !== "string" || !raw.trim()) {
-				return reply.code(400).send({ error: "path required" }) as unknown as AppConfig;
-			}
-			const abs = resolve(raw.trim());
-			const workersJsonPath = join(abs, "workers.json");
-			try {
-				const s = await stat(abs);
-				if (!s.isDirectory()) {
-					return reply
-						.code(400)
-						.send({ error: "path is not a directory", detail: abs }) as unknown as AppConfig;
-				}
-				await stat(workersJsonPath);
-			} catch {
-				return reply.code(400).send({
-					error: "not a worker project",
-					detail: `Expected ${abs} to be a directory containing workers.json`,
-				}) as unknown as AppConfig;
-			}
-			let folderWorkerId: unknown;
-			try {
-				const parsed = JSON.parse(await readFile(workersJsonPath, "utf8")) as {
-					workerId?: unknown;
-				};
-				folderWorkerId = parsed.workerId;
-			} catch {
-				return reply.code(400).send({
-					error: "workers.json is not valid JSON",
-					detail: workersJsonPath,
-				}) as unknown as AppConfig;
-			}
-			if (typeof folderWorkerId !== "string" || !folderWorkerId) {
-				return reply.code(400).send({
-					error: "workers.json is missing a workerId",
-					detail: workersJsonPath,
-				}) as unknown as AppConfig;
-			}
-			if (folderWorkerId !== req.params.id) {
-				let folderWorkerName: string | undefined;
-				try {
-					const pkgRaw = await readFile(join(abs, "package.json"), "utf8");
-					const pkg = JSON.parse(pkgRaw) as { name?: string };
-					folderWorkerName = pkg.name;
-				} catch {
-					/* no package.json or invalid JSON — leave undefined */
-				}
-				return reply.code(400).send({
-					error: "worker mismatch",
-					detail: `Folder ${abs} is registered to workerId=${folderWorkerId}, but you have workerId=${req.params.id} selected.`,
-					folderWorkerId,
-					folderWorkerName,
-					selectedWorkerId: req.params.id,
-				}) as unknown as AppConfig;
-			}
-			const updated = await updateConfig({
-				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: abs },
-			});
-			return updated;
-		},
-	);
-
 	app.get<{ Params: { id: string } }>(
 		"/api/workers/:id/local-info",
 		async (req, reply): Promise<LocalInfo> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(404)
@@ -221,19 +159,10 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
-	app.delete<{ Params: { id: string } }>(
-		"/api/workers/:id/local-path",
-		async (req): Promise<AppConfig> => {
-			const nextPaths = { ...(getConfig().workerLocalPaths ?? {}) };
-			delete nextPaths[req.params.id];
-			return updateConfig({ workerLocalPaths: nextPaths });
-		},
-	);
-
 	app.post<{ Params: { id: string } }>(
 		"/api/workers/:id/reveal",
 		async (req, reply): Promise<{ ok: true; path: string }> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -266,14 +195,36 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	// before a managed-database schema migration, and it can never be answered
 	// here (the CLI is always spawned non-interactively), so the caller has to
 	// decide deliberately — it is never assumed.
+	// The same folder check the deploy routes run, without doing anything. The
+	// client asks before opening its confirmation dialog: being told the folder
+	// belongs to another worker is worth knowing before confirming a deploy, not
+	// after. Answers 200 either way - a check that says "no" is not a failed
+	// request.
+	app.get<{ Params: { id: string } }>(
+		"/api/workers/:id/folder-check",
+		async (req): Promise<{ ok: boolean; error?: string; detail?: string }> => {
+			const path = await folderForWorker(req.params.id);
+			if (!path) return { ok: true }; // nothing registered, nothing to contradict
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			return mismatch ? { ok: false, ...mismatch } : { ok: true };
+		},
+	);
+
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string; yes?: string } }>(
 		"/api/workers/:id/deploy",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
 			}
 			const args = ["workers", "deploy", "--json"];
 			if (isVerbose(req.query.yes)) args.push("--yes");
@@ -289,7 +240,8 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				} catch {
 					/* stdout wasn't clean JSON; leave summary undefined */
 				}
-				await recordCodeDeploy(req.params.id);
+				await recordCodeDeploy(req.params.id, path);
+				invalidateScan();
 			}
 			return {
 				command: `ntn ${args.join(" ")}`,
@@ -353,11 +305,26 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
 		"/api/workers/:id/env/push",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
+			}
+			// .env is gitignored, so it belongs to a clone rather than a branch: a
+			// branch switch leaves the previous workspace's token sitting there.
+			// Check before pushing, since afterwards is too late.
+			const identity = await readWorkerIdentity(path);
+			const tokenMismatch = await tokenWorkspaceMismatch(path, identity?.workspaceId ?? null);
+			if (tokenMismatch) {
+				return reply.code(409).send(tokenMismatch) as unknown as DeployResult;
 			}
 			const verbose = isVerbose(req.query.verbose);
 			const pushArgs = ["workers", "env", "push", "--yes"];
@@ -365,7 +332,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const push = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
 			let followup: DeployResult["followup"];
 			if (push.exitCode === 0) {
-				await recordEnvPush(req.params.id);
+				await recordEnvPush(req.params.id, path);
 				const pullArgs = ["workers", "env", "pull", req.params.id, "--no-file", "--yes"];
 				if (verbose) pullArgs.push("-v");
 				const pull = await runNtnRawAllowingFailure(pullArgs, { cwd: path });
@@ -395,11 +362,18 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Querystring: { yes?: string } }>(
 		"/api/workers/:id/pnpm-deploy",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
 					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			// Re-read workers.json now: the registered path may have changed hands
+			// since it was registered, and ntn reads that file to decide which
+			// worker it updates.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
 			}
 			const args = ["run", "deploy"];
 			// pnpm forwards a flag placed after the script name straight into the
@@ -411,7 +385,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				cwd: path,
 				shell: true,
 			});
-			if (result.exitCode === 0) await recordCodeDeploy(req.params.id);
+			if (result.exitCode === 0) await recordCodeDeploy(req.params.id, path);
 			return {
 				command: result.command,
 				cwd: path,
@@ -426,7 +400,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 	app.post<{ Params: { id: string }; Body: { newName: string } }>(
 		"/api/workers/:id/rename",
 		async (req, reply): Promise<DeployResult> => {
-			const path = getConfig().workerLocalPaths?.[req.params.id];
+			const path = await folderForWorker(req.params.id);
 			if (!path) {
 				return reply
 					.code(400)
@@ -451,9 +425,8 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				}) as unknown as DeployResult;
 			}
 
-			await updateConfig({
-				workerLocalPaths: { ...(getConfig().workerLocalPaths ?? {}), [req.params.id]: newPath },
-			});
+			// The folder moved, so anything cached about where it was is wrong.
+			invalidateScan();
 
 			const ntnResult = await runNtnRawAllowingFailure(
 				["workers", "rename", "--worker-id", req.params.id, newName],
@@ -536,7 +509,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		"/api/workers/batch-actions",
 		async (req, reply) => {
 			const verbose = isVerbose(req.query.verbose);
-			const localPaths = getConfig().workerLocalPaths ?? {};
+			const localPaths = Object.fromEntries(await foldersByWorkerId());
 			const rawActions = req.body?.actions;
 			if (!Array.isArray(rawActions) || rawActions.length === 0) {
 				return reply.code(400).send({ error: "actions required" });
@@ -583,6 +556,16 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					continue;
 				}
 
+				const mismatch = await folderIdentityMismatch(path, action.workerId);
+				if (mismatch) {
+					send({
+						type: "chunk",
+						text: `\n--- ${action.label} ---\n${mismatch.error}. ${mismatch.detail}`,
+					});
+					hasError = true;
+					continue;
+				}
+
 				if (action.redeploy) {
 					send({ type: "chunk", text: `\n--- Deploying ${action.label} ---` });
 					let hasDeployScript = false;
@@ -616,7 +599,8 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					if (result.exitCode !== 0) {
 						hasError = true;
 					} else {
-						await recordCodeDeploy(action.workerId);
+						await recordCodeDeploy(action.workerId, path);
+						invalidateScan();
 					}
 					if (result.stdout) send({ type: "chunk", text: result.stdout });
 					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
@@ -624,6 +608,19 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 
 				if (action.pushSecrets) {
 					send({ type: "chunk", text: `\n--- Pushing secrets for ${action.label} ---` });
+					const identity = await readWorkerIdentity(path);
+					const tokenMismatch = await tokenWorkspaceMismatch(
+						path,
+						identity?.workspaceId ?? null,
+					);
+					if (tokenMismatch) {
+						send({
+							type: "chunk",
+							text: `${tokenMismatch.error}. ${tokenMismatch.detail}`,
+						});
+						hasError = true;
+						continue;
+					}
 					const pushArgs = ["workers", "env", "push", "--yes"];
 					if (verbose) pushArgs.push("-v");
 					const result = await runNtnRawAllowingFailure(pushArgs, { cwd: path });
@@ -633,7 +630,7 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 					if (result.exitCode !== 0) {
 						hasError = true;
 					} else {
-						await recordEnvPush(action.workerId);
+						await recordEnvPush(action.workerId, path);
 					}
 					if (result.stdout) send({ type: "chunk", text: result.stdout });
 					if (result.stderr) send({ type: "chunk", text: `stderr: ${result.stderr}` });
