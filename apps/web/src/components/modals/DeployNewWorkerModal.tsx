@@ -9,7 +9,7 @@ import { FolderPickerModal } from "./FolderPickerModal";
 // a worker the current `ntn` login has never deployed before — either a fresh
 // worker in the current workspace (testing) or the first worker in a new
 // client workspace (production). Two phases: pick a directory, then confirm
-// workspace/name/cleanup before the actual `ntn workers deploy --name` call.
+// name/cleanup before the actual `ntn workers deploy --name` call.
 export function DeployNewWorkerModal({
 	initialPath,
 	startPath,
@@ -30,7 +30,6 @@ export function DeployNewWorkerModal({
 }) {
 	const qc = useQueryClient();
 	const [path, setPath] = useState<string | null>(initialPath ?? null);
-	const [workspaceConfirmed, setWorkspaceConfirmed] = useState(false);
 	const [name, setName] = useState("");
 	const [nameEdited, setNameEdited] = useState(false);
 	const [scriptAcknowledged, setScriptAcknowledged] = useState(false);
@@ -96,7 +95,6 @@ export function DeployNewWorkerModal({
 
 	function changeFolder() {
 		setPath(null);
-		setWorkspaceConfirmed(false);
 		setName("");
 		setNameEdited(false);
 		setScriptAcknowledged(false);
@@ -142,13 +140,13 @@ export function DeployNewWorkerModal({
 	// Whether deploying will rewrite package.json's name (and scripts.deploy's
 	// embedded argument, if it's found there) to match what's typed above.
 	const packageNameBare = inspectQ.data?.packageName ?? null;
+	const envToken = inspectQ.data?.envToken;
 	const willRename = usePnpmDeploy && !!packageNameBare && packageNameBare !== normalized;
 	const scriptContainsOldName =
 		willRename && !!packageNameBare && !!inspectQ.data?.deployScript?.includes(packageNameBare);
 
 	let blockedReason: string | null = null;
-	if (!workspaceConfirmed) blockedReason = "Confirm the target workspace first.";
-	else if (inspectQ.isLoading) blockedReason = "Checking this folder…";
+	if (inspectQ.isLoading) blockedReason = "Checking this folder…";
 	else if (inspectQ.data?.hasWorkersJson) blockedReason = "Delete workers.json first — see above.";
 	else if (blockedByWorkspaceDeps) blockedReason = "This project needs a custom build — see above.";
 	else if (usePnpmDeploy && !scriptAcknowledged) {
@@ -199,34 +197,13 @@ export function DeployNewWorkerModal({
 						</button>
 					</div>
 
-					<div className="rounded border border-neutral-200 p-3 dark:border-neutral-800">
-						<h3 className="text-xs font-semibold">1. Target workspace</h3>
-						{!whoami ? (
-							<p className="mt-1 text-sm text-neutral-500">Checking current workspace…</p>
-						) : (
-							<>
-								<p className="mt-1 text-sm">
-									You are logged in to <span className="font-medium">{whoami.spaceName}</span> as{" "}
-									{whoami.userName}.
-								</p>
-								{workspaceConfirmed ? (
-									<p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
-										✓ Confirmed — deploying here.
-									</p>
-								) : (
-									<button
-										type="button"
-										onClick={() => setWorkspaceConfirmed(true)}
-										className="mt-2 rounded border border-neutral-300 px-3 py-1 text-sm hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-900"
-									>
-										This is correct — continue
-									</button>
-								)}
-							</>
-						)}
-					</div>
-
-					{workspaceConfirmed ? (
+					{/* No workspace confirmation step: the branch map's warnings and the
+					    .env token check below already flag a wrong workspace, and the
+					    final confirm names it. whoami is still awaited, because the
+					    token check compares against it. */}
+					{!whoami ? (
+						<p className="text-sm text-neutral-500">Checking current workspace…</p>
+					) : (
 						inspectQ.isLoading ? (
 							<p className="text-sm text-neutral-500">Checking folder…</p>
 						) : inspectQ.error ? (
@@ -333,12 +310,42 @@ export function DeployNewWorkerModal({
 									</div>
 								) : null}
 
-								{inspectQ.data.hasEnvFile ? (
-									<div className="rounded border border-neutral-200 p-3 dark:border-neutral-800">
+								{/* A token for the target workspace vouches for the whole file:
+								    no warning. Otherwise say what is known about it. */}
+								{inspectQ.data.hasEnvFile &&
+								envToken?.status === "ok" &&
+								envToken.workspaceId === whoami?.spaceId ? (
+									<p className="text-xs text-emerald-700 dark:text-emerald-400">
+										✓ <code>.env</code> token belongs to {envToken.workspaceName}.
+									</p>
+								) : inspectQ.data.hasEnvFile ? (
+									<div
+										className={
+											envToken?.status === "unchecked"
+												? "rounded border border-neutral-200 p-3 dark:border-neutral-800"
+												: "rounded border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30"
+										}
+									>
 										<h3 className="text-xs font-semibold">.env file</h3>
 										<p className="mt-1 text-sm">
-											This folder has a <code>.env</code> — it may hold secrets scoped to a
-											previous deployment.
+											{envToken?.status === "ok" ? (
+												<>
+													This folder's <code>.env</code> holds a <code>NOTION_API_TOKEN</code>{" "}
+													for <span className="font-medium">{envToken.workspaceName}</span>, not{" "}
+													<span className="font-medium">{whoami?.spaceName}</span>. Its secrets
+													belong to that workspace.
+												</>
+											) : envToken?.status === "rejected" ? (
+												<>
+													This folder's <code>.env</code> holds a <code>NOTION_API_TOKEN</code>{" "}
+													that Notion rejects — it has been revoked or is not a valid token.
+												</>
+											) : (
+												<>
+													This folder has a <code>.env</code> — it may hold secrets scoped to a
+													previous deployment. Its token could not be checked.
+												</>
+											)}
 										</p>
 										<button
 											type="button"
@@ -404,12 +411,19 @@ export function DeployNewWorkerModal({
 										type="button"
 										disabled={!canDeploy}
 										onClick={() => {
-											const confirmMsg = usePnpmDeploy
-												? `Run pnpm run deploy in ${path}?${willRename ? `\nThis will first rename "${packageNameBare}" to "${normalized}" in package.json${scriptContainsOldName ? " and scripts.deploy" : ""}.` : ""}\nThis is your project's own deploy script — see above.`
-												: `Deploy ${path} as a brand-new worker named "${normalized}" in ${whoami?.spaceName}?`;
-											if (window.confirm(confirmMsg)) {
-												if (usePnpmDeploy) pnpmDeploy.mutate(willRename ? normalized : undefined);
-												else deploy.mutate();
+											// No confirm for a deploy script: the "I've checked this script"
+											// checkbox is that confirmation, and the name field already says
+											// whether it will rename.
+											if (usePnpmDeploy) {
+												pnpmDeploy.mutate(willRename ? normalized : undefined);
+												return;
+											}
+											if (
+												window.confirm(
+													`Deploy ${path} as a brand-new worker named "${normalized}" in ${whoami?.spaceName}?`,
+												)
+											) {
+												deploy.mutate();
 											}
 										}}
 										title={blockedReason ?? undefined}
@@ -427,7 +441,7 @@ export function DeployNewWorkerModal({
 								</div>
 							</>
 						) : null
-					) : null}
+					)}
 				</div>
 			</div>
 		</div>
