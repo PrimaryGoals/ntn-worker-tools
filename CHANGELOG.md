@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-16
+
+Less friction deploying a worker to a workspace for the first time.
+
+### Changed
+- The deploy dialog no longer asks you to confirm the target workspace before anything else. The branch map's warnings and the `.env` token check already flag a wrong workspace, and the final confirmation names it
+- The `.env` notice in the deploy dialog says which workspace the file's `NOTION_API_TOKEN` belongs to instead of warning about every `.env`. A token for the workspace being deployed to shows a single green line; a token for another workspace, or one Notion rejects, is flagged in amber; a token that cannot be checked keeps the general notice
+- Deploying through a project's own deploy script no longer asks for confirmation a second time: the "I've checked this script" checkbox is that confirmation
+
+### Fixed
+- A first deploy that failed after `ntn` had created the worker left a worker with no code and a folder that still looked undeployed, so deploying again created a second worker. The folder is now linked to the worker that was created, and the output says to fix the error and use Deploy on that worker's row. This also covers deploy scripts that copy `workers.json` back into the folder when their deploy step fails
+
 ## [1.5.0] - 2026-09-12
 
 Working across more than one Notion workspace, where the same code is deployed to several and a git branch decides which one is current (#53, #57, #59, #61).
