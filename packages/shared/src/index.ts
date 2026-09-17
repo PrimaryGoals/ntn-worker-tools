@@ -510,6 +510,14 @@ export interface DeployResult {
 	};
 }
 
+export type EnvTokenCheck =
+	| { status: "ok"; workspaceId: string; workspaceName: string }
+	// Notion refused the token outright: revoked, or not a token at all.
+	| { status: "rejected" }
+	// No answer: no NOTION_API_TOKEN in the file, Notion unreachable, or a
+	// token that cannot be placed in a workspace.
+	| { status: "unchecked" };
+
 export interface DeployNewInspection {
 	path: string;
 	folderName: string;
@@ -517,6 +525,11 @@ export interface DeployNewInspection {
 	// Present only when workers.json exists and parses with the fields we need.
 	workersJson?: { workspaceId: string; workerId: string; environment: string };
 	hasEnvFile: boolean;
+	// Present only when hasEnvFile. Which workspace the .env's NOTION_API_TOKEN
+	// belongs to, so the UI can compare it with the deploy target instead of
+	// warning about every .env. A token for the right workspace vouches for the
+	// rest of the file.
+	envToken?: EnvTokenCheck;
 	// True when package.json declares scripts.deploy — usually a sign this
 	// worker lives in a monorepo and needs a custom local-bundle step, not a
 	// plain `ntn workers deploy`.
