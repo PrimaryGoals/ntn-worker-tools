@@ -135,6 +135,16 @@ export function useCommandMutations(
 			invalidateAfterDeploy();
 		},
 	});
+	const pullSecrets = useMutation({
+		mutationFn: (workerId: string) => api.pullWorkerSecrets(workerId, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// .env now exists (or changed): the menu's gates read it, and the
+			// "push secrets" badge compares its mtime against the recorded push.
+			qc.invalidateQueries({ queryKey: ["localInfo"] });
+			invalidateAfterDeploy();
+		},
+	});
 	const setEnvVar = useMutation({
 		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>
 			api.setWorkerEnvVar(workerId, key, value, verboseLogs),
@@ -225,6 +235,8 @@ export function useCommandMutations(
 			? "pnpm run deploy"
 			: pushSecrets.isPending
 				? "ntn workers env push"
+				: pullSecrets.isPending
+					? "ntn workers env pull"
 				: setEnvVar.isPending
 					? "ntn workers env set"
 					: syncTrigger.isPending
@@ -251,6 +263,7 @@ export function useCommandMutations(
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
+		(pullSecrets.error as Error | null) ??
 		(setEnvVar.error as Error | null) ??
 		(syncTrigger.error as Error | null) ??
 		(syncPause.error as Error | null) ??
@@ -269,6 +282,7 @@ export function useCommandMutations(
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
 		pushSecrets.reset();
+		pullSecrets.reset();
 		setEnvVar.reset();
 		syncTrigger.reset();
 		syncPause.reset();
@@ -286,6 +300,7 @@ export function useCommandMutations(
 		pnpmDeployWorker,
 		checkWorkerFolder,
 		pushSecrets,
+		pullSecrets,
 		setEnvVar,
 		syncTrigger,
 		syncPause,

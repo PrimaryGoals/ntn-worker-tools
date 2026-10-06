@@ -82,6 +82,7 @@ export interface WorkerMenuActions {
 	pnpmDeploy: () => void;
 	deployUpdatedWorkers: () => void;
 	pushSecrets: () => void;
+	pullSecrets: () => void;
 	openTokenPush: () => void;
 	oauthShowRedirectUrl: () => void;
 	oauthStart: () => void;
@@ -211,6 +212,13 @@ export function buildWorkerMenuGroups(
 						? NEEDS_FOLDER
 						: "No .env file found in the registered local folder.",
 					onSelect: actions.pushSecrets,
+				},
+				{
+					id: "pullSecrets",
+					label: "Pull secrets to .env",
+					disabled: !workerId || noFolder,
+					disabledReason: !workerId ? "Select a worker first." : NEEDS_FOLDER,
+					onSelect: actions.pullSecrets,
 				},
 				{
 					id: "openTokenPush",

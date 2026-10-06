@@ -239,6 +239,7 @@ function AppContent() {
 		deployWorker,
 		pnpmDeployWorker,
 		pushSecrets,
+		pullSecrets,
 		setEnvVar,
 		syncTrigger,
 		syncPause,
@@ -699,6 +700,21 @@ function AppContent() {
 					clearTransientOutputs();
 					pushSecrets.mutate(selectedWorkerId);
 				}
+			},
+			pullSecrets: () => {
+				if (!selectedWorkerId || !localPath) return;
+				// Pulling replaces .env wholesale, so a local file is a reason to
+				// stop and ask: this action is meant for a folder that has none.
+				if (
+					localInfoQ.data?.hasEnvFile &&
+					!window.confirm(
+						`A .env file already exists in ${localPath}.\n\n"Pull secrets to .env" is meant for when .env does not exist yet — it will OVERWRITE the current file with this worker's remote environment variables, and any local-only values will be lost.\n\nOverwrite it?`,
+					)
+				) {
+					return;
+				}
+				clearTransientOutputs();
+				pullSecrets.mutate(selectedWorkerId);
 			},
 			openTokenPush: () => {
 				setEnvVar.reset();

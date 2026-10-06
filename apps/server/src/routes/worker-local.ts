@@ -356,6 +356,45 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
+	// Writes the worker's remote env vars into the registered folder's .env,
+	// replacing it. The UI confirms before calling this when a .env already
+	// exists; `--yes` is what lets ntn overwrite without its own prompt, which
+	// can't be answered from a spawned process.
+	app.post<{ Params: { id: string }; Querystring: { verbose?: string } }>(
+		"/api/workers/:id/env/pull",
+		async (req, reply): Promise<DeployResult> => {
+			const path = await folderForWorker(req.params.id);
+			if (!path) {
+				return reply
+					.code(400)
+					.send({ error: "no local path registered for this worker" }) as unknown as DeployResult;
+			}
+			// Same guard as a push: ntn reads workers.json to decide which worker
+			// it is talking to, so a folder that has changed hands must not have
+			// another worker's variables written over its .env.
+			const mismatch = await folderIdentityMismatch(path, req.params.id);
+			if (mismatch) {
+				return reply.code(409).send(mismatch) as unknown as DeployResult;
+			}
+			const verbose = isVerbose(req.query.verbose);
+			const pullArgs = ["workers", "env", "pull", req.params.id, "--yes"];
+			if (verbose) pullArgs.push("-v");
+			const pull = await runNtnRawAllowingFailure(pullArgs, { cwd: path });
+			// A freshly pulled .env matches the remote by construction, so it is
+			// not "out of date" — without this its new mtime would light the
+			// "push secrets" badge for a file with nothing to push.
+			if (pull.exitCode === 0) await recordEnvPush(req.params.id, path);
+			return {
+				command: `ntn ${pullArgs.join(" ")}`,
+				cwd: path,
+				exitCode: pull.exitCode,
+				stdout: pull.stdout,
+				stderr: pull.stderr,
+				durationMs: pull.durationMs,
+			};
+		},
+	);
+
 	// A project's deploy script decides for itself what `--yes` means; this
 	// forwards it after `--` so the script sees it in argv, and sends nothing
 	// at all unless the caller asked.
