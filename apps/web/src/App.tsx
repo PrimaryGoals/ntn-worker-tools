@@ -28,6 +28,7 @@ import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
+import { SyncPickerModal, type SyncPickerOption } from "./components/modals/SyncPickerModal";
 import { SyncScheduleModal } from "./components/modals/SyncScheduleModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
 import { RunsList } from "./components/RunsList";
@@ -51,6 +52,7 @@ import {
 	formatDateTime,
 	formatDeployResult,
 	formatDuration,
+	formatInterval,
 	formatSessionEvents,
 	formatSyncStatuses,
 	formatWebhookResult,
@@ -60,6 +62,15 @@ import {
 	ntnCmd,
 	SEPARATOR,
 } from "./format";
+
+type SyncAction = "trigger" | "pause" | "resume" | "reset";
+
+const SYNC_ACTION_TITLES: Record<SyncAction, { title: string; confirm: string }> = {
+	trigger: { title: "Trigger Sync", confirm: "Trigger" },
+	pause: { title: "Pause Sync", confirm: "Pause" },
+	resume: { title: "Resume Sync", confirm: "Resume" },
+	reset: { title: "Reset Sync State", confirm: "Reset" },
+};
 
 export function App() {
 	return (
@@ -221,6 +232,8 @@ function AppContent() {
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const [agentCreditLimitOpen, setAgentCreditLimitOpen] = useState(false);
 	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
+	// Set while the "which sync?" prompt is open; null otherwise.
+	const [syncPickAction, setSyncPickAction] = useState<SyncAction | null>(null);
 	const {
 		checkWorkerFolder,
 		deployWorker,
@@ -572,10 +585,76 @@ function AppContent() {
 	// call of its own and moves in step with that marker. undefined entry
 	// (worker has no local folder, or none of its source declares a sync)
 	// means unknown, and neither item is gated.
-	const menuSyncKey = syncCapabilities[0]?.key ?? null;
-	const menuPausedKeys = selectedWorkerId ? syncPausedQ.data?.[selectedWorkerId] : undefined;
+	// With several syncs the gate summarises them all: true only when every one
+	// is paused, false only when none is, null when mixed — so pause and resume
+	// each stay available while there is something for them to act on.
+	const menuPausedKeys = selectedWorkerId ? syncPausedQ.data?.[selectedWorkerId]?.paused : undefined;
+	const menuPausedCount = menuPausedKeys
+		? syncCapabilities.filter((c) => menuPausedKeys.includes(c.key)).length
+		: null;
 	const menuSyncPaused =
-		menuSyncKey && menuPausedKeys ? menuPausedKeys.includes(menuSyncKey) : null;
+		menuPausedCount === null || syncCapabilities.length === 0
+			? null
+			: menuPausedCount === syncCapabilities.length
+				? true
+				: menuPausedCount === 0
+					? false
+					: null;
+
+	// Runs a sync action against one key, with the confirmations each had when
+	// it only ever acted on the first sync (now naming the sync).
+	function runSyncAction(action: SyncAction, syncKey: string) {
+		if (!selectedWorkerId) return;
+		const workerId = selectedWorkerId;
+		if (action === "pause" && !window.confirm(`Pause sync "${syncKey}"?`)) return;
+		if (
+			action === "reset" &&
+			!window.confirm(
+				`Reset sync state for "${syncKey}"?\nThis clears the sync cursor so the next run processes from scratch.`,
+			)
+		) {
+			return;
+		}
+		clearTransientOutputs();
+		const mutation =
+			action === "trigger"
+				? syncTrigger
+				: action === "pause"
+					? syncPause
+					: action === "resume"
+						? syncResume
+						: syncStateReset;
+		mutation.mutate({ workerId, syncKey });
+	}
+
+	// One sync: act on it directly. Several: ask which.
+	function startSyncAction(action: SyncAction) {
+		if (!selectedWorkerId || syncCapabilities.length === 0) return;
+		if (syncCapabilities.length === 1) runSyncAction(action, syncCapabilities[0]!.key);
+		else setSyncPickAction(action);
+	}
+
+	function syncPickerOptions(action: SyncAction): SyncPickerOption[] {
+		return syncCapabilities.map((c) => {
+			const status = syncStatusQ.data?.statuses.find((s) => s.capabilityKey === c.key);
+			const paused = menuPausedKeys?.includes(c.key) ?? null;
+			const interval = status?.schedule
+				? status.schedule.intervalMs > 0
+					? `every ${formatInterval(status.schedule.intervalMs)}`
+					: status.schedule.type
+				: null;
+			return {
+				key: c.key,
+				detail: [interval, paused ? "paused" : null].filter(Boolean).join(" · ") || "no status yet",
+				disabledReason:
+					action === "pause" && paused === true
+						? "Already paused."
+						: action === "resume" && paused === false
+							? "Running — nothing to resume."
+							: undefined,
+			};
+		});
+	}
 
 	// Built fresh on every render rather than memoised: these actions close
 	// over current state, and a stale dependency list here would mean a menu
@@ -667,34 +746,10 @@ function AppContent() {
 					webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
 				});
 			},
-			syncTrigger: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				clearTransientOutputs();
-				syncTrigger.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-			},
-			syncPause: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				if (window.confirm("Pause sync for this worker?")) {
-					clearTransientOutputs();
-					syncPause.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-				}
-			},
-			syncResume: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				clearTransientOutputs();
-				syncResume.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-			},
-			syncStateReset: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				if (
-					window.confirm(
-						"Reset sync state for this worker?\nThis clears the sync cursor so the next run processes from scratch.",
-					)
-				) {
-					clearTransientOutputs();
-					syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-				}
-			},
+			syncTrigger: () => startSyncAction("trigger"),
+			syncPause: () => startSyncAction("pause"),
+			syncResume: () => startSyncAction("resume"),
+			syncStateReset: () => startSyncAction("reset"),
 			updatePollingInterval: () => {
 				if (!selectedWorkerId || !localPath) return;
 				setSyncScheduleOpen(true);
@@ -1490,6 +1545,23 @@ function AppContent() {
 						} else {
 							deployWorker.mutate({ workerId: selectedWorkerId });
 						}
+					}}
+				/>
+			) : null}
+			{syncPickAction && selectedWorkerId ? (
+				<SyncPickerModal
+					title={SYNC_ACTION_TITLES[syncPickAction].title}
+					confirmLabel={SYNC_ACTION_TITLES[syncPickAction].confirm}
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					options={syncPickerOptions(syncPickAction)}
+				preselect={syncPickAction === "pause" || syncPickAction === "resume"}
+					onClose={() => setSyncPickAction(null)}
+					onPick={(key) => {
+						const action = syncPickAction;
+						setSyncPickAction(null);
+						runSyncAction(action, key);
 					}}
 				/>
 			) : null}

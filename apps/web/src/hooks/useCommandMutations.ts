@@ -62,9 +62,10 @@ export function useCommandMutations(
 					prev && workerId in prev
 						? {
 								...prev,
-								[workerId]: result.statuses
-									.filter((st) => st.disabled)
-									.map((st) => st.capabilityKey),
+								[workerId]: {
+									paused: result.statuses.filter((st) => st.disabled).map((st) => st.capabilityKey),
+									total: result.statuses.length,
+								},
 							}
 						: prev,
 				);

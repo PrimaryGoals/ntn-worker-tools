@@ -1,4 +1,4 @@
-import type { RunHealth, Worker } from "@ntn-worker-tools/shared";
+import type { RunHealth, SyncPausedByWorker, Worker } from "@ntn-worker-tools/shared";
 import { localOnlyLabel, type LocalOnlyRow } from "../workerRows";
 import { Empty } from "./ui/Panel";
 import { WorkerStatusDot } from "./ui/WorkerStatusDot";
@@ -39,7 +39,7 @@ export function WorkersList({
 	// workerId -> the capability keys whose sync is currently paused, from
 	// `ntn workers sync status`. Sits right after the interval badge, since a
 	// paused sync means that interval isn't being honoured.
-	syncPaused: Record<string, string[]>;
+	syncPaused: SyncPausedByWorker;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
 	// Scanned folders the connected workspace has no worker for. Listed below
@@ -111,13 +111,16 @@ export function WorkersList({
 										({syncSchedules[w.workerId]!.join(" / ")})
 									</span>
 								) : null}
-								{syncPaused[w.workerId]?.length ? (
+								{syncPaused[w.workerId]?.paused.length ? (
 									<span
 										className="text-xs font-medium text-amber-600 dark:text-amber-400"
-										title={`Paused: ${syncPaused[w.workerId]!.join(", ")}`}
+										title={`Paused: ${syncPaused[w.workerId]!.paused.join(", ")}`}
 									>
 										{" "}
 										paused
+										{syncPaused[w.workerId]!.total > 1
+											? ` (${syncPaused[w.workerId]!.paused.length} of ${syncPaused[w.workerId]!.total})`
+											: ""}
 									</span>
 								) : null}
 								<span className="font-mono text-xs text-neutral-500"> - {w.workerId}</span>

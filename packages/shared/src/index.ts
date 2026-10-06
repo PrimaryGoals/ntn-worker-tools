@@ -794,6 +794,10 @@ export function formatScheduleWithCredits(
 export interface SyncScheduleEntry {
 	// The sync capability key, i.e. the first argument to `worker.sync()`.
 	key: string;
+	// True when `key` is a template literal as written (`${prefix}Delta`) — one
+	// declaration then stands for several deployed syncs, and every one of them
+	// moves with an edit.
+	templated: boolean;
 	// Source file holding the declaration, relative to the worker's local
 	// folder and always posix-separated so it renders the same everywhere.
 	file: string;
@@ -837,8 +841,9 @@ export type SyncSchedulesByWorker = Record<string, string[]>;
 // live `ntn` fact rather than a source one, so it costs one call per worker —
 // it is gathered only for the workers that already earn an interval badge,
 // which is the same set the "paused" marker renders next to. A worker with
-// nothing paused is present with an empty array.
-export type SyncPausedByWorker = Record<string, string[]>;
+// nothing paused is present with an empty `paused` array. `total` is how many
+// syncs `ntn` reports for the worker, so the marker can read "paused (1 of 3)".
+export type SyncPausedByWorker = Record<string, { paused: string[]; total: number }>;
 
 export interface SyncScheduleUpdate {
 	key: string;

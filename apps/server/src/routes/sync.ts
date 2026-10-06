@@ -80,9 +80,11 @@ export default async function syncRoutes(app: FastifyInstance) {
 	app.get("/api/workers/sync-paused", async (): Promise<SyncPausedByWorker> => {
 		const paths = Object.fromEntries(await foldersByWorkerId());
 		const entries = await Promise.all(
-			Object.entries(paths).map(async ([workerId, path]): Promise<[string, string[]]> => {
+			Object.entries(paths).map(async ([workerId, path]): Promise<
+				[string, SyncPausedByWorker[string]]
+			> => {
 				const { entries: found } = await findSyncSchedules(path);
-				if (found.length === 0) return [workerId, []];
+				if (found.length === 0) return [workerId, { paused: [], total: 0 }];
 				try {
 					const statuses = await runNtnJson<Array<{ capabilityKey?: string; disabled?: boolean }>>([
 						"workers",
@@ -96,11 +98,11 @@ export default async function syncRoutes(app: FastifyInstance) {
 						.filter((st) => st.disabled)
 						.map((st) => st.capabilityKey)
 						.filter((key): key is string => !!key);
-					return [workerId, paused];
+					return [workerId, { paused, total: statuses.length }];
 				} catch {
 					// One worker's status failing (never deployed, transient API
 					// error) shouldn't blank the marker on every other worker.
-					return [workerId, []];
+					return [workerId, { paused: [], total: found.length }];
 				}
 			}),
 		);
