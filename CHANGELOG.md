@@ -4,6 +4,24 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-06
+
+Workers with several syncs, pulling a worker's secrets into a new folder, and a stopgap for Notion's new webhook URLs.
+
+### Added
+- "Pull secrets to .env" in the Worker menu writes the worker's remote environment variables into the registered folder's `.env`, for a clone that does not have one yet. Pulling replaces the file wholesale, so when a `.env` already exists the app asks before overwriting it. A freshly pulled `.env` matches the remote by construction, so it does not light the "push secrets" badge
+- "(use old format)" after a webhook URL on `*.webhook.notionusercontent.com`. Notion now hands back webhook URLs on that host, which the server's `www.notion.so` / `app.notion.com` check rejected. The link fires the same webhook, with its `X-Webhook-Secret`, at the equivalent `https://app.notion.com/webhooks/worker/…` address. It is a temporary workaround until the new host is accepted directly
+- Sync pause, resume, trigger and state reset ask which sync when a worker has more than one. The picker names each sync with its interval and paused state, opens with nothing selected for trigger and reset, and greys out a pause on a sync already paused and a resume on one already running. A worker with a single sync acts on it directly, as before
+
+### Changed
+- The worker list's "paused" marker reads "paused (1 of 3)" when only some of a worker's syncs are paused, and the menu offers pause and resume while any sync has something for them to act on. Before, only the first sync was ever looked at
+- The sync interval dialog tucks `manual` syncs (backfills, typically) behind a Show link, since they are never polled and have no interval to set. A worker whose syncs are all manual still lists them
+- Sync keys built from a template literal, such as `${prefix}Delta` from a helper that registers the same pair of syncs for several sources, are found in source and matched to their deployed syncs. Editing one moves every sync built from that declaration, and the dialog says so
+- The repository is built with pnpm 12.5.1 (was 11.25.0)
+
+### Fixed
+- Pause, resume, trigger and state reset acted on whichever sync happened to be declared first in a worker with several
+
 ## [1.5.1] - 2026-09-16
 
 Less friction deploying a worker to a workspace for the first time.
