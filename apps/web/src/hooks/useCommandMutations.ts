@@ -62,9 +62,10 @@ export function useCommandMutations(
 					prev && workerId in prev
 						? {
 								...prev,
-								[workerId]: result.statuses
-									.filter((st) => st.disabled)
-									.map((st) => st.capabilityKey),
+								[workerId]: {
+									paused: result.statuses.filter((st) => st.disabled).map((st) => st.capabilityKey),
+									total: result.statuses.length,
+								},
 							}
 						: prev,
 				);
@@ -131,6 +132,16 @@ export function useCommandMutations(
 			setDeployResult(data);
 			// Same staleness as a deploy: the "push secrets" badge is .env's mtime
 			// against the recorded push time, and this refreshed neither.
+			invalidateAfterDeploy();
+		},
+	});
+	const pullSecrets = useMutation({
+		mutationFn: (workerId: string) => api.pullWorkerSecrets(workerId, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// .env now exists (or changed): the menu's gates read it, and the
+			// "push secrets" badge compares its mtime against the recorded push.
+			qc.invalidateQueries({ queryKey: ["localInfo"] });
 			invalidateAfterDeploy();
 		},
 	});
@@ -224,6 +235,8 @@ export function useCommandMutations(
 			? "pnpm run deploy"
 			: pushSecrets.isPending
 				? "ntn workers env push"
+				: pullSecrets.isPending
+					? "ntn workers env pull"
 				: setEnvVar.isPending
 					? "ntn workers env set"
 					: syncTrigger.isPending
@@ -250,6 +263,7 @@ export function useCommandMutations(
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
+		(pullSecrets.error as Error | null) ??
 		(setEnvVar.error as Error | null) ??
 		(syncTrigger.error as Error | null) ??
 		(syncPause.error as Error | null) ??
@@ -268,6 +282,7 @@ export function useCommandMutations(
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
 		pushSecrets.reset();
+		pullSecrets.reset();
 		setEnvVar.reset();
 		syncTrigger.reset();
 		syncPause.reset();
@@ -285,6 +300,7 @@ export function useCommandMutations(
 		pnpmDeployWorker,
 		checkWorkerFolder,
 		pushSecrets,
+		pullSecrets,
 		setEnvVar,
 		syncTrigger,
 		syncPause,

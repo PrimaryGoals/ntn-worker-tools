@@ -199,6 +199,31 @@ export function SyncScheduleModal({
 		[syncStatuses],
 	);
 
+	// A `schedule: "manual"` sync (a backfill, typically) is never polled, so it
+	// has no interval to set. They are tucked away unless nothing else is left —
+	// a worker whose syncs are all manual would otherwise show an empty dialog.
+	const [showManual, setShowManual] = useState(false);
+	const manualEntries = entries.filter((e) => !e.expression && e.schedule === "manual");
+	const pollableEntries = entries.filter((e) => e.expression || e.schedule !== "manual");
+	const visibleEntries =
+		showManual || pollableEntries.length === 0 ? entries : pollableEntries;
+
+	// The deployed status for a declaration. A templated key (`${prefix}Delta`)
+	// stands for several deployed syncs, so it matches on the pattern and
+	// reports the first — they share the one declaration, and so one schedule.
+	function statusFor(e: SyncScheduleEntry): SyncStatus | undefined {
+		if (!e.templated) return statusByKey.get(e.key);
+		const pattern = new RegExp(
+			"^" +
+				e.key
+					.split(/\$\{[^}]*\}/)
+					.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+					.join(".+") +
+				"$",
+		);
+		return syncStatuses.find((s) => pattern.test(s.capabilityKey));
+	}
+
 	// Rows sharing a `via` constant in the same file are one declaration, so an
 	// edit to either has to move both — otherwise the save would send two
 	// conflicting rewrites of a single span.
@@ -374,13 +399,13 @@ export function SyncScheduleModal({
 									<span className="font-mono">continuous</span> /{" "}
 									<span className="font-mono">manual</span>.
 								</p>
-								{entries.map((e) => {
+								{visibleEntries.map((e) => {
 									const id = rowId(e);
 									const value = valueOf(e);
 									const readOnly = !!e.expression;
 									const error =
 										!readOnly && drafts[id] !== undefined ? syncScheduleError(value) : null;
-									const live = deployedInfo(statusByKey.get(e.key));
+									const live = deployedInfo(statusFor(e));
 									// Two independent figures: what the running schedule costs, and what the
 									// one in the field would. Kept as separate blocks — pairing one interval's
 									// label with the other's cost is what made this unreadable.
@@ -416,6 +441,7 @@ export function SyncScheduleModal({
 																: e.schedule === null
 																	? ` · no schedule set (default ${DEFAULT_SYNC_SCHEDULE})`
 																	: ""}
+														{e.templated ? " · applies to every sync built from this declaration" : ""}
 													</div>
 												</div>
 												{readOnly ? (
@@ -476,6 +502,20 @@ export function SyncScheduleModal({
 										</div>
 									);
 								})}
+								{manualEntries.length > 0 && pollableEntries.length > 0 ? (
+									<div className="text-[11px] text-neutral-500">
+										{manualEntries.length} manual sync{manualEntries.length > 1 ? "s" : ""} (never
+										polled, so no interval):{" "}
+										<span className="font-mono">{manualEntries.map((e) => e.key).join(", ")}</span>{" "}
+										<button
+											type="button"
+											onClick={() => setShowManual((v) => !v)}
+											className="underline"
+										>
+											{showManual ? "Hide" : "Show"}
+										</button>
+									</div>
+								) : null}
 								{schedulesQ.data?.unparsed.length ? (
 									<div className="text-[11px] text-amber-700 dark:text-amber-500">
 										Couldn't read sync declarations in:{" "}

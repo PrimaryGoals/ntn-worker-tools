@@ -252,6 +252,11 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ newName }),
 		}),
+	pullWorkerSecrets: (workerId: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/pull${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST" },
+		),
 	pushWorkerSecrets: (workerId: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,
