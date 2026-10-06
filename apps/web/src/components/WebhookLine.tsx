@@ -1,5 +1,13 @@
 import type { WebhookEntry } from "@ntn-worker-tools/shared";
 
+// Notion now hands back webhook URLs on <id>.webhook.notionusercontent.com;
+// the previous format was https://app.notion.com/webhooks/worker/... Returns
+// null when the URL is not in the new format.
+function toOldFormatUrl(url: string): string | null {
+	const next = url.replace(/^https:\/\/[^/]+\.webhook\.notionusercontent\.com\//, "https://app.notion.com/");
+	return next === url ? null : next;
+}
+
 export function WebhookLine({
 	loading,
 	error,
@@ -57,6 +65,7 @@ export function WebhookLine({
 		<div className="flex flex-col gap-0.5 text-xs">
 			{webhooks.map((w) => {
 				const isFiring = firing === w.url;
+					const oldUrl = toOldFormatUrl(w.url);
 				return (
 					<div key={w.key} className="flex items-baseline gap-2">
 						<span className="text-neutral-500">Webhook ({w.key}):</span>
@@ -77,6 +86,19 @@ export function WebhookLine({
 							{w.url}
 						</a>
 						{isFiring ? <span className="text-neutral-500">POSTing…</span> : null}
+							{oldUrl ? (
+								<a
+									href={oldUrl}
+									onClick={(e) => {
+										e.preventDefault();
+										if (firing === null) onFire(oldUrl);
+									}}
+									className="shrink-0 text-blue-600 hover:underline dark:text-blue-400"
+									title={`POST ${oldUrl}`}
+								>
+									(use old format)
+								</a>
+							) : null}
 					</div>
 				);
 			})}
