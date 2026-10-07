@@ -29,6 +29,10 @@ export interface WorkerMenuItem {
 	hidden?: boolean;
 	dropdownOnly?: boolean;
 	contextMenuOnly?: boolean;
+	// Left out of the context menu only; the dropdown still offers it. For an
+	// action that is always reachable from the dropdown but only worth a
+	// right-click when it is the likely next step.
+	contextMenuHidden?: boolean;
 }
 
 export interface WorkerMenuGroup {
@@ -83,6 +87,7 @@ export interface WorkerMenuActions {
 	deployUpdatedWorkers: () => void;
 	pushSecrets: () => void;
 	pullSecrets: () => void;
+	editSecrets: () => void;
 	openTokenPush: () => void;
 	oauthShowRedirectUrl: () => void;
 	oauthStart: () => void;
@@ -218,7 +223,17 @@ export function buildWorkerMenuGroups(
 					label: "Pull secrets to .env",
 					disabled: !workerId || noFolder,
 					disabledReason: !workerId ? "Select a worker first." : NEEDS_FOLDER,
+					// The dropdown keeps it (with its overwrite prompt); a right-click
+					// offers it only where it is the obvious next step: no .env yet.
+					contextMenuHidden: hasEnvFile,
 					onSelect: actions.pullSecrets,
+				},
+				{
+					id: "editSecrets",
+					label: "Edit Secrets",
+					disabled: !workerId,
+					disabledReason: "Select a worker first.",
+					onSelect: actions.editSecrets,
 				},
 				{
 					id: "openTokenPush",
@@ -348,12 +363,15 @@ export function dropdownGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] {
 
 // The context menu's view: worker-scoped groups only, and only the items that
 // can actually fire right now — a right-click menu offers no greyed rows.
+// `contextMenuHidden` items are dropped here too.
 export function contextMenuGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] {
 	const usable = groups
 		.filter((g) => !g.hidden && !g.dropdownOnly && !g.disabled)
 		.map((g) => ({
 			...g,
-			items: g.items.filter((i) => !i.hidden && !i.dropdownOnly && !i.disabled),
+			items: g.items.filter(
+				(i) => !i.hidden && !i.dropdownOnly && !i.disabled && !i.contextMenuHidden,
+			),
 		}))
 		.filter((g) => g.items.length > 0);
 

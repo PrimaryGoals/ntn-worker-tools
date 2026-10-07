@@ -127,6 +127,23 @@ export async function recordCodeDeploy(workerId: string, dir?: string | null): P
 // Called after this app itself successfully pushes env vars (env/push or
 // env/set). env/set passes no folder: it targets a worker by id and never reads
 // a local .env, so there is nothing to fingerprint.
+// Called after the live env was changed by hand (Edit Secrets), so a local .env
+// that was in sync no longer is. The fingerprint is a value no file hashes to,
+// which keeps the "push secrets" badge lit for any .env until it is pushed again
+// - a timestamp alone would not, since .env itself has not changed.
+export const ENV_DIVERGED_FINGERPRINT = "diverged-from-live";
+
+export async function recordEnvDiverged(workerId: string): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
+	const record: WorkerDeployRecord = {
+		at: new Date().toISOString(),
+		fingerprint: ENV_DIVERGED_FINGERPRINT,
+	};
+	await updateConfig({
+		workerEnvPushes: { ...(config.workerEnvPushes ?? {}), [workerId]: record },
+	});
+}
+
 export async function recordEnvPush(workerId: string, dir?: string | null): Promise<void> {
 	if (skipRecordForNewerFile(workerId)) return;
 	const record = await deployRecord(dir, "env");
