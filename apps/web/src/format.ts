@@ -257,6 +257,25 @@ export function extractWebhookSecret(envText: string): string | undefined {
 	return v || undefined;
 }
 
+// KEY=VALUE lines from `ntn workers env pull`, in file order. Comments and
+// blank lines are skipped, and one pair of matching quotes around a value is
+// removed. A repeated key keeps its last value, as a dotenv loader would.
+export function parseEnvText(envText: string): Array<{ key: string; value: string }> {
+	const byKey = new Map<string, string>();
+	for (const raw of envText.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+		if (!m) continue;
+		let value = m[2] ?? "";
+		const q = value[0];
+		if (value.length >= 2 && (q === '"' || q === "'") && value.endsWith(q)) {
+			value = value.slice(1, -1);
+		}
+		byKey.set(m[1]!, value);
+	}
+	return [...byKey].map(([key, value]) => ({ key, value }));
+}
+
 export function formatWebhookResult(r: WebhookFireResult): string {
 	const status = r.statusText ? `${r.status} ${r.statusText}` : `${r.status}`;
 	const lines = [`Status: ${status}   (${r.durationMs} ms)`];

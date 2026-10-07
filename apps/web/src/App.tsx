@@ -26,6 +26,7 @@ import { BranchWorkspaceMapModal } from "./components/modals/BranchWorkspaceMapM
 import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
+import { EditSecretsModal } from "./components/modals/EditSecretsModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { SyncPickerModal, type SyncPickerOption } from "./components/modals/SyncPickerModal";
@@ -234,6 +235,10 @@ function AppContent() {
 	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
 	// Set while the "which sync?" prompt is open; null otherwise.
 	const [syncPickAction, setSyncPickAction] = useState<SyncAction | null>(null);
+	const [editSecretsOpen, setEditSecretsOpen] = useState(false);
+	// False from opening the dialog until the read it triggers has finished, so
+	// it never builds its rows from a cached copy.
+	const [editSecretsFresh, setEditSecretsFresh] = useState(false);
 	const {
 		checkWorkerFolder,
 		deployWorker,
@@ -241,6 +246,7 @@ function AppContent() {
 		pushSecrets,
 		pullSecrets,
 		setEnvVar,
+		editSecrets,
 		syncTrigger,
 		syncPause,
 		syncResume,
@@ -715,6 +721,15 @@ function AppContent() {
 				}
 				clearTransientOutputs();
 				pullSecrets.mutate(selectedWorkerId);
+			},
+			editSecrets: () => {
+				if (!selectedWorkerId) return;
+				editSecrets.reset();
+				// Always read fresh: the dialog edits what the worker has now, and a
+				// cached copy could be from before someone else changed it.
+				setEditSecretsFresh(false);
+				setEditSecretsOpen(true);
+				void envQ.refetch().finally(() => setEditSecretsFresh(true));
 			},
 			openTokenPush: () => {
 				setEnvVar.reset();
@@ -1490,6 +1505,44 @@ function AppContent() {
 							key: "NOTION_API_TOKEN",
 							value: token,
 						});
+					}}
+				/>
+			) : null}
+			{editSecretsOpen && selectedWorkerId ? (
+				<EditSecretsModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					envText={envQ.data?.text}
+					loading={!editSecretsFresh}
+					loadError={envQ.error as Error | null}
+					submitting={editSecrets.isPending}
+					error={
+						editSecrets.error
+							? (editSecrets.error as Error).message
+							: editSecrets.data && editSecrets.data.exitCode !== 0
+								? editSecrets.data.stderr.trim() ||
+									`ntn exited with code ${editSecrets.data.exitCode} — see the output panel.`
+								: null
+					}
+					onClose={() => {
+						// Cancel, Escape, ✕ and a click outside all land here. Nothing is
+						// changed, but the live variables are still read back into the
+						// output panel (an apply with no changes is just that read).
+						setEditSecretsOpen(false);
+						clearTransientOutputs();
+						editSecrets.mutate({ workerId: selectedWorkerId, changes: { set: [], unset: [] } });
+					}}
+					onSave={(changes) => {
+						clearTransientOutputs();
+						editSecrets.mutate(
+							{ workerId: selectedWorkerId, changes },
+							{
+								onSuccess: (data) => {
+									if (data.exitCode === 0) setEditSecretsOpen(false);
+								},
+							},
+						);
 					}}
 				/>
 			) : null}

@@ -267,6 +267,15 @@ export const api = {
 			`/api/workers/${workerId}/env/set${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ key, value }) },
 		),
+	applyWorkerEnvChanges: (
+		workerId: string,
+		changes: { set: Array<{ key: string; value: string }>; unset: string[] },
+		verbose = false,
+	) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/apply${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify(changes) },
+		),
 	// Note: /api/workers/batch-actions streams NDJSON and is called directly
 	// via fetch() from DeployUpdatedWorkersModal, not through this helper —
 	// request<T>() only supports one-shot JSON responses.

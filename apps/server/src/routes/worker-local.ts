@@ -16,7 +16,13 @@ import { isVerbose } from "../route-helpers.js";
 import { tokenWorkspaceMismatch } from "../token-workspace.js";
 import { folderForWorker, foldersByWorkerId, invalidateScan } from "../scan-cache.js";
 import { folderIdentityMismatch, readWorkerIdentity } from "../workers-json.js";
-import { getConfig, recordCodeDeploy, recordEnvPush, updateConfig } from "../state.js";
+import {
+	getConfig,
+	recordCodeDeploy,
+	recordEnvDiverged,
+	recordEnvPush,
+	updateConfig,
+} from "../state.js";
 
 
 // Recursively finds the most recent "code" file mtime under `dir` (used
@@ -255,6 +261,84 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 		},
 	);
 
+	// Applies the Edit Secrets dialog's changes: `ntn workers env unset` for each
+	// deletion, then `ntn workers env set` for each edit. One ntn call apiece, run
+	// in order and stopped at the first failure so the result says exactly how far
+	// it got. Not recorded as a push: it targets the worker by id and never reads
+	// the local .env, so it says nothing about whether that file is in sync.
+	app.post<{
+		Params: { id: string };
+		Querystring: { verbose?: string };
+		Body: { set?: Array<{ key: string; value: string }>; unset?: string[] };
+	}>(
+		"/api/workers/:id/env/apply",
+		async (req, reply): Promise<DeployResult> => {
+			const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+			const sets = req.body?.set ?? [];
+			const unsets = req.body?.unset ?? [];
+			const bad =
+				unsets.find((k) => typeof k !== "string" || !KEY_RE.test(k)) ??
+				sets.map((s) => s?.key).find((k) => typeof k !== "string" || !KEY_RE.test(k));
+			if (bad !== undefined) {
+				return reply.code(400).send({ error: "invalid variable name" }) as unknown as DeployResult;
+			}
+			if (sets.some((s) => typeof s.value !== "string" || !s.value)) {
+				return reply.code(400).send({ error: "value required" }) as unknown as DeployResult;
+			}
+			const verbose = isVerbose(req.query.verbose);
+			const v = verbose ? ["-v"] : [];
+			const steps = [
+				...unsets.map((key) => ({
+					args: ["workers", "env", "unset", "--worker-id", req.params.id, key, ...v],
+					logAs: ["workers", "env", "unset", "--worker-id", req.params.id, key, ...v],
+				})),
+				...sets.map(({ key, value }) => ({
+					args: ["workers", "env", "set", "--worker-id", req.params.id, `${key}=${value}`, ...v],
+					logAs: ["workers", "env", "set", "--worker-id", req.params.id, `${key}=<redacted>`, ...v],
+				})),
+			];
+			const commands: string[] = [];
+			const out: string[] = [];
+			const err: string[] = [];
+			let exitCode = 0;
+			let durationMs = 0;
+			let applied = 0;
+			for (const step of steps) {
+				const result = await runShellAllowingFailure("ntn", step.args, { logAs: step.logAs });
+				commands.push(`ntn ${step.logAs.join(" ")}`);
+				durationMs += result.durationMs;
+				if (result.stdout) out.push(result.stdout);
+				if (result.stderr) err.push(result.stderr);
+				if (result.exitCode !== 0) {
+					exitCode = result.exitCode;
+					break;
+				}
+				applied++;
+			}
+			// Even a partial run changed the live env, so the local .env is no
+			// longer what the worker has: flag it for a push.
+			if (applied > 0) await recordEnvDiverged(req.params.id);
+			// Always read the live env back afterwards, whether the changes
+			// succeeded, failed part-way, or there were none (Cancel), so the
+			// panel ends on what the worker has now. Its own failure is reported
+			// in the output but does not change the save's exit code.
+			const pullArgs = ["workers", "env", "pull", req.params.id, "--no-file", "--yes", ...v];
+			const pull = await runShellAllowingFailure("ntn", pullArgs);
+			commands.push(`ntn ${pullArgs.join(" ")}`);
+			durationMs += pull.durationMs;
+			if (pull.stderr) err.push(pull.stderr);
+			out.push(`--- Variables now on the worker ---\n${pull.stdout.trimEnd()}`);
+			return {
+				command: commands.join("\n"),
+				cwd: "",
+				exitCode,
+				stdout: out.join("\n"),
+				stderr: err.join("\n"),
+				durationMs,
+			};
+		},
+	);
+
 	app.post<{
 		Params: { id: string };
 		Querystring: { verbose?: string };
@@ -424,7 +508,12 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 				cwd: path,
 				shell: true,
 			});
-			if (result.exitCode === 0) await recordCodeDeploy(req.params.id, path);
+			if (result.exitCode === 0) {
+				await recordCodeDeploy(req.params.id, path);
+				// The cached scan holds the pre-deploy fingerprint; the next read
+				// must see the folder as the deploy left it.
+				invalidateScan();
+			}
 			return {
 				command: result.command,
 				cwd: path,
