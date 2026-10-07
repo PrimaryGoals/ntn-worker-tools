@@ -1155,7 +1155,10 @@ function AppContent() {
 							error={webhooksQ.error as Error | null}
 							webhooks={webhooksQ.data?.webhooks ?? []}
 							onFire={(url) => {
-								setWebhookResult(null);
+								// The panel shows a leftover deploy/command result ahead of any
+								// webhook result, so that has to be cleared too - not just the last
+								// webhook's - or the POST would run with nothing shown.
+								clearTransientOutputs();
 								fireWebhook.mutate({
 									url,
 									webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
