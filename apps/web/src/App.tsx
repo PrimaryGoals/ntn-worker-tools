@@ -376,6 +376,13 @@ function AppContent() {
 		// the scan, so without this a folder deployed since the last scan keeps
 		// saying "not on server" however often you refresh.
 		scanQ.refetch();
+		// The runs panel for whatever is showing. refetch() ignores a query's
+		// `enabled`, so only the one the panel is actually reading is fired.
+		if (crossWorkerView) {
+			if (configQ.data?.timeMarker) crossWorkerRunsQ.refetch();
+		} else if (selectedWorkerId) {
+			runsQ.refetch();
+		}
 	}
 
 	function openBranchMap() {
