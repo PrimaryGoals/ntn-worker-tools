@@ -1,4 +1,4 @@
-import type { Run } from "@ntn-worker-tools/shared";
+import { isDeadRun, type Run } from "@ntn-worker-tools/shared";
 import { formatDateTime, formatDuration } from "../format";
 import { Empty } from "./ui/Panel";
 import { ExitCodeBadge } from "./ui/ExitCodeBadge";
@@ -30,6 +30,7 @@ export function RunsList({
 	markerTime,
 	workerNames,
 	showWorkerColumn,
+	deadAfterSeconds,
 	onSelect,
 }: {
 	loading: boolean;
@@ -39,6 +40,8 @@ export function RunsList({
 	markerTime?: string | null;
 	workerNames?: Record<string, string>;
 	showWorkerColumn?: boolean;
+	// The server's WORKER_DEAD_TIMEOUT, from the runs payload.
+	deadAfterSeconds?: number;
 	onSelect: (id: string) => void;
 }) {
 	if (loading) return <Empty>Loading runs…</Empty>;
@@ -100,10 +103,17 @@ export function RunsList({
 							<td className="px-3 py-1.5 font-medium">{row.run.name}</td>
 							<td className="px-3 py-1.5">{row.run.actorName}</td>
 							<td className="px-3 py-1.5">
-								<ExitCodeBadge code={row.run.exitCode} />
+								<ExitCodeBadge
+									code={row.run.exitCode}
+									dead={isDeadRun(row.run, deadAfterSeconds)}
+								/>
 							</td>
 							<td className="px-3 py-1.5 font-mono text-xs">
-								{formatDuration(row.run.startedAt, row.run.endedAt)}
+								{formatDuration(
+									row.run.startedAt,
+									row.run.endedAt,
+									isDeadRun(row.run, deadAfterSeconds),
+								)}
 							</td>
 							<td className="px-3 py-1.5 text-xs text-neutral-500">
 								{formatDateTime(row.run.startedAt)}

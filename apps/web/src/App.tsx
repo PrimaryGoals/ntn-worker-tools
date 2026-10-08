@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
-import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { isDeadRun, normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
 import { buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
 import { RepoBanner, UnmappedReposLine } from "./components/RepoBanner";
@@ -1117,6 +1117,9 @@ function AppContent() {
 											markerTime={configQ.data?.timeMarker ?? null}
 											workerNames={workerNamesById}
 											showWorkerColumn={crossWorkerView}
+											deadAfterSeconds={
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds
+											}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -1192,7 +1195,13 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Exit:</span>{" "}
-									<ExitCodeBadge code={selectedRun.exitCode} />
+									<ExitCodeBadge
+										code={selectedRun.exitCode}
+										dead={isDeadRun(
+											selectedRun,
+											(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+										)}
+									/>
 								</span>
 								<span>
 									<span className="text-neutral-500">Started:</span>{" "}
@@ -1200,7 +1209,14 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Duration:</span>{" "}
-									{formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
+									{formatDuration(
+										selectedRun.startedAt,
+										selectedRun.endedAt,
+										isDeadRun(
+											selectedRun,
+											(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+										),
+									)}
 								</span>
 							</>
 						) : selectedSession ? (

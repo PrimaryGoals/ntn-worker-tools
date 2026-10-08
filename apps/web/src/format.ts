@@ -26,8 +26,14 @@ export function isValidWorkerName(name: string): boolean {
 	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
 }
 
-export function formatDuration(startedAt: string, endedAt: string | null): string {
-	if (!endedAt) return "running";
+// A run is exactly one of: finished (has an end time), running, or dead. `dead`
+// takes precedence over running, so the same run never reads as both.
+export function formatDuration(
+	startedAt: string,
+	endedAt: string | null,
+	dead = false,
+): string {
+	if (!endedAt) return dead ? "dead" : "running";
 	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
 	if (!Number.isFinite(ms) || ms < 0) return "?";
 	if (ms < 1000) return `${ms}ms`;

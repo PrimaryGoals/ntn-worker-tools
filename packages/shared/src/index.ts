@@ -41,6 +41,25 @@ export interface Run {
 export interface RunsPayload {
 	runs: Run[];
 	nextCursor?: string;
+	// Seconds after which a run still lacking an exit code and an end time is
+	// shown as dead rather than running. The server's WORKER_DEAD_TIMEOUT;
+	// absent from payloads that did not pass through the server's runs routes.
+	deadAfterSeconds?: number;
+}
+
+export const DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS = 315;
+
+// A run with no exit code and no end time that started longer ago than the
+// timeout: the sandbox was killed without reporting, so it will never finish.
+export function isDeadRun(
+	run: Pick<Run, "exitCode" | "endedAt" | "startedAt">,
+	deadAfterSeconds: number | undefined,
+	now: number = Date.now(),
+): boolean {
+	if (run.exitCode != null || run.endedAt) return false;
+	const started = new Date(run.startedAt).getTime();
+	if (!Number.isFinite(started)) return false;
+	return now - started > (deadAfterSeconds ?? DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS) * 1000;
 }
 
 // A worker's recent-run health, shown as a colored dot in the workers list.

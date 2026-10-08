@@ -8,13 +8,26 @@ import type {
 	RunsPayload,
 	Worker,
 } from "@ntn-worker-tools/shared";
-import { computeRunHealth, RUN_HEALTH_WINDOW } from "@ntn-worker-tools/shared";
+import {
+	computeRunHealth,
+	DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS,
+	RUN_HEALTH_WINDOW,
+} from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace } from "../ntn.js";
 import { attachTrace, isVerbose } from "../route-helpers.js";
 
 // Safety cap on pagination depth per worker — protects against an
 // unbounded loop if the CLI ever returns a cursor that never terminates.
 const MAX_PAGES_PER_WORKER = 50;
+
+// WORKER_DEAD_TIMEOUT (seconds, from apps/server/.env): how long a run may sit
+// without an exit code or end time before the UI calls it dead. .env is read once
+// at startup, so a change needs a server restart. An unset, non-numeric or
+// non-positive value falls back to the default.
+function deadAfterSeconds(): number {
+	const n = Number.parseInt(process.env.WORKER_DEAD_TIMEOUT ?? "", 10);
+	return Number.isFinite(n) && n > 0 ? n : DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS;
+}
 
 // Pages through one worker's runs (newest-first, per the CLI's own
 // ordering) until a run older than `sinceMs` is seen or the pages run out,
@@ -82,7 +95,8 @@ export default async function runsRoutes(app: FastifyInstance) {
 			const args = ["workers", "runs", "list", req.params.id];
 			if (req.query.cursor) args.push("--cursor", req.query.cursor);
 			if (req.query.pageSize) args.push("--page-size", req.query.pageSize);
-			return runNtnJson<RunsPayload>(args);
+			const payload = await runNtnJson<RunsPayload>(args);
+			return { ...payload, deadAfterSeconds: deadAfterSeconds() };
 		},
 	);
 
@@ -105,7 +119,7 @@ export default async function runsRoutes(app: FastifyInstance) {
 			const health = Object.fromEntries(
 				workers.map((worker, i) => [worker.workerId, perWorker[i]!.health]),
 			);
-			return { runs, health };
+			return { runs, health, deadAfterSeconds: deadAfterSeconds() };
 		},
 	);
 

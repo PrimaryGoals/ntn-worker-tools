@@ -1,6 +1,15 @@
-export function ExitCodeBadge({ code }: { code: number | null }) {
+export function ExitCodeBadge({ code, dead = false }: { code: number | null; dead?: boolean }) {
 	if (code == null) {
-		return (
+		// No exit code and no end time: still running, or - once past the dead
+		// timeout - killed without ever reporting.
+		return dead ? (
+			<span
+				className="inline-block rounded bg-orange-100 px-1.5 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300"
+				title="No exit code or end time, and it started longer ago than WORKER_DEAD_TIMEOUT."
+			>
+				dead
+			</span>
+		) : (
 			<span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
 				running
 			</span>
