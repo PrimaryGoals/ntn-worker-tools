@@ -52,6 +52,7 @@ import {
 	formatCapabilities,
 	formatDateTime,
 	formatDeployResult,
+	formatDeadDuration,
 	formatDuration,
 	formatInterval,
 	formatSessionEvents,
@@ -1209,14 +1210,14 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Duration:</span>{" "}
-									{formatDuration(
-										selectedRun.startedAt,
-										selectedRun.endedAt,
-										isDeadRun(
-											selectedRun,
-											(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
-										),
-									)}
+									{isDeadRun(
+										selectedRun,
+										(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+									)
+										? formatDeadDuration(
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+											)
+										: formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
 								</span>
 							</>
 						) : selectedSession ? (

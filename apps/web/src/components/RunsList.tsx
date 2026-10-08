@@ -1,5 +1,5 @@
 import { isDeadRun, type Run } from "@ntn-worker-tools/shared";
-import { formatDateTime, formatDuration } from "../format";
+import { formatDateTime, formatDeadDuration, formatDuration } from "../format";
 import { Empty } from "./ui/Panel";
 import { ExitCodeBadge } from "./ui/ExitCodeBadge";
 
@@ -109,11 +109,9 @@ export function RunsList({
 								/>
 							</td>
 							<td className="px-3 py-1.5 font-mono text-xs">
-								{formatDuration(
-									row.run.startedAt,
-									row.run.endedAt,
-									isDeadRun(row.run, deadAfterSeconds),
-								)}
+								{isDeadRun(row.run, deadAfterSeconds)
+									? formatDeadDuration(deadAfterSeconds)
+									: formatDuration(row.run.startedAt, row.run.endedAt)}
 							</td>
 							<td className="px-3 py-1.5 text-xs text-neutral-500">
 								{formatDateTime(row.run.startedAt)}

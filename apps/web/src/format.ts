@@ -7,6 +7,7 @@ import type {
 	WorkerUsage,
 	Whoami,
 } from "@ntn-worker-tools/shared";
+import { DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS } from "@ntn-worker-tools/shared";
 import type { ApiRequestError } from "./api";
 
 const VALID_WORKER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -26,14 +27,15 @@ export function isValidWorkerName(name: string): boolean {
 	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
 }
 
-// A run is exactly one of: finished (has an end time), running, or dead. `dead`
-// takes precedence over running, so the same run never reads as both.
-export function formatDuration(
-	startedAt: string,
-	endedAt: string | null,
-	dead = false,
-): string {
-	if (!endedAt) return dead ? "dead" : "running";
+// A dead run never reported an end, so its real duration is unknown. All that is
+// known is that it outlasted the dead timeout: ">5m 15s" for the default 315 s.
+export function formatDeadDuration(deadAfterSeconds: number | undefined): string {
+	const ms = (deadAfterSeconds ?? DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS) * 1000;
+	return `>${formatDuration(new Date(0).toISOString(), new Date(ms).toISOString())}`;
+}
+
+export function formatDuration(startedAt: string, endedAt: string | null): string {
+	if (!endedAt) return "running";
 	const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
 	if (!Number.isFinite(ms) || ms < 0) return "?";
 	if (ms < 1000) return `${ms}ms`;
