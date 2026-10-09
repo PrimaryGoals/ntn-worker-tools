@@ -7,6 +7,7 @@ import type { AppConfig, Worker } from "@ntn-worker-tools/shared";
 export const RECORD_FIELDS = [
 	"workerDeploys",
 	"workerEnvPushes",
+	"workerEnvBlocks",
 	"workerLastCodeDeployAt",
 	"workerLastEnvPushAt",
 ] as const;

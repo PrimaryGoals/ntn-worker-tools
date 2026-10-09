@@ -99,6 +99,8 @@ export async function resolveTokenWorkspace(token: string): Promise<TokenWorkspa
 export interface TokenWorkspaceMismatch {
 	error: string;
 	detail: string;
+	// Which of the two definite answers this is, for recording it.
+	reason: "wrong-workspace" | "rejected";
 	tokenWorkspaceId?: string;
 	tokenWorkspaceName?: string;
 }
@@ -127,6 +129,7 @@ export async function tokenWorkspaceMismatch(
 	if (result.status === "rejected") {
 		return {
 			error: "NOTION_API_TOKEN is not valid",
+			reason: "rejected",
 			detail:
 				`${join(dir, ".env")} holds a NOTION_API_TOKEN that Notion will not accept — ` +
 				`${result.detail}. Pushing it would leave the worker with a credential that ` +
@@ -137,6 +140,7 @@ export async function tokenWorkspaceMismatch(
 
 	return {
 		error: "token belongs to another workspace",
+		reason: "wrong-workspace",
 		detail:
 			`${join(dir, ".env")} holds a NOTION_API_TOKEN for ${result.workspace.workspaceName} ` +
 			`(${result.workspace.workspaceId}), but this worker lives in workspace ` +

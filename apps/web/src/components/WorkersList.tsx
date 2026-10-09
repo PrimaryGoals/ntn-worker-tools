@@ -1,4 +1,4 @@
-import type { RunHealth, SyncPausedByWorker, Worker } from "@ntn-worker-tools/shared";
+import type { RunHealth, SyncPausedByWorker, Worker, WorkerEnvBlock } from "@ntn-worker-tools/shared";
 import { localOnlyLabel, type LocalOnlyRow } from "../workerRows";
 import { Empty } from "./ui/Panel";
 import { WorkerStatusDot } from "./ui/WorkerStatusDot";
@@ -14,6 +14,7 @@ export function WorkersList({
 	syncPaused,
 	codeOutOfDateWorkerIds,
 	envOutOfDateWorkerIds,
+	envBlockedByWorkerId,
 	localOnly,
 	ignoredFolders,
 	onIgnoreFolder,
@@ -42,6 +43,10 @@ export function WorkersList({
 	syncPaused: SyncPausedByWorker;
 	codeOutOfDateWorkerIds: Set<string>;
 	envOutOfDateWorkerIds: Set<string>;
+	// Workers whose last secrets push was refused for a token that does not
+	// belong to their workspace. Shown instead of "push secrets", which would only
+	// be refused again.
+	envBlockedByWorkerId: Map<string, WorkerEnvBlock>;
 	// Scanned folders the connected workspace has no worker for. Listed below
 	// the server workers, and not selectable yet: selection, run health and the
 	// details pane are all keyed by workerId, which these do not have.
@@ -127,7 +132,16 @@ export function WorkersList({
 								{codeOutOfDateWorkerIds.has(w.workerId) && (
 									<span className="font-medium text-red-600 dark:text-red-400"> - redeploy</span>
 								)}
-								{envOutOfDateWorkerIds.has(w.workerId) && (
+								{envBlockedByWorkerId.has(w.workerId) ? (
+									<span
+										className="font-medium text-red-600 dark:text-red-400"
+										title={envBlockedByWorkerId.get(w.workerId)!.message}
+									>
+										{" "}
+										- invalid secrets
+									</span>
+								) : null}
+								{envOutOfDateWorkerIds.has(w.workerId) && !envBlockedByWorkerId.has(w.workerId) && (
 									<span className="font-medium text-amber-600 dark:text-amber-400">
 										{" "}
 										- push secrets

@@ -1,4 +1,4 @@
-import type { AppConfig, WorkerDeployRecord } from "@ntn-worker-tools/shared";
+import type { AppConfig, WorkerDeployRecord, WorkerEnvBlock } from "@ntn-worker-tools/shared";
 import {
 	APP_VERSION,
 	CONFIG_VERSION,
@@ -147,8 +147,38 @@ export async function recordEnvDiverged(workerId: string): Promise<void> {
 export async function recordEnvPush(workerId: string, dir?: string | null): Promise<void> {
 	if (skipRecordForNewerFile(workerId)) return;
 	const record = await deployRecord(dir, "env");
-	await updateConfig({
+	const patch: Partial<AppConfig> = {
 		workerLastEnvPushAt: { ...(config.workerLastEnvPushAt ?? {}), [workerId]: record.at },
 		workerEnvPushes: { ...(config.workerEnvPushes ?? {}), [workerId]: record },
-	});
+	};
+	// A push of the local .env that went through supersedes an earlier refusal.
+	// Not for env/set (no folder): that never reads the local file, so a wrong
+	// token sitting in it is still wrong.
+	if (dir && config.workerEnvBlocks?.[workerId]) {
+		const { [workerId]: _cleared, ...rest } = config.workerEnvBlocks;
+		patch.workerEnvBlocks = rest;
+	}
+	await updateConfig(patch);
+}
+
+// Called when a push was refused because the .env token does not belong to the
+// worker's workspace, or Notion rejects it. Never called when the check could
+// not be answered, so a record always stands for a definite answer. The push
+// result is what the caller reports, so a failure to save is only logged.
+export async function recordEnvBlocked(
+	workerId: string,
+	dir: string,
+	block: Pick<WorkerEnvBlock, "reason" | "message" | "tokenWorkspaceName">,
+): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
+	try {
+		const record: WorkerEnvBlock = { at: new Date().toISOString(), ...block };
+		const fingerprint = (await computeFingerprints(dir)).env;
+		if (fingerprint) record.fingerprint = fingerprint;
+		await updateConfig({
+			workerEnvBlocks: { ...(config.workerEnvBlocks ?? {}), [workerId]: record },
+		});
+	} catch (err) {
+		console.warn(`[config] Could not record the blocked push for ${workerId}: ${String(err)}`);
+	}
 }

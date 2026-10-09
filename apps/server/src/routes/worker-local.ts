@@ -20,6 +20,7 @@ import {
 	getConfig,
 	recordCodeDeploy,
 	recordEnvDiverged,
+	recordEnvBlocked,
 	recordEnvPush,
 	updateConfig,
 } from "../state.js";
@@ -408,6 +409,11 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 			const identity = await readWorkerIdentity(path);
 			const tokenMismatch = await tokenWorkspaceMismatch(path, identity?.workspaceId ?? null);
 			if (tokenMismatch) {
+				await recordEnvBlocked(req.params.id, path, {
+					reason: tokenMismatch.reason,
+					message: `${tokenMismatch.error}. ${tokenMismatch.detail}`,
+					tokenWorkspaceName: tokenMismatch.tokenWorkspaceName,
+				});
 				return reply.code(409).send(tokenMismatch) as unknown as DeployResult;
 			}
 			const verbose = isVerbose(req.query.verbose);
@@ -742,6 +748,11 @@ export default async function workerLocalRoutes(app: FastifyInstance) {
 						identity?.workspaceId ?? null,
 					);
 					if (tokenMismatch) {
+						await recordEnvBlocked(action.workerId, path, {
+							reason: tokenMismatch.reason,
+							message: `${tokenMismatch.error}. ${tokenMismatch.detail}`,
+							tokenWorkspaceName: tokenMismatch.tokenWorkspaceName,
+						});
 						send({
 							type: "chunk",
 							text: `${tokenMismatch.error}. ${tokenMismatch.detail}`,

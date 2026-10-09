@@ -150,7 +150,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "reveal",
-					label: "Reveal in Explorer",
+					label: "Reveal in EXPLORER",
 					contextMenuOnly: true,
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
@@ -166,7 +166,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "renameWorker",
-					label: "Rename worker",
+					label: "RENAME worker",
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
 					onSelect: actions.renameWorker,
@@ -189,7 +189,7 @@ export function buildWorkerMenuGroups(
 				},
 				{
 					id: "pnpmDeploy",
-					label: "pnpm run deploy",
+					label: "pnpm run DEPLOY",
 					disabled: noFolder || !hasDeployScript,
 					disabledReason: noFolder
 						? NEEDS_FOLDER
@@ -211,7 +211,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "pushSecrets",
-					label: "push secrets to Notion",
+					label: "PUSH Secrets to Notion",
 					disabled: noFolder || !hasEnvFile,
 					disabledReason: noFolder
 						? NEEDS_FOLDER
@@ -230,7 +230,7 @@ export function buildWorkerMenuGroups(
 				},
 				{
 					id: "editSecrets",
-					label: "Edit Secrets",
+					label: "EDIT Secrets",
 					disabled: !workerId,
 					disabledReason: "Select a worker first.",
 					onSelect: actions.editSecrets,
@@ -241,7 +241,7 @@ export function buildWorkerMenuGroups(
 					disabled: !workerId || !noFolder,
 					disabledReason: !workerId
 						? "Select a worker first."
-						: "You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file.",
+						: "You have a local folder — use 'PUSH Secrets to Notion' to push all env vars from your .env file.",
 					onSelect: actions.openTokenPush,
 				},
 			],
@@ -290,7 +290,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "fireWebhook",
-					label: "Fire Webhook",
+					label: "Fire WEBHOOK",
 					disabled: !workerId || !hasWebhook,
 					disabledReason: !workerId
 						? "Select a worker first."

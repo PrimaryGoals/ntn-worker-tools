@@ -283,6 +283,11 @@ export interface AppConfig {
 	workerDeploys?: Record<string, WorkerDeployRecord>;
 	// Same, for env pushes. Supersedes workerLastEnvPushAt.
 	workerEnvPushes?: Record<string, WorkerDeployRecord>;
+	// workerId -> a push of this worker's .env that was refused because its
+	// NOTION_API_TOKEN is not valid for the worker's workspace. Written only when
+	// Notion actually answered, so a row is certain. Matched against the .env
+	// fingerprint, so editing the file or a successful push retires it.
+	workerEnvBlocks?: Record<string, WorkerEnvBlock>;
 	// How the recorded fingerprints were computed. Bumped when the scheme
 	// changes, since values from an older one cannot be compared with values
 	// from a newer and would report changes that never happened.
@@ -294,6 +299,18 @@ export interface AppConfig {
 	// The app version (root package.json) that last saved this file. For
 	// diagnosis only; nothing branches on it.
 	writtenBy?: string;
+}
+
+// A secrets push this app refused to send, and why.
+export interface WorkerEnvBlock {
+	at: string;
+	// Hash of the .env that was refused. Absent when it could not be computed;
+	// such a record never matches, so it cannot linger.
+	fingerprint?: string;
+	reason: "wrong-workspace" | "rejected";
+	// The explanation as the check produced it, shown in the badge's tooltip.
+	message: string;
+	tokenWorkspaceName?: string;
 }
 
 // One deploy (or env push) this app performed, used to decide whether a folder

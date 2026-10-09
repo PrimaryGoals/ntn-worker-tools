@@ -298,6 +298,7 @@ function AppContent() {
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		envBlockedByWorkerId,
 		syncSchedulesQ,
 		syncPausedQ,
 		syncWorkerIds,
@@ -1013,6 +1014,7 @@ function AppContent() {
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										envBlockedByWorkerId={envBlockedByWorkerId}
 										localOnly={filteredLocalOnly}
 										ignoredFolders={configQ.data?.ignoredFolders ?? []}
 										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}

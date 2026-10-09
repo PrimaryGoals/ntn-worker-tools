@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import type { RunHealth } from "@ntn-worker-tools/shared";
+import type { RunHealth, WorkerEnvBlock } from "@ntn-worker-tools/shared";
 import { computeRunHealth } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import type { RunsViewMode } from "./useUIState";
@@ -245,6 +245,25 @@ export function useWorkerData(
 		return ids;
 	}, [workersQ.data, localMtimesQ.data, configQ.data, fingerprintsByWorkerId]);
 
+	// workerId -> the refused push, while the .env is still the one that was
+	// refused. Not a check made here: the server records it when a push is
+	// blocked, so a row means Notion actually said the token is wrong. Editing
+	// .env (or a push that goes through) changes the fingerprint or clears the
+	// record, and the row goes away.
+	const envBlockedByWorkerId = useMemo(() => {
+		const map = new Map<string, WorkerEnvBlock>();
+		const blocks = configQ.data?.workerEnvBlocks;
+		if (!blocks) return map;
+		for (const w of workersQ.data ?? []) {
+			const block = blocks[w.workerId];
+			const current = fingerprintsByWorkerId.get(w.workerId)?.env ?? null;
+			if (block?.fingerprint && current && block.fingerprint === current) {
+				map.set(w.workerId, block);
+			}
+		}
+		return map;
+	}, [workersQ.data, configQ.data, fingerprintsByWorkerId]);
+
 	// Sync polling intervals for every worker with a registered local folder.
 	// Read from source, so it needs no `ntn` call and covers the whole list at
 	// once rather than only the selected worker.
@@ -325,6 +344,7 @@ export function useWorkerData(
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		envBlockedByWorkerId,
 		syncSchedulesQ,
 		syncPausedQ,
 		syncWorkerIds,
