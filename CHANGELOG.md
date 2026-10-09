@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### Added
+- A red "invalid secrets" badge on a worker whose last secrets push was refused because its `.env` `NOTION_API_TOKEN` belongs to another workspace, or is one Notion rejects. It replaces "push secrets" while it applies, since that push would only be refused again, and its tooltip carries the reason. The check is recorded when a push is blocked (single push or "Deploy updated workers"), so nothing is asked of Notion when the app opens. The badge clears when `.env` changes or a push goes through
+
+### Changed
+- Menu and context-menu labels capitalise the key word: "Fire WEBHOOK", "Reveal in EXPLORER", "RENAME worker", "pnpm run DEPLOY", "PUSH Secrets to Notion" and "EDIT Secrets"
+
 ## [1.6.0] - 2026-10-06
 
 Workers with several syncs, pulling a worker's secrets into a new folder, and a stopgap for Notion's new webhook URLs.
