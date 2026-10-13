@@ -1274,7 +1274,12 @@ function AppContent() {
 
 			<div className="min-h-0 flex-1 bg-neutral-950 p-0">
 				{runningCommand ? (
-					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
+					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}
+						{selectedWorkerName && (deployWorker.isPending || pnpmDeployWorker.isPending)
+							? ` for ${selectedWorkerName}`
+							: ""}
+						…
+					</div>
 				) : anyDeployError ? (
 					<div className="whitespace-pre-wrap p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
