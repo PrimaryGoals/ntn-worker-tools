@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DeployResult, Worker } from "@ntn-worker-tools/shared";
+import { stripAnsi } from "../../format";
 
 interface WorkerAction {
 	redeploy: boolean;
@@ -237,7 +238,7 @@ export function DeployUpdatedWorkersModal({
 					if (!line.trim()) continue;
 					const event = JSON.parse(line) as BatchEvent;
 					if (event.type === "chunk") {
-						accumulated += (accumulated ? "\n" : "") + event.text;
+						accumulated += (accumulated ? "\n" : "") + stripAnsi(event.text);
 						setOutput(accumulated);
 					} else {
 						exitCode = event.exitCode;

@@ -138,6 +138,11 @@ export function useCommandMutations(
 			// against the recorded push time, and this refreshed neither.
 			invalidateAfterDeploy();
 		},
+		// A refused push (wrong-workspace token) is a 409, so onSuccess never runs;
+		// the server has recorded it and the "invalid secrets" badge needs the config.
+		onError: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+		},
 	});
 	const pullSecrets = useMutation({
 		mutationFn: (workerId: string) => api.pullWorkerSecrets(workerId, verboseLogs),

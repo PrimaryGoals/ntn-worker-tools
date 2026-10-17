@@ -7,6 +7,7 @@ import type {
 	WorkerUsage,
 	Whoami,
 } from "@ntn-worker-tools/shared";
+import { DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS } from "@ntn-worker-tools/shared";
 import type { ApiRequestError } from "./api";
 
 const VALID_WORKER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -24,6 +25,13 @@ export function normalizeWorkerName(input: string): string {
 
 export function isValidWorkerName(name: string): boolean {
 	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
+}
+
+// A dead run never reported an end, so its real duration is unknown. All that is
+// known is that it outlasted the dead timeout: ">5m 15s" for the default 315 s.
+export function formatDeadDuration(deadAfterSeconds: number | undefined): string {
+	const ms = (deadAfterSeconds ?? DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS) * 1000;
+	return `>${formatDuration(new Date(0).toISOString(), new Date(ms).toISOString())}`;
 }
 
 export function formatDuration(startedAt: string, endedAt: string | null): string {

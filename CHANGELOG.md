@@ -4,6 +4,18 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-10-16
+
+Dead-run detection and a badge for refused secrets pushes.
+
+### Added
+- A "dead" badge on a run that has no exit code and no end time and started longer ago than `WORKER_DEAD_TIMEOUT` (default 315 seconds), which is what Notion leaves behind when it kills a worker. Its duration reads ">5m 15s", since the real one is unknown. Set `WORKER_DEAD_TIMEOUT` in the server's `.env` to change the threshold
+- A red "invalid secrets" badge on a worker whose last secrets push was refused because its `.env` `NOTION_API_TOKEN` belongs to another workspace, or is one Notion rejects. It replaces "push secrets" while it applies, since that push would only be refused again, and its tooltip carries the reason. The check is recorded when a push is blocked (single push or "Deploy updated workers"), so nothing is asked of Notion when the app opens. The badge clears when `.env` changes or a push goes through
+
+### Changed
+- Menu and context-menu labels capitalise the key word: "Fire WEBHOOK", "Reveal in EXPLORER", "RENAME worker", "pnpm run DEPLOY", "PUSH Secrets to Notion" and "EDIT Secrets"
+- The command output panel names the worker being deployed ("Running deploy for my-worker…")
+
 ## [1.6.0] - 2026-10-06
 
 Workers with several syncs, pulling a worker's secrets into a new folder, and a stopgap for Notion's new webhook URLs.

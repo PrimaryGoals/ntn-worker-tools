@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
-import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { isDeadRun, normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
 import { buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
 import { RepoBanner, UnmappedReposLine } from "./components/RepoBanner";
@@ -52,6 +52,7 @@ import {
 	formatCapabilities,
 	formatDateTime,
 	formatDeployResult,
+	formatDeadDuration,
 	formatDuration,
 	formatInterval,
 	formatSessionEvents,
@@ -297,6 +298,7 @@ function AppContent() {
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		envBlockedByWorkerId,
 		syncSchedulesQ,
 		syncPausedQ,
 		syncWorkerIds,
@@ -1012,6 +1014,7 @@ function AppContent() {
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										envBlockedByWorkerId={envBlockedByWorkerId}
 										localOnly={filteredLocalOnly}
 										ignoredFolders={configQ.data?.ignoredFolders ?? []}
 										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}
@@ -1117,6 +1120,9 @@ function AppContent() {
 											markerTime={configQ.data?.timeMarker ?? null}
 											workerNames={workerNamesById}
 											showWorkerColumn={crossWorkerView}
+											deadAfterSeconds={
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds
+											}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -1192,7 +1198,13 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Exit:</span>{" "}
-									<ExitCodeBadge code={selectedRun.exitCode} />
+									<ExitCodeBadge
+										code={selectedRun.exitCode}
+										dead={isDeadRun(
+											selectedRun,
+											(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+										)}
+									/>
 								</span>
 								<span>
 									<span className="text-neutral-500">Started:</span>{" "}
@@ -1200,7 +1212,14 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Duration:</span>{" "}
-									{formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
+									{isDeadRun(
+										selectedRun,
+										(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+									)
+										? formatDeadDuration(
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+											)
+										: formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
 								</span>
 							</>
 						) : selectedSession ? (
@@ -1255,7 +1274,12 @@ function AppContent() {
 
 			<div className="min-h-0 flex-1 bg-neutral-950 p-0">
 				{runningCommand ? (
-					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
+					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}
+						{selectedWorkerName && (deployWorker.isPending || pnpmDeployWorker.isPending)
+							? ` for ${selectedWorkerName}`
+							: ""}
+						…
+					</div>
 				) : anyDeployError ? (
 					<div className="whitespace-pre-wrap p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
