@@ -4,6 +4,13 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-10-19
+
+Webhooks on Notion's new URL host fire again.
+
+### Changed
+- Firing a webhook no longer checks the URL's host. The old `www.notion.so` / `app.notion.com` allowlist rejected the new `*.webhook.notionusercontent.com` URLs from `ntn workers webhooks list` before curl ran, and every Notion host move would have broken it again. The server now only requires a valid `https://` URL. The "(use old format)" link, a stopgap from 1.6.0, is gone
+
 ## [1.6.1] - 2026-10-16
 
 Dead-run detection and a badge for refused secrets pushes.
