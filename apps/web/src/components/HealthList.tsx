@@ -15,7 +15,7 @@ import {
 import { Fragment, useMemo, useState } from "react";
 import { formatTimeDelta } from "../format";
 import { Empty } from "./ui/Panel";
-import { RunHistoryStrip } from "./ui/RunHistoryStrip";
+import { RunHistoryStrip, runBubbles } from "./ui/RunHistoryStrip";
 
 type SortColumn = "name" | "history" | "age";
 type SortDirection = "asc" | "desc";
@@ -297,9 +297,8 @@ export function HealthList({
 										</td>
 										<td className="px-3 py-1.5">
 											<RunHistoryStrip
-												runs={row.history.runs}
-												deadAfterSeconds={deadAfterSeconds}
-												onSelectRun={(runId) => onSelectRun(row.worker.workerId, runId)}
+												bubbles={runBubbles(row.history.runs, deadAfterSeconds)}
+												onSelect={(runId) => onSelectRun(row.worker.workerId, runId)}
 											/>
 										</td>
 										<td className="whitespace-nowrap px-3 py-1.5 font-mono text-xs">
@@ -337,9 +336,8 @@ export function HealthList({
 													</td>
 													<td className="px-3 py-1">
 														<RunHistoryStrip
-															runs={cap.runs}
-															deadAfterSeconds={deadAfterSeconds}
-															onSelectRun={(runId) => onSelectRun(row.worker.workerId, runId)}
+															bubbles={runBubbles(cap.runs, deadAfterSeconds)}
+															onSelect={(runId) => onSelectRun(row.worker.workerId, runId)}
 														/>
 													</td>
 													<td className="whitespace-nowrap px-3 py-1 font-mono text-xs text-neutral-500">

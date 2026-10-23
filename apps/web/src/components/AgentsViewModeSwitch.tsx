@@ -57,6 +57,15 @@ export function AgentsViewModeSwitch({
 				/>
 				Usage
 			</label>
+			<label className="flex cursor-pointer items-center gap-1">
+				<input
+					type="radio"
+					name="agentsViewMode"
+					checked={mode === "health"}
+					onChange={() => onModeChange("health")}
+				/>
+				Health
+			</label>
 		</div>
 	);
 }

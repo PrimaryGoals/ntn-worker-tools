@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import type { RunHealth } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import type { AgentsViewMode } from "./useUIState";
 
@@ -58,9 +60,24 @@ export function useAgentData(
 		enabled: agentsViewMode === "usage",
 	});
 
+	// Per-agent session history, and the dots projected out of it. The agents
+	// tab has no counterpart to the workers tab's derived overrides — nothing
+	// else here fetches an agent's sessions for its own reasons — so this is
+	// simply what the sweep returned.
+	const agentHistory = agentHealthQ.data?.history ?? {};
+	const agentHealth = useMemo(() => {
+		const map: Record<string, RunHealth> = {};
+		for (const [agentId, history] of Object.entries(agentHistory)) {
+			map[agentId] = history.health;
+		}
+		return map;
+	}, [agentHistory]);
+
 	return {
 		agentsQ,
 		agentHealthQ,
+		agentHistory,
+		agentHealth,
 		agentInsightsQ,
 		agentSessionsQ,
 		sessionEventsQ,

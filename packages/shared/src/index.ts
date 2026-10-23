@@ -765,6 +765,17 @@ export interface AgentSummary {
 	// can say so.
 	triggerCount: number;
 	enabledTriggerCount: number;
+	// The triggers themselves, which the agents query already returns. The
+	// health view needs them by name: a trigger that has never fired produces no
+	// session, so sessions alone cannot reveal it, and `enabled` is what says
+	// whether its silence is intended.
+	triggers: AgentTrigger[];
+}
+
+export interface AgentTrigger {
+	// e.g. "calendar.event.created", "notion.page.created".
+	type: string;
+	enabled: boolean;
 }
 
 // One execution of an agent — the closest analogue to a worker Run.
@@ -809,22 +820,112 @@ export type AgentStatus = (typeof AGENT_STATUS_VALUES)[number];
 //   - "canceled" counts as ok, not a failure: it means somebody stopped the
 //     session on purpose. "terminated" counts as a failure.
 export function computeAgentHealth(sessions: AgentSession[]): RunHealth {
-	return scoreHealth(
-		sessions.map((s) => {
-			if (s.status === "queued" || s.status === "in_progress" || s.status === "requires_action") {
-				return "pending";
-			}
-			if (s.status === "failed" || s.status === "terminated" || s.agentReportedFailure) {
-				return "failed";
-			}
-			return "ok";
-		}),
-	);
+	return scoreHealth(sessions.map(sessionOutcome));
+}
+
+// One session trimmed to what a history strip needs.
+export interface HistorySession {
+	sessionId: string;
+	// The session's own status, as AgentSession carries it.
+	status: string;
+	// markSessionFailed: the session still reads "completed", so this is the
+	// only signal the agent's own work did not land.
+	agentReportedFailure: boolean;
+	createdAt: string;
+	// What set it off — "chat" for a person talking to the agent, otherwise the
+	// trigger that fired. History is bucketed on this.
+	triggerType: string;
+}
+
+export interface TriggerHistory {
+	// The trigger type these sessions share.
+	name: string;
+	// Newest-first, at most RUN_HEALTH_FETCH.
+	sessions: HistorySession[];
+	health: RunHealth;
+}
+
+export interface AgentRunHistory {
+	// Newest-first, at most RUN_HEALTH_FETCH, across every trigger.
+	sessions: HistorySession[];
+	health: RunHealth;
+	// The same sessions split by trigger, each scored on its own — so a trigger
+	// firing constantly cannot hide a quieter one, exactly as for worker
+	// capabilities.
+	triggers: TriggerHistory[];
 }
 
 export interface AgentHealthPayload {
-	// agentId -> health. Every visible agent gets an entry.
-	health: Record<string, RunHealth>;
+	// agentId -> recent sessions and score. Every visible agent gets an entry.
+	history: Record<string, AgentRunHistory>;
+}
+
+function toHistorySession(session: AgentSession): HistorySession {
+	return {
+		sessionId: session.id,
+		status: session.status,
+		agentReportedFailure: session.agentReportedFailure,
+		createdAt: session.createdAt,
+		triggerType: session.triggerType,
+	};
+}
+
+// An agent's session list reduced to the history its dot and strips read.
+// The counterpart of buildWorkerHistory, and bucketed for the same reason.
+//
+// Unlike worker runs nothing is filtered out: a chat session is a person
+// talking to the agent rather than a trigger firing, but it is still the agent
+// working, so it is kept and simply bucketed under "chat" where it can be seen
+// instead of being silently mixed into the rest.
+export function buildAgentHistory(sessions: AgentSession[]): AgentRunHistory {
+	const buckets = new Map<string, HistorySession[]>();
+	for (const session of sessions) {
+		const bucket = buckets.get(session.triggerType);
+		if (bucket) {
+			if (bucket.length < RUN_HEALTH_FETCH) bucket.push(toHistorySession(session));
+		} else {
+			buckets.set(session.triggerType, [toHistorySession(session)]);
+		}
+	}
+	const triggers = [...buckets.entries()]
+		.map(([name, bucketSessions]) => ({
+			name,
+			sessions: bucketSessions,
+			health: scoreSessions(bucketSessions),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+	return {
+		sessions: sessions.slice(0, RUN_HEALTH_FETCH).map(toHistorySession),
+		health: scoreSessions(sessions.map(toHistorySession)),
+		triggers,
+	};
+}
+
+// Scores sessions by the same rules computeAgentHealth applies to whole
+// agents, so a trigger bucket and an agent can never disagree.
+export function scoreSessions(sessions: HistorySession[]): RunHealth {
+	return scoreHealth(sessions.map(sessionOutcome));
+}
+
+export function sessionOutcome(session: {
+	status: string;
+	agentReportedFailure: boolean;
+}): HealthOutcome {
+	if (
+		session.status === "queued" ||
+		session.status === "in_progress" ||
+		session.status === "requires_action"
+	) {
+		return "pending";
+	}
+	if (
+		session.status === "failed" ||
+		session.status === "terminated" ||
+		session.agentReportedFailure
+	) {
+		return "failed";
+	}
+	return "ok";
 }
 
 export interface AgentSessionsPayload {

@@ -18,6 +18,7 @@ import { MenuBar } from "./components/MenuBar";
 import { AgentMenuBar } from "./components/AgentMenuBar";
 import { AgentsList } from "./components/AgentsList";
 import { AgentsViewModeSwitch } from "./components/AgentsViewModeSwitch";
+import { AgentHealthList } from "./components/AgentHealthList";
 import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
@@ -322,6 +323,8 @@ function AppContent() {
 	const {
 		agentsQ,
 		agentHealthQ,
+		agentHistory,
+		agentHealth,
 		agentInsightsQ,
 		agentSessionsQ,
 		sessionEventsQ,
@@ -573,6 +576,28 @@ function AppContent() {
 		setSelectedSessionId(null);
 		setRunsViewMode("worker");
 		clearTransientOutputs();
+	}
+
+	function selectAgent(id: string) {
+		// Exclusive with the worker context: picking an agent drops the worker
+		// selection, so worker-scoped chrome (Worker menu, webhook line) goes
+		// inert.
+		setSelectedAgentId(id);
+		setSelectedSessionId(null);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		// Picking a specific agent means you want that agent's sessions, not the
+		// cross-agent, usage or health view you may have been looking at.
+		setAgentsViewMode("agent");
+		clearTransientOutputs();
+	}
+
+	// The agents counterpart of selectWorkerRun: a bubble in the health view
+	// names both the agent and the session, so its transcript opens in one
+	// click. selectAgent clears the session id, so the session is set after it.
+	function selectAgentSession(agentId: string, sessionId: string) {
+		selectAgent(agentId);
+		setSelectedSessionId(sessionId);
 	}
 
 	// Clicking a bubble in the health view: the worker AND the run it belongs to,
@@ -978,21 +1003,8 @@ function AppContent() {
 											error={agentsQ.error as Error | null}
 											agents={agentsQ.data ?? []}
 											selectedId={selectedAgentId}
-											health={agentHealthQ.data?.health ?? {}}
-											onSelect={(id) => {
-												// Exclusive with the worker context: picking an
-												// agent drops the worker selection, so worker-scoped
-												// chrome (Worker menu, webhook line) goes inert.
-												setSelectedAgentId(id);
-												setSelectedSessionId(null);
-												setSelectedWorkerId(null);
-												setSelectedRunId(null);
-												// Picking a specific agent means you want that
-												// agent's sessions, not the cross-agent or usage
-												// view you may have been looking at.
-												setAgentsViewMode("agent");
-												clearTransientOutputs();
-											}}
+											health={agentHealth}
+											onSelect={selectAgent}
 										/>
 									) : (
 									<>
@@ -1076,7 +1088,16 @@ function AppContent() {
 									}
 								>
 									{browserTab === "agents" ? (
-										agentsViewMode === "usage" ? (
+										agentsViewMode === "health" ? (
+											<AgentHealthList
+												loading={agentHealthQ.isLoading}
+												error={agentHealthQ.error as Error | null}
+												agents={agentsQ.data ?? []}
+												history={agentHistory}
+												onSelectAgent={selectAgent}
+												onSelectSession={selectAgentSession}
+											/>
+										) : agentsViewMode === "usage" ? (
 											<AgentUsageList
 												loading={agentUsageQ.isLoading}
 												error={agentUsageQ.error as Error | null}
