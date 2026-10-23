@@ -32,6 +32,7 @@ import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { SyncPickerModal, type SyncPickerOption } from "./components/modals/SyncPickerModal";
 import { SyncScheduleModal } from "./components/modals/SyncScheduleModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
+import { HealthList } from "./components/HealthList";
 import { RunsList } from "./components/RunsList";
 import { SessionsList } from "./components/SessionsList";
 import { UsageList } from "./components/UsageList";
@@ -282,6 +283,8 @@ function AppContent() {
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		workerHistory,
+		workerDeclaredCapabilities,
 		localMtimesQ,
 		scanQ,
 		runsQ,
@@ -570,6 +573,16 @@ function AppContent() {
 		setSelectedSessionId(null);
 		setRunsViewMode("worker");
 		clearTransientOutputs();
+	}
+
+	// Clicking a bubble in the health view: the worker AND the run it belongs to,
+	// so the logs open in one click from the overview. selectWorker clears the
+	// run id, so the run has to be set after it — both land in one batch, and the
+	// later call wins. The logs query reads selectedWorkerId until that worker's
+	// run list arrives, so it fires straight away rather than waiting for it.
+	function selectWorkerRun(workerId: string, runId: string) {
+		selectWorker(workerId);
+		setSelectedRunId(runId);
 	}
 
 	// A selection belongs to the workspace it was made in. The connected
@@ -1097,6 +1110,18 @@ function AppContent() {
 												}
 											/>
 										)
+									) : runsViewMode === "health" ? (
+										<HealthList
+											loading={runHealthQ.isLoading}
+											error={runHealthQ.error as Error | null}
+											workers={sortedWorkers}
+											history={workerHistory}
+											declared={workerDeclaredCapabilities}
+											deadAfterSeconds={runHealthQ.data?.deadAfterSeconds}
+											syncPaused={syncPausedQ.data ?? {}}
+											onSelectWorker={selectWorker}
+											onSelectRun={selectWorkerRun}
+										/>
 									) : runsViewMode === "usage" ? (
 										<UsageList
 											loading={crossWorkerUsageQ.isLoading}

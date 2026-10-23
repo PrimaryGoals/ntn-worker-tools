@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+### Added
+- A "Health" view on the Runs panel, beside Usage: every worker with the age of its most recent run and a strip of bubbles for its last 10 runs, newest on the right. Bubbles read green for exit 0, red for a failure, hollow while a run is in flight and grey for a dead run. Clicking one selects that worker and that run, so a failure's logs are one click from the overview; clicking the row elsewhere just selects the worker. Headings sort by name, by worst health first, or by stalest run first, and a checkbox narrows the table to workers with a failure or an overdue sync
+- An amber marker on a worker whose age has passed twice the interval of a sync that is still running — a sync that has stopped rather than failed, which a pass/fail history can't show. A paused sync is told not to run, so it is never counted late: its worker reads "paused", or "paused (1 of 3)" where only some are, beside the age instead
+
+- A worker with more than one capability expands: its row gets a disclosure triangle, and opening it lists each capability with its own history and age. The sweep keeps the newest 10 runs *per capability*, so a busy one can no longer fill the window and hide the rest — one worker's webhook had not fired in two days behind a sync running every few minutes, which its single strip could not show. Capabilities stay grouped under their worker whatever the table is sorted by, and re-sort within the group. Every capability the worker declares gets a row, not only the ones that have produced a run — a sync worker here declares five and three read "never", one of them a webhook that has never fired. That costs a second `ntn` call per worker in the sweep, run alongside the first
+
+### Changed
+- Health no longer counts `fetchAndSaveCapabilities` and `deploy` runs. They are the platform's, not the worker's: they fire in bursts when you deploy and are near-always green, so they outvoted real failures and could make a worker that has never once done its job read as healthy. A worker whose recent history is only these now reads "no runs" rather than green
+- The run-health sweep carries the runs it scores rather than only the resulting color, so the Health view costs no additional `ntn` calls. It now reads a full page of 100 runs per worker rather than 5 — the CLI's own default, so still one call each — and trims to 10 per capability before answering. The thresholds behind the sidebar dots still look at 5 runs, so no dot changes color except where deploy runs had been padding it
+
 ## [1.6.2] - 2026-10-19
 
 Webhooks on Notion's new URL host fire again.

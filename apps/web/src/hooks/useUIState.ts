@@ -1,9 +1,9 @@
 import { useState } from "react";
 
 // Which source the Runs panel displays: the selected worker's own runs, an
-// aggregate across all workers since the time marker, or (not yet built)
-// per-worker usage.
-export type RunsViewMode = "worker" | "crossWorker" | "usage";
+// aggregate across all workers since the time marker, per-worker usage, or
+// every worker's recent-run history side by side.
+export type RunsViewMode = "worker" | "crossWorker" | "usage" | "health";
 
 // Which tab the left-hand panel shows. Workers and Agents are mutually
 // exclusive contexts: selecting in one clears the other, so worker-scoped
