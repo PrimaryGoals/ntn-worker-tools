@@ -19,6 +19,11 @@ Health views for workers and agents, and deploy runs no longer flatter a worker'
 - Health no longer counts `fetchAndSaveCapabilities` and `deploy` runs. They are the platform's, not the worker's: they fire in bursts when you deploy and are near-always green, so they outvoted real failures and could make a worker that has never once done its job read as healthy. A worker whose recent history is only these now reads "no runs" rather than green
 - The run-health sweep carries the runs it scores rather than only the resulting color, so the Health view costs no additional `ntn` calls. It now reads a full page of 100 runs per worker rather than 5 — the CLI's own default, so still one call each — and trims to 10 per capability before answering. The thresholds behind the sidebar dots still look at 5 runs, so no dot changes color except where deploy runs had been padding it
 
+### Security
+- Dependencies patched to clear every open Dependabot alert and `pnpm audit` finding: fastify 5.12.5 and vite 6.4.4 are direct bumps, and `pnpm.overrides` in `pnpm-workspace.yaml` pin the transitive fast-uri 3.x, shell-quote and nanoid 3.x. fast-uri 4.x and source-map-js were patched earlier
+- CORS is limited to the web UI's origin (`WEB_URL`, default `http://localhost:5173`). It reflected any origin with credentials, so another app on a different localhost port could have read the API using the session cookie. Opening the UI from an address that does not match `WEB_URL` (say `127.0.0.1` instead of `localhost`) is now blocked
+- Route parameters, sync and OAuth capability keys, and the run-list cursor and page size are checked before they reach `ntn` as arguments. A value beginning with `-` could have been read as a flag; anything that does not start with a letter or digit is now refused with a 400
+
 ## [1.6.2] - 2026-10-19
 
 Webhooks on Notion's new URL host fire again.
