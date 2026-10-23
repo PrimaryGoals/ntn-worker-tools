@@ -83,7 +83,11 @@ const app = Fastify({
 // Load or create the session token before anything else so we can surface
 // the sign-in URL alongside the "server listening" log line.
 const { token: sessionToken, created: tokenCreated } = await loadOrCreateToken();
-await app.register(cors, { origin: true, credentials: true });
+// Only the web UI may make credentialed cross-origin calls. `origin: true`
+// reflected any origin, and another app on a different localhost port is
+// same-site, so the lax session cookie would have been sent along with it.
+const webOrigin = new URL(process.env.WEB_URL ?? "http://localhost:5173").origin;
+await app.register(cors, { origin: webOrigin, credentials: true });
 await app.register(cookiePlugin);
 
 // Auth hook: reject any /api/* request without a valid session cookie, except
