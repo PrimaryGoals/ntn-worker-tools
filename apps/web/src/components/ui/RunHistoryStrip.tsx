@@ -33,24 +33,26 @@ const FILL: Record<HistoryBubble["outcome"], string> = {
 
 export function runBubbles(runs: HistoryRun[], deadAfterSeconds: number | undefined) {
 	return runs.map((run): HistoryBubble => {
-		const dead = isDeadRun(run, deadAfterSeconds);
-		return {
-			id: run.runId,
-			label: run.name,
-			outcome: dead
-				? "dead"
-				: run.exitCode == null
-					? "pending"
-					: run.exitCode === 0
-						? "ok"
-						: "failed",
-			startedAt: run.startedAt,
-			detail: dead
-				? "dead — killed without reporting"
-				: run.exitCode == null
-					? "running"
-					: `exit ${run.exitCode}`,
-		};
+		const base = { id: run.runId, label: run.name, startedAt: run.startedAt };
+		if (run.exitCode != null) {
+			return {
+				...base,
+				outcome: run.exitCode === 0 ? "ok" : "failed",
+				detail: `exit ${run.exitCode}`,
+			};
+		}
+		// No exit code, so either it is still going or it will never report one.
+		if (isDeadRun(run, deadAfterSeconds)) {
+			return { ...base, outcome: "dead", detail: "dead — killed without reporting" };
+		}
+		// It ended, it just never said how. isDeadRun deliberately excludes this —
+		// the run's duration is known, so the runs table must not call it dead —
+		// but here it is not running either, and drawing it hollow would leave a
+		// run that finished days ago reading as in flight for ever.
+		if (run.endedAt) {
+			return { ...base, outcome: "dead", detail: "ended without an exit code" };
+		}
+		return { ...base, outcome: "pending", detail: "running" };
 	});
 }
 
