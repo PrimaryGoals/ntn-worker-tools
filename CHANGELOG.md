@@ -4,12 +4,14 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-22
+
+Health views for workers and agents, and deploy runs no longer flatter a worker's health.
+
 ### Added
 - A "Health" view on the Runs panel, beside Usage: every worker with the age of its most recent run and a strip of bubbles for its last 10 runs, newest on the right. Bubbles read green for exit 0, red for a failure, hollow while a run is in flight and grey for a dead run. Clicking one selects that worker and that run, so a failure's logs are one click from the overview; clicking the row elsewhere just selects the worker. Headings sort by name, by worst health first, or by stalest run first, and a checkbox narrows the table to workers with a failure or an overdue sync
 - An amber marker on a worker whose age has passed twice the interval of a sync that is still running — a sync that has stopped rather than failed, which a pass/fail history can't show. A paused sync is told not to run, so it is never counted late: its worker reads "paused", or "paused (1 of 3)" where only some are, beside the age instead
-
 - A worker with more than one capability expands: its row gets a disclosure triangle, and opening it lists each capability with its own history and age. The sweep keeps the newest 10 runs *per capability*, so a busy one can no longer fill the window and hide the rest — one worker's webhook had not fired in two days behind a sync running every few minutes, which its single strip could not show. Capabilities stay grouped under their worker whatever the table is sorted by, and re-sort within the group. Every capability the worker declares gets a row, not only the ones that have produced a run — a sync worker here declares five and three read "never", one of them a webhook that has never fired. That costs a second `ntn` call per worker in the sweep, run alongside the first
-
 - The same Health view on the Agents tab: every agent with the age of its most recent session and a strip of bubbles for its last 10, expanding to one row per trigger. Sessions are bucketed by trigger type for the same reason worker runs are bucketed by capability — an agent here scores yellow overall while the trigger that matters scores orange, diluted by chat sessions sitting in the same window. Every trigger the agent declares gets a row, so one that has never fired is visible, and a trigger that is switched off says so
 - An agent that reads as "active" while every one of its triggers is disabled is flagged: it cannot fire however healthy its past sessions look. An agent that has simply been turned off is not flagged — like a paused sync, it was told to stop
 
