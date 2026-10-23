@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type {
 	DeployResult,
 	SyncPausedByWorker,
+	SyncScheduleEntry,
 	SyncScheduleUpdate,
 	SyncScheduleUpdateResult,
 	SyncSchedulesByWorker,
@@ -9,7 +10,7 @@ import type {
 } from "@ntn-worker-tools/shared";
 import { DEFAULT_SYNC_SCHEDULE, isValidSyncSchedule } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace, runNtnRawAllowingFailure } from "../ntn.js";
-import { isVerbose } from "../route-helpers.js";
+import { isSafeArg, isVerbose } from "../route-helpers.js";
 import { applySyncScheduleUpdates, findSyncSchedules } from "../sync-schedule.js";
 import { folderForWorker, foldersByWorkerId } from "../scan-cache.js";
 
@@ -19,7 +20,10 @@ import { folderForWorker, foldersByWorkerId } from "../scan-cache.js";
 function registerSyncAction(app: FastifyInstance, path: string, subcommand: string[]) {
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
 		path,
-		async (req) => {
+		async (req, reply) => {
+			if (!isSafeArg(req.body?.syncKey)) {
+				return reply.code(400).send({ error: "invalid sync key" });
+			}
 			const args = ["workers", "sync", ...subcommand, "--worker-id", req.params.id, req.body.syncKey];
 			const verbose = isVerbose(req.query.verbose);
 			if (verbose) args.push("-v");
@@ -71,6 +75,18 @@ export default async function syncRoutes(app: FastifyInstance) {
 		return Object.fromEntries(entries);
 	});
 
+	// Each declared sync's capability key paired with its cadence. Pairing them is
+	// only possible here — these entries carry both, and the map the workers list
+	// reads keeps the labels with no key attached. Which of them are live is
+	// derived from this and the paused set by runningSyncSchedules.
+	function schedulesByKey(entries: SyncScheduleEntry[]): Record<string, string> {
+		const map: Record<string, string> = {};
+		for (const entry of entries) {
+			map[entry.key] = entry.expression ?? entry.schedule ?? DEFAULT_SYNC_SCHEDULE;
+		}
+		return map;
+	}
+
 	// Which of those same workers have a paused sync, for the marker that sits
 	// beside the interval badge. Whether a sync is disabled is server state, so
 	// unlike the intervals it can't be read from source: this fans out one
@@ -84,7 +100,9 @@ export default async function syncRoutes(app: FastifyInstance) {
 				[string, SyncPausedByWorker[string]]
 			> => {
 				const { entries: found } = await findSyncSchedules(path);
-				if (found.length === 0) return [workerId, { paused: [], total: 0 }];
+				if (found.length === 0) {
+					return [workerId, { paused: [], total: 0, schedules: {} }];
+				}
 				try {
 					const statuses = await runNtnJson<Array<{ capabilityKey?: string; disabled?: boolean }>>([
 						"workers",
@@ -98,11 +116,12 @@ export default async function syncRoutes(app: FastifyInstance) {
 						.filter((st) => st.disabled)
 						.map((st) => st.capabilityKey)
 						.filter((key): key is string => !!key);
-					return [workerId, { paused, total: statuses.length }];
+					return [workerId, { paused, total: statuses.length, schedules: schedulesByKey(found) }];
 				} catch {
 					// One worker's status failing (never deployed, transient API
-					// error) shouldn't blank the marker on every other worker.
-					return [workerId, { paused: [], total: found.length }];
+					// error) shouldn't blank the marker on every other worker. Nothing
+					// is known to be paused, so every declared cadence is live.
+					return [workerId, { paused: [], total: found.length, schedules: schedulesByKey(found) }];
 				}
 			}),
 		);

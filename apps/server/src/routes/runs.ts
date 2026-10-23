@@ -1,20 +1,21 @@
 import type { FastifyInstance } from "fastify";
 import type {
 	CrossWorkerRunsPayload,
+	DeclaredCapability,
 	LogsPayload,
 	Run,
-	RunHealth,
 	RunHealthPayload,
 	RunsPayload,
 	Worker,
+	WorkerRunHistory,
 } from "@ntn-worker-tools/shared";
 import {
-	computeRunHealth,
+	buildWorkerHistory,
 	DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS,
-	RUN_HEALTH_WINDOW,
+	RUN_HEALTH_SCAN,
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace } from "../ntn.js";
-import { attachTrace, isVerbose } from "../route-helpers.js";
+import { attachTrace, isSafeArg, isVerbose } from "../route-helpers.js";
 
 // Safety cap on pagination depth per worker — protects against an
 // unbounded loop if the CLI ever returns a cursor that never terminates.
@@ -34,22 +35,22 @@ function deadAfterSeconds(): number {
 // so the caller gets every run newer than the marker without over-fetching
 // a worker's full history.
 //
-// Also scores the worker's health off the first page, which is a full,
-// unfiltered page of its newest runs — the same data the sidebar dots need,
-// already in hand. Scoring it here is what keeps this endpoint from costing
-// an extra `runs list` call per worker.
+// Also takes the worker's recent-run history off the first page, which is a
+// full, unfiltered page of its newest runs — the same data the sidebar dots and
+// the health view need, already in hand. Taking it here is what keeps this
+// endpoint from costing an extra `runs list` call per worker.
 async function fetchRunsSince(
 	worker: Worker,
 	sinceMs: number,
-): Promise<{ runs: Run[]; health: RunHealth }> {
+): Promise<{ runs: Run[]; history: WorkerRunHistory }> {
 	const collected: Run[] = [];
-	let health: RunHealth = "unknown";
+	let history: WorkerRunHistory = { runs: [], health: "unknown", capabilities: [] };
 	let cursor: string | undefined;
 	for (let page = 0; page < MAX_PAGES_PER_WORKER; page++) {
 		const args = ["workers", "runs", "list", worker.workerId];
 		if (cursor) args.push("--cursor", cursor);
 		const { runs, nextCursor } = await runNtnJson<RunsPayload>(args);
-		if (page === 0) health = computeRunHealth(runs);
+		if (page === 0) history = buildWorkerHistory(runs);
 		let hitOlderRun = false;
 		for (const run of runs) {
 			if (new Date(run.startedAt).getTime() < sinceMs) {
@@ -61,37 +62,77 @@ async function fetchRunsSince(
 		if (hitOlderRun || !nextCursor) break;
 		cursor = nextCursor;
 	}
-	return { runs: collected, health };
+	return { runs: collected, history };
 }
 
 export default async function runsRoutes(app: FastifyInstance) {
 	app.get("/api/workers/run-health", async (): Promise<RunHealthPayload> => {
 		const workers = await runNtnJson<Worker[]>(["workers", "list"]);
 		const entries = await Promise.all(
-			workers.map(async (worker): Promise<[string, RunHealth]> => {
-				try {
-					const { runs } = await runNtnJson<RunsPayload>([
-						"workers",
-						"runs",
-						"list",
-						worker.workerId,
-						"--page-size",
-						String(RUN_HEALTH_WINDOW),
+			workers.map(
+				async (
+					worker,
+				): Promise<[string, WorkerRunHistory, DeclaredCapability[] | null]> => {
+					// Two calls per worker, run together: the runs, and the list of
+					// capabilities those runs belong to. The second is what lets a
+					// declared-but-never-run capability appear at all — history can
+					// only ever show the ones that have produced a run.
+					const [history, declared] = await Promise.all([
+						runNtnJson<RunsPayload>([
+							"workers",
+							"runs",
+							"list",
+							worker.workerId,
+							"--page-size",
+							String(RUN_HEALTH_SCAN),
+						])
+							.then(({ runs }) => buildWorkerHistory(runs))
+							// One worker's lookup failing (deleted mid-flight, transient
+							// API error) shouldn't blank out every other worker's dot.
+							.catch(
+								(): WorkerRunHistory => ({ runs: [], health: "unknown", capabilities: [] }),
+							),
+						runNtnJson<Array<{ _tag?: string; key?: string }>>([
+							"workers",
+							"capabilities",
+							"list",
+							worker.workerId,
+						])
+							.then((caps) =>
+								caps
+									.filter((cap) => !!cap._tag && !!cap.key)
+									.map((cap) => ({ tag: cap._tag!, key: cap.key! })),
+							)
+							// A worker that has never deployed has no capabilities to
+							// report. Absent rather than empty: "we could not ask" is not
+							// the same as "it declares none", and only the second should
+							// make the rows fall back to what ran.
+							.catch(() => null),
 					]);
-					return [worker.workerId, computeRunHealth(runs)];
-				} catch {
-					// One worker's lookup failing (deleted mid-flight, transient
-					// API error) shouldn't blank out every other worker's dot.
-					return [worker.workerId, "unknown"];
-				}
-			}),
+					return [worker.workerId, history, declared];
+				},
+			),
 		);
-		return { health: Object.fromEntries(entries) };
+		return {
+			history: Object.fromEntries(entries.map(([id, history]) => [id, history])),
+			declared: Object.fromEntries(
+				entries
+					.filter((entry): entry is [string, WorkerRunHistory, DeclaredCapability[]] =>
+						entry[2] !== null,
+					)
+					.map(([id, , declared]) => [id, declared]),
+			),
+			deadAfterSeconds: deadAfterSeconds(),
+		};
 	});
 
 	app.get<{ Params: { id: string }; Querystring: { cursor?: string; pageSize?: string } }>(
 		"/api/workers/:id/runs",
-		async (req): Promise<RunsPayload> => {
+		async (req, reply): Promise<RunsPayload> => {
+			const { cursor, pageSize } = req.query;
+			if ((cursor && !isSafeArg(cursor)) || (pageSize && !/^\d{1,4}$/.test(pageSize))) {
+				return reply.code(400).send({ error: "invalid cursor or pageSize" }) as unknown as RunsPayload;
+			}
 			const args = ["workers", "runs", "list", req.params.id];
 			if (req.query.cursor) args.push("--cursor", req.query.cursor);
 			if (req.query.pageSize) args.push("--page-size", req.query.pageSize);
@@ -116,10 +157,10 @@ export default async function runsRoutes(app: FastifyInstance) {
 			const runs = perWorker
 				.flatMap((result) => result.runs)
 				.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
-			const health = Object.fromEntries(
-				workers.map((worker, i) => [worker.workerId, perWorker[i]!.health]),
+			const history = Object.fromEntries(
+				workers.map((worker, i) => [worker.workerId, perWorker[i]!.history]),
 			);
-			return { runs, health, deadAfterSeconds: deadAfterSeconds() };
+			return { runs, history, deadAfterSeconds: deadAfterSeconds() };
 		},
 	);
 

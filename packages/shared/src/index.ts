@@ -67,9 +67,76 @@ export function isDeadRun(
 // read. See computeRunHealth below for how the colors are derived.
 export type RunHealth = "green" | "yellow" | "orange" | "red" | "none" | "unknown";
 
+// One run reduced to what a history strip needs: the outcome, when it ran, and
+// the id to open its logs. Deliberately not the whole Run — the sweep carries
+// one of these per run per worker, and the strip shows nothing else.
+export interface HistoryRun {
+	runId: string;
+	exitCode: number | null;
+	startedAt: string;
+	endedAt: string | null;
+	// The run's own name, which is how a run says which capability produced it:
+	// "webhook:dispatch", "sync:hsContactsDelta". Workers often have several, and
+	// one chatty capability can fill the whole window, so history is bucketed on
+	// this rather than read as a single stream.
+	name: string;
+}
+
+// One capability's slice of a worker's history.
+export interface CapabilityHistory {
+	// The shared `name` of its runs, e.g. "sync:hsContactsDelta".
+	name: string;
+	// Newest-first, at most RUN_HEALTH_FETCH.
+	runs: HistoryRun[];
+	health: RunHealth;
+}
+
+// A worker's recent runs plus the score derived from them. The sweep already
+// fetches these runs to score the dot, so carrying them costs no extra CLI
+// call and is what lets the health view show per-run history at a glance.
+export interface WorkerRunHistory {
+	// Newest-first, at most RUN_HEALTH_FETCH. Work runs only — see
+	// isInfrastructureRun for what is left out and why.
+	runs: HistoryRun[];
+	// Scored from the first RUN_HEALTH_WINDOW of `runs` by scoreHealth.
+	health: RunHealth;
+	// The same runs split by capability, each bucket scored on its own. Present
+	// for every worker; a worker with one capability has a single entry whose
+	// runs are `runs`, and the UI only breaks a worker out when there are more.
+	capabilities: CapabilityHistory[];
+}
+
+// A capability a worker declares, whether or not it has ever run. Needed
+// because history alone can only show capabilities that have produced a run,
+// and a webhook that has never fired is exactly what you want to find.
+export interface DeclaredCapability {
+	// The capability's `_tag`: "sync", "webhook", "oauth".
+	tag: string;
+	// Its key, i.e. the first argument to `worker.sync()` and friends.
+	key: string;
+}
+
 export interface RunHealthPayload {
-	// workerId -> health. Every worker in the workspace gets an entry.
-	health: Record<string, RunHealth>;
+	// workerId -> recent runs and score. Every worker in the workspace gets an
+	// entry; one whose lookup failed gets an empty history and "unknown".
+	history: Record<string, WorkerRunHistory>;
+	// workerId -> the capabilities it declares. Kept beside the history rather
+	// than inside it because history is re-derived from run lists the app fetches
+	// for other reasons, and those cannot know about a capability that has never
+	// run — folding the two together would drop it on the next refresh.
+	// A worker whose capabilities could not be read is absent.
+	declared: Record<string, DeclaredCapability[]>;
+	// The server's WORKER_DEAD_TIMEOUT, so a strip can tell a run that is still
+	// going from one the sandbox was killed without reporting.
+	deadAfterSeconds: number;
+}
+
+// Whether a run bucket belongs to a declared capability. Runs name themselves
+// "<operation>:<key>", and the operation is not always the capability's tag —
+// an oauth capability's runs are "getOAuthClientSecret:googleDrive" — so the key
+// is the only reliable half to match on.
+export function runNameMatchesCapability(runName: string, key: string): boolean {
+	return runName === key || runName.endsWith(`:${key}`);
 }
 
 // How many recent runs a health score looks at, and the cutoff between the
@@ -77,6 +144,32 @@ export interface RunHealthPayload {
 // RECENT_WINDOW = 3 means orange covers positions 2-3 and yellow the rest.
 export const RUN_HEALTH_WINDOW = 5;
 const RECENT_WINDOW = 3;
+
+// How many recent runs the sweep fetches and a history strip shows. Larger than
+// the scoring window on purpose: the thresholds above are a judgement about what
+// makes a worker look unhealthy, while this is just how much history fits in a
+// column. Raising it widens the strip and changes no dot.
+export const RUN_HEALTH_FETCH = 10;
+
+// How many runs the sweep asks for per worker. Much larger than RUN_HEALTH_FETCH
+// because what comes back is a single stream shared by every capability and by
+// deploy-time runs: on real workers ten runs have turned out to be one capability
+// only, hiding the rest entirely. The CLI's own default is 100, so asking for
+// this costs no extra call — only a larger response, which is trimmed to the
+// buckets below before it is sent on.
+export const RUN_HEALTH_SCAN = 100;
+
+// Runs the platform makes rather than the worker doing its job: saving a
+// worker's capability list, and deploying. Excluded from health because they
+// crowd out and outvote real work — they are near-always green, they fire in
+// bursts when you deploy, and a worker whose entire recent history is these has
+// not actually run. Matched by name, which is all a run carries to tell them
+// apart.
+export const INFRASTRUCTURE_RUN_NAMES = ["fetchAndSaveCapabilities", "deploy"];
+
+export function isInfrastructureRun(name: string): boolean {
+	return INFRASTRUCTURE_RUN_NAMES.includes(name);
+}
 
 // Scores a worker's runs into a single traffic-light value. Lives here rather
 // than in either app because both score the same runs: the server sweeps every
@@ -114,11 +207,71 @@ export function scoreHealth(outcomes: HealthOutcome[]): RunHealth {
 	return newestFailure < RECENT_WINDOW ? "orange" : "yellow";
 }
 
+// Worst health first, for a table that sorts on it. The order is the one the
+// dots already teach: a failure now matters more than a failure three runs ago,
+// and a worker nobody can read sorts below one that simply has not run.
+export const HEALTH_SORT_RANK: Record<RunHealth, number> = {
+	red: 0,
+	orange: 1,
+	yellow: 2,
+	green: 3,
+	none: 4,
+	unknown: 5,
+};
+
+// Scores anything carrying an exit code, so a capability bucket is scored by
+// exactly the rule a whole worker is.
+export function scoreRuns(runs: Array<Pick<Run, "exitCode">>): RunHealth {
+	return scoreHealth(
+		runs.map((run) => (run.exitCode == null ? "pending" : run.exitCode === 0 ? "ok" : "failed")),
+	);
+}
+
+function toHistoryRun(run: Run): HistoryRun {
+	return {
+		runId: run.runId,
+		exitCode: run.exitCode,
+		startedAt: run.startedAt,
+		endedAt: run.endedAt,
+		name: run.name,
+	};
+}
+
+// A worker's run list reduced to the history the dot, the strip and the
+// per-capability rows all read. Shared so the server's sweep and the client's
+// re-derivation from a worker's own run list can never bucket or score
+// differently.
+//
+// `runs` must be newest-first. Each capability keeps its own newest
+// RUN_HEALTH_FETCH, so a quiet capability still shows its history when a busy
+// one would otherwise have filled the window.
+export function buildWorkerHistory(runs: Run[]): WorkerRunHistory {
+	const work = runs.filter((run) => !isInfrastructureRun(run.name));
+	const buckets = new Map<string, HistoryRun[]>();
+	for (const run of work) {
+		const bucket = buckets.get(run.name);
+		if (bucket) {
+			if (bucket.length < RUN_HEALTH_FETCH) bucket.push(toHistoryRun(run));
+		} else {
+			buckets.set(run.name, [toHistoryRun(run)]);
+		}
+	}
+	const capabilities = [...buckets.entries()]
+		.map(([name, bucketRuns]) => ({ name, runs: bucketRuns, health: scoreRuns(bucketRuns) }))
+		// Named order, so a refetch never reshuffles the rows under a worker.
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+	return {
+		runs: work.slice(0, RUN_HEALTH_FETCH).map(toHistoryRun),
+		health: scoreRuns(work),
+		capabilities,
+	};
+}
+
 export interface CrossWorkerRunsPayload extends RunsPayload {
-	// Recent-run health for every worker, scored from the first (unfiltered)
+	// Recent-run history for every worker, taken from the first (unfiltered)
 	// page of each worker's runs — the same page this endpoint already fetches
 	// to find runs since the marker, so it costs no additional CLI calls.
-	health: Record<string, RunHealth>;
+	history: Record<string, WorkerRunHistory>;
 }
 
 export interface LogsPayload {
@@ -612,6 +765,17 @@ export interface AgentSummary {
 	// can say so.
 	triggerCount: number;
 	enabledTriggerCount: number;
+	// The triggers themselves, which the agents query already returns. The
+	// health view needs them by name: a trigger that has never fired produces no
+	// session, so sessions alone cannot reveal it, and `enabled` is what says
+	// whether its silence is intended.
+	triggers: AgentTrigger[];
+}
+
+export interface AgentTrigger {
+	// e.g. "calendar.event.created", "notion.page.created".
+	type: string;
+	enabled: boolean;
 }
 
 // One execution of an agent — the closest analogue to a worker Run.
@@ -656,22 +820,112 @@ export type AgentStatus = (typeof AGENT_STATUS_VALUES)[number];
 //   - "canceled" counts as ok, not a failure: it means somebody stopped the
 //     session on purpose. "terminated" counts as a failure.
 export function computeAgentHealth(sessions: AgentSession[]): RunHealth {
-	return scoreHealth(
-		sessions.map((s) => {
-			if (s.status === "queued" || s.status === "in_progress" || s.status === "requires_action") {
-				return "pending";
-			}
-			if (s.status === "failed" || s.status === "terminated" || s.agentReportedFailure) {
-				return "failed";
-			}
-			return "ok";
-		}),
-	);
+	return scoreHealth(sessions.map(sessionOutcome));
+}
+
+// One session trimmed to what a history strip needs.
+export interface HistorySession {
+	sessionId: string;
+	// The session's own status, as AgentSession carries it.
+	status: string;
+	// markSessionFailed: the session still reads "completed", so this is the
+	// only signal the agent's own work did not land.
+	agentReportedFailure: boolean;
+	createdAt: string;
+	// What set it off — "chat" for a person talking to the agent, otherwise the
+	// trigger that fired. History is bucketed on this.
+	triggerType: string;
+}
+
+export interface TriggerHistory {
+	// The trigger type these sessions share.
+	name: string;
+	// Newest-first, at most RUN_HEALTH_FETCH.
+	sessions: HistorySession[];
+	health: RunHealth;
+}
+
+export interface AgentRunHistory {
+	// Newest-first, at most RUN_HEALTH_FETCH, across every trigger.
+	sessions: HistorySession[];
+	health: RunHealth;
+	// The same sessions split by trigger, each scored on its own — so a trigger
+	// firing constantly cannot hide a quieter one, exactly as for worker
+	// capabilities.
+	triggers: TriggerHistory[];
 }
 
 export interface AgentHealthPayload {
-	// agentId -> health. Every visible agent gets an entry.
-	health: Record<string, RunHealth>;
+	// agentId -> recent sessions and score. Every visible agent gets an entry.
+	history: Record<string, AgentRunHistory>;
+}
+
+function toHistorySession(session: AgentSession): HistorySession {
+	return {
+		sessionId: session.id,
+		status: session.status,
+		agentReportedFailure: session.agentReportedFailure,
+		createdAt: session.createdAt,
+		triggerType: session.triggerType,
+	};
+}
+
+// An agent's session list reduced to the history its dot and strips read.
+// The counterpart of buildWorkerHistory, and bucketed for the same reason.
+//
+// Unlike worker runs nothing is filtered out: a chat session is a person
+// talking to the agent rather than a trigger firing, but it is still the agent
+// working, so it is kept and simply bucketed under "chat" where it can be seen
+// instead of being silently mixed into the rest.
+export function buildAgentHistory(sessions: AgentSession[]): AgentRunHistory {
+	const buckets = new Map<string, HistorySession[]>();
+	for (const session of sessions) {
+		const bucket = buckets.get(session.triggerType);
+		if (bucket) {
+			if (bucket.length < RUN_HEALTH_FETCH) bucket.push(toHistorySession(session));
+		} else {
+			buckets.set(session.triggerType, [toHistorySession(session)]);
+		}
+	}
+	const triggers = [...buckets.entries()]
+		.map(([name, bucketSessions]) => ({
+			name,
+			sessions: bucketSessions,
+			health: scoreSessions(bucketSessions),
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+	return {
+		sessions: sessions.slice(0, RUN_HEALTH_FETCH).map(toHistorySession),
+		health: scoreSessions(sessions.map(toHistorySession)),
+		triggers,
+	};
+}
+
+// Scores sessions by the same rules computeAgentHealth applies to whole
+// agents, so a trigger bucket and an agent can never disagree.
+export function scoreSessions(sessions: HistorySession[]): RunHealth {
+	return scoreHealth(sessions.map(sessionOutcome));
+}
+
+export function sessionOutcome(session: {
+	status: string;
+	agentReportedFailure: boolean;
+}): HealthOutcome {
+	if (
+		session.status === "queued" ||
+		session.status === "in_progress" ||
+		session.status === "requires_action"
+	) {
+		return "pending";
+	}
+	if (
+		session.status === "failed" ||
+		session.status === "terminated" ||
+		session.agentReportedFailure
+	) {
+		return "failed";
+	}
+	return "ok";
 }
 
 export interface AgentSessionsPayload {
@@ -762,6 +1016,38 @@ export function syncScheduleMinutes(value: string): number | null {
 	const unit = SYNC_INTERVAL_UNIT_MINUTES[m[2]!];
 	if (unit === undefined) return null;
 	return Number(m[1]) * unit;
+}
+
+// How many minutes past due a worker's sync is, or null if nothing is overdue.
+//
+// The point is the failure a pass/fail history cannot show: a sync on a 15m
+// cadence whose last run was six hours ago has not failed, it has stopped, and
+// every bubble in its strip is green. Only fixed intervals count — "continuous"
+// and "manual" have no cadence to be late against, and a worker with no sync at
+// all is never overdue. The shortest interval wins when a worker has several,
+// since that is the one that should have fired first.
+//
+// GRACE_FACTOR is why "late" is not "one interval". A 30m sync that last ran
+// 31m ago is healthy: the run takes time, the poll drifts, and a view that cries
+// wolf on normal jitter gets ignored. Two intervals means a missed cycle.
+const SYNC_OVERDUE_GRACE_FACTOR = 2;
+
+export function syncOverdueMinutes(
+	labels: string[],
+	lastRunAt: string | null,
+	now: number,
+): number | null {
+	if (!lastRunAt) return null;
+	const intervals = labels
+		.map((label) => syncScheduleMinutes(label))
+		.filter((minutes): minutes is number => minutes !== null && minutes > 0);
+	if (intervals.length === 0) return null;
+	const interval = Math.min(...intervals);
+	const started = new Date(lastRunAt).getTime();
+	if (!Number.isFinite(started)) return null;
+	const ageMinutes = (now - started) / 60000;
+	const overdue = ageMinutes - interval * SYNC_OVERDUE_GRACE_FACTOR;
+	return overdue > 0 ? Math.round(overdue) : null;
 }
 
 // Why `value` isn't an acceptable schedule, or null if it is. Returning the
@@ -879,7 +1165,38 @@ export type SyncSchedulesByWorker = Record<string, string[]>;
 // which is the same set the "paused" marker renders next to. A worker with
 // nothing paused is present with an empty `paused` array. `total` is how many
 // syncs `ntn` reports for the worker, so the marker can read "paused (1 of 3)".
-export type SyncPausedByWorker = Record<string, { paused: string[]; total: number }>;
+//
+// `schedules` pairs each declared sync's capability key with its cadence, which
+// only the source read can do — the schedules map above carries distinct labels
+// with no key attached. It is static, so a pause or resume changes `paused`
+// alone and which cadences are live is derived from the two (see
+// runningSyncSchedules), rather than being a third thing that can fall out of
+// step with them.
+export type SyncPausedByWorker = Record<
+	string,
+	{ paused: string[]; total: number; schedules: Record<string, string> }
+>;
+
+// The cadences a worker is still keeping: every declared sync's schedule except
+// the paused ones. What "overdue" is measured against, since a paused sync was
+// told to stop and its silence is the intended outcome rather than a fault.
+//
+// A templated declaration (`worker.sync(`${prefix}Delta`)`) is keyed by its
+// source text, which never equals a deployed capability key, so it is never
+// matched as paused and always counts as running. That is the safer error: a
+// sync wrongly believed paused would go unwatched.
+export function runningSyncSchedules(sync: {
+	paused: string[];
+	schedules: Record<string, string>;
+}): string[] {
+	const disabled = new Set(sync.paused);
+	const labels: string[] = [];
+	for (const [key, label] of Object.entries(sync.schedules)) {
+		if (disabled.has(key)) continue;
+		if (!labels.includes(label)) labels.push(label);
+	}
+	return labels;
+}
 
 export interface SyncScheduleUpdate {
 	key: string;

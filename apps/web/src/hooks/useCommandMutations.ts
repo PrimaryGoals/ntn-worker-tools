@@ -65,6 +65,10 @@ export function useCommandMutations(
 								[workerId]: {
 									paused: result.statuses.filter((st) => st.disabled).map((st) => st.capabilityKey),
 									total: result.statuses.length,
+									// Read from source, so a pause or resume cannot have changed
+									// it — and keeping it is what lets the health view re-derive
+									// which cadences are live without another sweep.
+									schedules: prev[workerId]!.schedules,
 								},
 							}
 						: prev,

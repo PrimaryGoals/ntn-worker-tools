@@ -18,6 +18,7 @@ import { MenuBar } from "./components/MenuBar";
 import { AgentMenuBar } from "./components/AgentMenuBar";
 import { AgentsList } from "./components/AgentsList";
 import { AgentsViewModeSwitch } from "./components/AgentsViewModeSwitch";
+import { AgentHealthList } from "./components/AgentHealthList";
 import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
@@ -32,6 +33,7 @@ import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
 import { SyncPickerModal, type SyncPickerOption } from "./components/modals/SyncPickerModal";
 import { SyncScheduleModal } from "./components/modals/SyncScheduleModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
+import { HealthList } from "./components/HealthList";
 import { RunsList } from "./components/RunsList";
 import { SessionsList } from "./components/SessionsList";
 import { UsageList } from "./components/UsageList";
@@ -282,6 +284,8 @@ function AppContent() {
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		workerHistory,
+		workerDeclaredCapabilities,
 		localMtimesQ,
 		scanQ,
 		runsQ,
@@ -319,6 +323,8 @@ function AppContent() {
 	const {
 		agentsQ,
 		agentHealthQ,
+		agentHistory,
+		agentHealth,
 		agentInsightsQ,
 		agentSessionsQ,
 		sessionEventsQ,
@@ -569,6 +575,45 @@ function AppContent() {
 		setSelectedAgentId(null);
 		setSelectedSessionId(null);
 		setRunsViewMode("worker");
+		clearTransientOutputs();
+	}
+
+	function selectAgent(id: string) {
+		// Exclusive with the worker context: picking an agent drops the worker
+		// selection, so worker-scoped chrome (Worker menu, webhook line) goes
+		// inert.
+		setSelectedAgentId(id);
+		setSelectedSessionId(null);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		// Picking a specific agent means you want that agent's sessions, not the
+		// cross-agent, usage or health view you may have been looking at.
+		setAgentsViewMode("agent");
+		clearTransientOutputs();
+	}
+
+	// Clicking a bubble in the health view. Deliberately NOT selectWorker: the
+	// run opens in the output panel below while the health table stays put, so
+	// you can read one failure and carry on scanning. Leaving the view is the
+	// job of the worker's name, which is what calls selectWorker.
+	//
+	// The worker still has to be set, since the run list keyed on it is what
+	// resolves the run for the detail line. The logs query reads
+	// selectedWorkerId until that list arrives, so it fires straight away.
+	function inspectRun(workerId: string, runId: string) {
+		setSelectedWorkerId(workerId);
+		setSelectedRunId(runId);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		clearTransientOutputs();
+	}
+
+	// The agents counterpart, for the same reason.
+	function inspectAgentSession(agentId: string, sessionId: string) {
+		setSelectedAgentId(agentId);
+		setSelectedSessionId(sessionId);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
 		clearTransientOutputs();
 	}
 
@@ -965,21 +1010,8 @@ function AppContent() {
 											error={agentsQ.error as Error | null}
 											agents={agentsQ.data ?? []}
 											selectedId={selectedAgentId}
-											health={agentHealthQ.data?.health ?? {}}
-											onSelect={(id) => {
-												// Exclusive with the worker context: picking an
-												// agent drops the worker selection, so worker-scoped
-												// chrome (Worker menu, webhook line) goes inert.
-												setSelectedAgentId(id);
-												setSelectedSessionId(null);
-												setSelectedWorkerId(null);
-												setSelectedRunId(null);
-												// Picking a specific agent means you want that
-												// agent's sessions, not the cross-agent or usage
-												// view you may have been looking at.
-												setAgentsViewMode("agent");
-												clearTransientOutputs();
-											}}
+											health={agentHealth}
+											onSelect={selectAgent}
 										/>
 									) : (
 									<>
@@ -1063,7 +1095,17 @@ function AppContent() {
 									}
 								>
 									{browserTab === "agents" ? (
-										agentsViewMode === "usage" ? (
+										agentsViewMode === "health" ? (
+											<AgentHealthList
+												loading={agentHealthQ.isLoading}
+												error={agentHealthQ.error as Error | null}
+												agents={agentsQ.data ?? []}
+												history={agentHistory}
+												selectedSessionId={selectedSessionId}
+												onSelectAgent={selectAgent}
+												onSelectSession={inspectAgentSession}
+											/>
+										) : agentsViewMode === "usage" ? (
 											<AgentUsageList
 												loading={agentUsageQ.isLoading}
 												error={agentUsageQ.error as Error | null}
@@ -1097,6 +1139,19 @@ function AppContent() {
 												}
 											/>
 										)
+									) : runsViewMode === "health" ? (
+										<HealthList
+											loading={runHealthQ.isLoading}
+											error={runHealthQ.error as Error | null}
+											workers={sortedWorkers}
+											history={workerHistory}
+											declared={workerDeclaredCapabilities}
+											deadAfterSeconds={runHealthQ.data?.deadAfterSeconds}
+											selectedRunId={selectedRunId}
+											syncPaused={syncPausedQ.data ?? {}}
+											onSelectWorker={selectWorker}
+											onSelectRun={inspectRun}
+										/>
 									) : runsViewMode === "usage" ? (
 										<UsageList
 											loading={crossWorkerUsageQ.isLoading}
@@ -1185,7 +1240,7 @@ function AppContent() {
 							<>
 								<span className="font-mono text-xs text-neutral-500">{selectedRun.runId}</span>
 								<span className="font-medium">{selectedRun.name}</span>
-								{crossWorkerView ? (
+								{crossWorkerView || runsViewMode === "health" ? (
 									<span>
 										<span className="text-neutral-500">Worker:</span>{" "}
 										{selectedRun.workerName ??
