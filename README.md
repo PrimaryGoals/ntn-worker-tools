@@ -147,7 +147,7 @@ The mapping decides what the worker list offers. A repository with no branch map
 </details>
 
 <details>
-<summary><strong>Rename Worker</strong></summary>
+<summary><strong>RENAME worker</strong></summary>
 
 <table>
 <tr>
@@ -189,7 +189,7 @@ For simple workers created with <code>ntn workers new</code>, this runs the corr
 </details>
 
 <details>
-<summary><code>pnpm run deploy</code></summary>
+<summary><code>pnpm run DEPLOY</code></summary>
 
 <table>
 <tr>
@@ -271,7 +271,7 @@ You may optionally change the name of the worker on the new workspace, which wil
 <summary><strong>Secrets</strong></summary>
 
 <details>
-<summary>Push secrets to Notion</summary>
+<summary>PUSH Secrets to Notion</summary>
 
 <table>
 <tr>
@@ -298,7 +298,7 @@ This takes the contents of your local <code>.env</code> file and updates all var
 
 In cases where you did not deploy the worker yourself, or when the worker was created by a personal agent, you still need a way to push the <code>NOTION_API_TOKEN</code> to the worker.
 
-This option is only active if you do not have a local folder for the worker, because if you did, you would use **Push secrets to Notion** instead.
+This option is only active if you do not have a local folder for the worker, because if you did, you would use **PUSH Secrets to Notion** instead.
 
 </details>
 

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type {
 	AgentHealthPayload,
+	AgentRunHistory,
 	AgentSession,
 	AgentSessionsPayload,
 	AgentSummary,
@@ -12,7 +13,7 @@ import type {
 	SessionEvent,
 	SessionEventsPayload,
 } from "@ntn-worker-tools/shared";
-import { AGENT_STATUS_VALUES, computeAgentHealth, RUN_HEALTH_WINDOW } from "@ntn-worker-tools/shared";
+import { AGENT_STATUS_VALUES, buildAgentHistory, RUN_HEALTH_SCAN } from "@ntn-worker-tools/shared";
 import { formatCommandForDisplay, NtnError, runNtnRawAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 import { resolveNotionApiVersion, withSpecFetchHint } from "../notion-version.js";
@@ -103,6 +104,7 @@ function toAgentSummary(a: RawAgent): AgentSummary {
 		pauseReason: a.pause_reason ?? null,
 		triggerCount: triggers.length,
 		enabledTriggerCount: triggers.filter((t) => t.enabled).length,
+		triggers: triggers.map((t) => ({ type: t.type, enabled: t.enabled })),
 	};
 }
 
@@ -212,29 +214,31 @@ export default async function agentsRoutes(app: FastifyInstance) {
 		return (data.results ?? []).map(toAgentSummary);
 	});
 
-	// Health dots for the Agents tab, scored by the same rules as worker runs.
-	// One small sessions query per agent (page_size = the scoring window) rather
-	// than one big unfiltered page, so a chatty agent can't crowd quieter ones
-	// out of their own window. Mirrors /api/workers/run-health.
+	// Health dots and per-trigger history for the Agents tab, scored by the same
+	// rules as worker runs. One sessions query per agent. It asks for a full page
+	// rather than just the scoring window because that page is a single stream
+	// shared by every trigger: on real agents a trigger firing constantly fills
+	// it and hides the rest, so the page is bucketed per trigger before being
+	// sent on. Mirrors /api/workers/run-health.
 	app.get("/api/agents/health", async (): Promise<AgentHealthPayload> => {
 		const data = await ntnApiJson<{ results: RawAgent[] }>(AGENTS_QUERY_PATH, {
 			page_size: MAX_PAGE_SIZE,
 		});
 		const entries = await Promise.all(
-			(data.results ?? []).map(async (agent): Promise<[string, RunHealth]> => {
+			(data.results ?? []).map(async (agent): Promise<[string, AgentRunHistory]> => {
 				try {
 					const sessions = await ntnApiJson<{ results: RawSession[] }>("/v1/sessions/query", {
 						filter: { property: "agent_id", string: { equals: agent.id } },
-						page_size: RUN_HEALTH_WINDOW,
+						page_size: RUN_HEALTH_SCAN,
 					});
-					return [agent.id, computeAgentHealth((sessions.results ?? []).map(toAgentSession))];
+					return [agent.id, buildAgentHistory((sessions.results ?? []).map(toAgentSession))];
 				} catch {
 					// One agent's lookup failing shouldn't blank out the rest.
-					return [agent.id, "unknown"];
+					return [agent.id, { sessions: [], health: "unknown", triggers: [] }];
 				}
 			}),
 		);
-		return { health: Object.fromEntries(entries) };
+		return { history: Object.fromEntries(entries) };
 	});
 
 	// The output panel shows this verbatim, so it returns the raw command

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel as RPanel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { api } from "./api";
 import { buildWorkerMenuGroups, contextMenuGroups, dropdownGroups } from "./workerMenu";
-import { normalizePathKey } from "@ntn-worker-tools/shared";
+import { isDeadRun, normalizePathKey } from "@ntn-worker-tools/shared";
 import { buildLocalOnlyRows } from "./workerRows";
 import { buildRepoStatuses, knownWorkspaces, type RepoStatus } from "./repoStatus";
 import { RepoBanner, UnmappedReposLine } from "./components/RepoBanner";
@@ -18,6 +18,7 @@ import { MenuBar } from "./components/MenuBar";
 import { AgentMenuBar } from "./components/AgentMenuBar";
 import { AgentsList } from "./components/AgentsList";
 import { AgentsViewModeSwitch } from "./components/AgentsViewModeSwitch";
+import { AgentHealthList } from "./components/AgentHealthList";
 import { AgentUsageList } from "./components/AgentUsageList";
 import { AdjustTimeMarkerModal } from "./components/modals/AdjustTimeMarkerModal";
 import { AgentCreditLimitModal } from "./components/modals/AgentCreditLimitModal";
@@ -26,10 +27,13 @@ import { BranchWorkspaceMapModal } from "./components/modals/BranchWorkspaceMapM
 import { DeployConfirmModal } from "./components/modals/DeployConfirmModal";
 import { DeployNewWorkerModal } from "./components/modals/DeployNewWorkerModal";
 import { DeployUpdatedWorkersModal } from "./components/modals/DeployUpdatedWorkersModal";
+import { EditSecretsModal } from "./components/modals/EditSecretsModal";
 import { FolderPickerModal } from "./components/modals/FolderPickerModal";
 import { RenameWorkerModal } from "./components/modals/RenameWorkerModal";
+import { SyncPickerModal, type SyncPickerOption } from "./components/modals/SyncPickerModal";
 import { SyncScheduleModal } from "./components/modals/SyncScheduleModal";
 import { TokenPushModal } from "./components/modals/TokenPushModal";
+import { HealthList } from "./components/HealthList";
 import { RunsList } from "./components/RunsList";
 import { SessionsList } from "./components/SessionsList";
 import { UsageList } from "./components/UsageList";
@@ -50,7 +54,9 @@ import {
 	formatCapabilities,
 	formatDateTime,
 	formatDeployResult,
+	formatDeadDuration,
 	formatDuration,
+	formatInterval,
 	formatSessionEvents,
 	formatSyncStatuses,
 	formatWebhookResult,
@@ -60,6 +66,15 @@ import {
 	ntnCmd,
 	SEPARATOR,
 } from "./format";
+
+type SyncAction = "trigger" | "pause" | "resume" | "reset";
+
+const SYNC_ACTION_TITLES: Record<SyncAction, { title: string; confirm: string }> = {
+	trigger: { title: "Trigger Sync", confirm: "Trigger" },
+	pause: { title: "Pause Sync", confirm: "Pause" },
+	resume: { title: "Resume Sync", confirm: "Resume" },
+	reset: { title: "Reset Sync State", confirm: "Reset" },
+};
 
 export function App() {
 	return (
@@ -221,12 +236,20 @@ function AppContent() {
 	const [renamedWorkerName, setRenamedWorkerName] = useState<string | null>(null);
 	const [agentCreditLimitOpen, setAgentCreditLimitOpen] = useState(false);
 	const [agentStatusOpen, setAgentStatusOpen] = useState(false);
+	// Set while the "which sync?" prompt is open; null otherwise.
+	const [syncPickAction, setSyncPickAction] = useState<SyncAction | null>(null);
+	const [editSecretsOpen, setEditSecretsOpen] = useState(false);
+	// False from opening the dialog until the read it triggers has finished, so
+	// it never builds its rows from a cached copy.
+	const [editSecretsFresh, setEditSecretsFresh] = useState(false);
 	const {
 		checkWorkerFolder,
 		deployWorker,
 		pnpmDeployWorker,
 		pushSecrets,
+		pullSecrets,
 		setEnvVar,
+		editSecrets,
 		syncTrigger,
 		syncPause,
 		syncResume,
@@ -261,6 +284,8 @@ function AppContent() {
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		workerHistory,
+		workerDeclaredCapabilities,
 		localMtimesQ,
 		scanQ,
 		runsQ,
@@ -277,6 +302,7 @@ function AppContent() {
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		envBlockedByWorkerId,
 		syncSchedulesQ,
 		syncPausedQ,
 		syncWorkerIds,
@@ -297,6 +323,8 @@ function AppContent() {
 	const {
 		agentsQ,
 		agentHealthQ,
+		agentHistory,
+		agentHealth,
 		agentInsightsQ,
 		agentSessionsQ,
 		sessionEventsQ,
@@ -356,6 +384,13 @@ function AppContent() {
 		// the scan, so without this a folder deployed since the last scan keeps
 		// saying "not on server" however often you refresh.
 		scanQ.refetch();
+		// The runs panel for whatever is showing. refetch() ignores a query's
+		// `enabled`, so only the one the panel is actually reading is fired.
+		if (crossWorkerView) {
+			if (configQ.data?.timeMarker) crossWorkerRunsQ.refetch();
+		} else if (selectedWorkerId) {
+			runsQ.refetch();
+		}
 	}
 
 	function openBranchMap() {
@@ -543,6 +578,45 @@ function AppContent() {
 		clearTransientOutputs();
 	}
 
+	function selectAgent(id: string) {
+		// Exclusive with the worker context: picking an agent drops the worker
+		// selection, so worker-scoped chrome (Worker menu, webhook line) goes
+		// inert.
+		setSelectedAgentId(id);
+		setSelectedSessionId(null);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		// Picking a specific agent means you want that agent's sessions, not the
+		// cross-agent, usage or health view you may have been looking at.
+		setAgentsViewMode("agent");
+		clearTransientOutputs();
+	}
+
+	// Clicking a bubble in the health view. Deliberately NOT selectWorker: the
+	// run opens in the output panel below while the health table stays put, so
+	// you can read one failure and carry on scanning. Leaving the view is the
+	// job of the worker's name, which is what calls selectWorker.
+	//
+	// The worker still has to be set, since the run list keyed on it is what
+	// resolves the run for the detail line. The logs query reads
+	// selectedWorkerId until that list arrives, so it fires straight away.
+	function inspectRun(workerId: string, runId: string) {
+		setSelectedWorkerId(workerId);
+		setSelectedRunId(runId);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		clearTransientOutputs();
+	}
+
+	// The agents counterpart, for the same reason.
+	function inspectAgentSession(agentId: string, sessionId: string) {
+		setSelectedAgentId(agentId);
+		setSelectedSessionId(sessionId);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		clearTransientOutputs();
+	}
+
 	// A selection belongs to the workspace it was made in. The connected
 	// workspace can change underneath the app - `ntn login` in a terminal, then
 	// refresh - and holding the old id would leave the details pane querying a
@@ -572,10 +646,76 @@ function AppContent() {
 	// call of its own and moves in step with that marker. undefined entry
 	// (worker has no local folder, or none of its source declares a sync)
 	// means unknown, and neither item is gated.
-	const menuSyncKey = syncCapabilities[0]?.key ?? null;
-	const menuPausedKeys = selectedWorkerId ? syncPausedQ.data?.[selectedWorkerId] : undefined;
+	// With several syncs the gate summarises them all: true only when every one
+	// is paused, false only when none is, null when mixed — so pause and resume
+	// each stay available while there is something for them to act on.
+	const menuPausedKeys = selectedWorkerId ? syncPausedQ.data?.[selectedWorkerId]?.paused : undefined;
+	const menuPausedCount = menuPausedKeys
+		? syncCapabilities.filter((c) => menuPausedKeys.includes(c.key)).length
+		: null;
 	const menuSyncPaused =
-		menuSyncKey && menuPausedKeys ? menuPausedKeys.includes(menuSyncKey) : null;
+		menuPausedCount === null || syncCapabilities.length === 0
+			? null
+			: menuPausedCount === syncCapabilities.length
+				? true
+				: menuPausedCount === 0
+					? false
+					: null;
+
+	// Runs a sync action against one key, with the confirmations each had when
+	// it only ever acted on the first sync (now naming the sync).
+	function runSyncAction(action: SyncAction, syncKey: string) {
+		if (!selectedWorkerId) return;
+		const workerId = selectedWorkerId;
+		if (action === "pause" && !window.confirm(`Pause sync "${syncKey}"?`)) return;
+		if (
+			action === "reset" &&
+			!window.confirm(
+				`Reset sync state for "${syncKey}"?\nThis clears the sync cursor so the next run processes from scratch.`,
+			)
+		) {
+			return;
+		}
+		clearTransientOutputs();
+		const mutation =
+			action === "trigger"
+				? syncTrigger
+				: action === "pause"
+					? syncPause
+					: action === "resume"
+						? syncResume
+						: syncStateReset;
+		mutation.mutate({ workerId, syncKey });
+	}
+
+	// One sync: act on it directly. Several: ask which.
+	function startSyncAction(action: SyncAction) {
+		if (!selectedWorkerId || syncCapabilities.length === 0) return;
+		if (syncCapabilities.length === 1) runSyncAction(action, syncCapabilities[0]!.key);
+		else setSyncPickAction(action);
+	}
+
+	function syncPickerOptions(action: SyncAction): SyncPickerOption[] {
+		return syncCapabilities.map((c) => {
+			const status = syncStatusQ.data?.statuses.find((s) => s.capabilityKey === c.key);
+			const paused = menuPausedKeys?.includes(c.key) ?? null;
+			const interval = status?.schedule
+				? status.schedule.intervalMs > 0
+					? `every ${formatInterval(status.schedule.intervalMs)}`
+					: status.schedule.type
+				: null;
+			return {
+				key: c.key,
+				detail: [interval, paused ? "paused" : null].filter(Boolean).join(" · ") || "no status yet",
+				disabledReason:
+					action === "pause" && paused === true
+						? "Already paused."
+						: action === "resume" && paused === false
+							? "Running — nothing to resume."
+							: undefined,
+			};
+		});
+	}
 
 	// Built fresh on every render rather than memoised: these actions close
 	// over current state, and a stale dependency list here would mean a menu
@@ -620,6 +760,30 @@ function AppContent() {
 					clearTransientOutputs();
 					pushSecrets.mutate(selectedWorkerId);
 				}
+			},
+			pullSecrets: () => {
+				if (!selectedWorkerId || !localPath) return;
+				// Pulling replaces .env wholesale, so a local file is a reason to
+				// stop and ask: this action is meant for a folder that has none.
+				if (
+					localInfoQ.data?.hasEnvFile &&
+					!window.confirm(
+						`A .env file already exists in ${localPath}.\n\n"Pull secrets to .env" is meant for when .env does not exist yet — it will OVERWRITE the current file with this worker's remote environment variables, and any local-only values will be lost.\n\nOverwrite it?`,
+					)
+				) {
+					return;
+				}
+				clearTransientOutputs();
+				pullSecrets.mutate(selectedWorkerId);
+			},
+			editSecrets: () => {
+				if (!selectedWorkerId) return;
+				editSecrets.reset();
+				// Always read fresh: the dialog edits what the worker has now, and a
+				// cached copy could be from before someone else changed it.
+				setEditSecretsFresh(false);
+				setEditSecretsOpen(true);
+				void envQ.refetch().finally(() => setEditSecretsFresh(true));
 			},
 			openTokenPush: () => {
 				setEnvVar.reset();
@@ -667,34 +831,10 @@ function AppContent() {
 					webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
 				});
 			},
-			syncTrigger: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				clearTransientOutputs();
-				syncTrigger.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-			},
-			syncPause: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				if (window.confirm("Pause sync for this worker?")) {
-					clearTransientOutputs();
-					syncPause.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-				}
-			},
-			syncResume: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				clearTransientOutputs();
-				syncResume.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-			},
-			syncStateReset: () => {
-				if (!selectedWorkerId || !syncCapabilities[0]) return;
-				if (
-					window.confirm(
-						"Reset sync state for this worker?\nThis clears the sync cursor so the next run processes from scratch.",
-					)
-				) {
-					clearTransientOutputs();
-					syncStateReset.mutate({ workerId: selectedWorkerId, syncKey: syncCapabilities[0].key });
-				}
-			},
+			syncTrigger: () => startSyncAction("trigger"),
+			syncPause: () => startSyncAction("pause"),
+			syncResume: () => startSyncAction("resume"),
+			syncStateReset: () => startSyncAction("reset"),
 			updatePollingInterval: () => {
 				if (!selectedWorkerId || !localPath) return;
 				setSyncScheduleOpen(true);
@@ -870,21 +1010,8 @@ function AppContent() {
 											error={agentsQ.error as Error | null}
 											agents={agentsQ.data ?? []}
 											selectedId={selectedAgentId}
-											health={agentHealthQ.data?.health ?? {}}
-											onSelect={(id) => {
-												// Exclusive with the worker context: picking an
-												// agent drops the worker selection, so worker-scoped
-												// chrome (Worker menu, webhook line) goes inert.
-												setSelectedAgentId(id);
-												setSelectedSessionId(null);
-												setSelectedWorkerId(null);
-												setSelectedRunId(null);
-												// Picking a specific agent means you want that
-												// agent's sessions, not the cross-agent or usage
-												// view you may have been looking at.
-												setAgentsViewMode("agent");
-												clearTransientOutputs();
-											}}
+											health={agentHealth}
+											onSelect={selectAgent}
 										/>
 									) : (
 									<>
@@ -919,6 +1046,7 @@ function AppContent() {
 										syncPaused={syncPausedQ.data ?? {}}
 										codeOutOfDateWorkerIds={codeOutOfDateWorkerIds}
 										envOutOfDateWorkerIds={envOutOfDateWorkerIds}
+										envBlockedByWorkerId={envBlockedByWorkerId}
 										localOnly={filteredLocalOnly}
 										ignoredFolders={configQ.data?.ignoredFolders ?? []}
 										onIgnoreFolder={(path) => ignoreFolder.mutate(path)}
@@ -967,7 +1095,17 @@ function AppContent() {
 									}
 								>
 									{browserTab === "agents" ? (
-										agentsViewMode === "usage" ? (
+										agentsViewMode === "health" ? (
+											<AgentHealthList
+												loading={agentHealthQ.isLoading}
+												error={agentHealthQ.error as Error | null}
+												agents={agentsQ.data ?? []}
+												history={agentHistory}
+												selectedSessionId={selectedSessionId}
+												onSelectAgent={selectAgent}
+												onSelectSession={inspectAgentSession}
+											/>
+										) : agentsViewMode === "usage" ? (
 											<AgentUsageList
 												loading={agentUsageQ.isLoading}
 												error={agentUsageQ.error as Error | null}
@@ -1001,6 +1139,19 @@ function AppContent() {
 												}
 											/>
 										)
+									) : runsViewMode === "health" ? (
+										<HealthList
+											loading={runHealthQ.isLoading}
+											error={runHealthQ.error as Error | null}
+											workers={sortedWorkers}
+											history={workerHistory}
+											declared={workerDeclaredCapabilities}
+											deadAfterSeconds={runHealthQ.data?.deadAfterSeconds}
+											selectedRunId={selectedRunId}
+											syncPaused={syncPausedQ.data ?? {}}
+											onSelectWorker={selectWorker}
+											onSelectRun={inspectRun}
+										/>
 									) : runsViewMode === "usage" ? (
 										<UsageList
 											loading={crossWorkerUsageQ.isLoading}
@@ -1024,6 +1175,9 @@ function AppContent() {
 											markerTime={configQ.data?.timeMarker ?? null}
 											workerNames={workerNamesById}
 											showWorkerColumn={crossWorkerView}
+											deadAfterSeconds={
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds
+											}
 											onSelect={(id) => {
 												setSelectedRunId(id);
 												clearTransientOutputs();
@@ -1062,7 +1216,10 @@ function AppContent() {
 							error={webhooksQ.error as Error | null}
 							webhooks={webhooksQ.data?.webhooks ?? []}
 							onFire={(url) => {
-								setWebhookResult(null);
+								// The panel shows a leftover deploy/command result ahead of any
+								// webhook result, so that has to be cleared too - not just the last
+								// webhook's - or the POST would run with nothing shown.
+								clearTransientOutputs();
 								fireWebhook.mutate({
 									url,
 									webhookSecret: extractWebhookSecret(envQ.data?.text ?? ""),
@@ -1083,7 +1240,7 @@ function AppContent() {
 							<>
 								<span className="font-mono text-xs text-neutral-500">{selectedRun.runId}</span>
 								<span className="font-medium">{selectedRun.name}</span>
-								{crossWorkerView ? (
+								{crossWorkerView || runsViewMode === "health" ? (
 									<span>
 										<span className="text-neutral-500">Worker:</span>{" "}
 										{selectedRun.workerName ??
@@ -1096,7 +1253,13 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Exit:</span>{" "}
-									<ExitCodeBadge code={selectedRun.exitCode} />
+									<ExitCodeBadge
+										code={selectedRun.exitCode}
+										dead={isDeadRun(
+											selectedRun,
+											(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+										)}
+									/>
 								</span>
 								<span>
 									<span className="text-neutral-500">Started:</span>{" "}
@@ -1104,7 +1267,14 @@ function AppContent() {
 								</span>
 								<span>
 									<span className="text-neutral-500">Duration:</span>{" "}
-									{formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
+									{isDeadRun(
+										selectedRun,
+										(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+									)
+										? formatDeadDuration(
+												(crossWorkerView ? crossWorkerRunsQ.data : runsQ.data)?.deadAfterSeconds,
+											)
+										: formatDuration(selectedRun.startedAt, selectedRun.endedAt)}
 								</span>
 							</>
 						) : selectedSession ? (
@@ -1159,7 +1329,12 @@ function AppContent() {
 
 			<div className="min-h-0 flex-1 bg-neutral-950 p-0">
 				{runningCommand ? (
-					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}…</div>
+					<div className="p-3 text-sm text-neutral-400">Running {runningCommand}
+						{selectedWorkerName && (deployWorker.isPending || pnpmDeployWorker.isPending)
+							? ` for ${selectedWorkerName}`
+							: ""}
+						…
+					</div>
 				) : anyDeployError ? (
 					<div className="whitespace-pre-wrap p-3 text-sm text-red-400">
 						Command failed: {anyDeployError.message}
@@ -1422,6 +1597,44 @@ function AppContent() {
 					}}
 				/>
 			) : null}
+			{editSecretsOpen && selectedWorkerId ? (
+				<EditSecretsModal
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					envText={envQ.data?.text}
+					loading={!editSecretsFresh}
+					loadError={envQ.error as Error | null}
+					submitting={editSecrets.isPending}
+					error={
+						editSecrets.error
+							? (editSecrets.error as Error).message
+							: editSecrets.data && editSecrets.data.exitCode !== 0
+								? editSecrets.data.stderr.trim() ||
+									`ntn exited with code ${editSecrets.data.exitCode} — see the output panel.`
+								: null
+					}
+					onClose={() => {
+						// Cancel, Escape, ✕ and a click outside all land here. Nothing is
+						// changed, but the live variables are still read back into the
+						// output panel (an apply with no changes is just that read).
+						setEditSecretsOpen(false);
+						clearTransientOutputs();
+						editSecrets.mutate({ workerId: selectedWorkerId, changes: { set: [], unset: [] } });
+					}}
+					onSave={(changes) => {
+						clearTransientOutputs();
+						editSecrets.mutate(
+							{ workerId: selectedWorkerId, changes },
+							{
+								onSuccess: (data) => {
+									if (data.exitCode === 0) setEditSecretsOpen(false);
+								},
+							},
+						);
+					}}
+				/>
+			) : null}
 			{folderPickerOpen ? (
 				<FolderPickerModal
 					workerName={null}
@@ -1490,6 +1703,23 @@ function AppContent() {
 						} else {
 							deployWorker.mutate({ workerId: selectedWorkerId });
 						}
+					}}
+				/>
+			) : null}
+			{syncPickAction && selectedWorkerId ? (
+				<SyncPickerModal
+					title={SYNC_ACTION_TITLES[syncPickAction].title}
+					confirmLabel={SYNC_ACTION_TITLES[syncPickAction].confirm}
+					workerName={
+						workersQ.data?.find((w) => w.workerId === selectedWorkerId)?.name ?? "worker"
+					}
+					options={syncPickerOptions(syncPickAction)}
+				preselect={syncPickAction === "pause" || syncPickAction === "resume"}
+					onClose={() => setSyncPickAction(null)}
+					onPick={(key) => {
+						const action = syncPickAction;
+						setSyncPickAction(null);
+						runSyncAction(action, key);
 					}}
 				/>
 			) : null}

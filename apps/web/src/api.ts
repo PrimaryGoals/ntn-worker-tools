@@ -252,6 +252,11 @@ export const api = {
 			method: "POST",
 			body: JSON.stringify({ newName }),
 		}),
+	pullWorkerSecrets: (workerId: string, verbose = false) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/pull${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST" },
+		),
 	pushWorkerSecrets: (workerId: string, verbose = false) =>
 		request<DeployResult>(
 			`/api/workers/${workerId}/env/push${verbose ? "?verbose=1" : ""}`,
@@ -261,6 +266,15 @@ export const api = {
 		request<DeployResult>(
 			`/api/workers/${workerId}/env/set${verbose ? "?verbose=1" : ""}`,
 			{ method: "POST", body: JSON.stringify({ key, value }) },
+		),
+	applyWorkerEnvChanges: (
+		workerId: string,
+		changes: { set: Array<{ key: string; value: string }>; unset: string[] },
+		verbose = false,
+	) =>
+		request<DeployResult>(
+			`/api/workers/${workerId}/env/apply${verbose ? "?verbose=1" : ""}`,
+			{ method: "POST", body: JSON.stringify(changes) },
 		),
 	// Note: /api/workers/batch-actions streams NDJSON and is called directly
 	// via fetch() from DeployUpdatedWorkersModal, not through this helper —

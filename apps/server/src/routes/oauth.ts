@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import type { FastifyInstance } from "fastify";
 import type { DeployResult } from "@ntn-worker-tools/shared";
 import { runNtnRawAllowingFailure } from "../ntn.js";
-import { isVerbose } from "../route-helpers.js";
+import { isSafeArg, isVerbose } from "../route-helpers.js";
 
 // `ntn workers oauth start` only launches a browser when its stdout is a TTY.
 // The server always spawns it non-interactively, so the CLI takes its
@@ -62,7 +62,7 @@ export default async function oauthRoutes(app: FastifyInstance) {
 		"/api/workers/:id/oauth/start",
 		async (req, reply): Promise<DeployResult> => {
 			const key = req.body?.key?.trim();
-			if (!key) {
+			if (!key || !isSafeArg(key)) {
 				return reply
 					.code(400)
 					.send({ error: "oauth capability key required" }) as unknown as DeployResult;
@@ -102,7 +102,7 @@ export default async function oauthRoutes(app: FastifyInstance) {
 		"/api/workers/:id/oauth/token",
 		async (req, reply): Promise<DeployResult> => {
 			const key = req.body?.key?.trim();
-			if (!key) {
+			if (!key || !isSafeArg(key)) {
 				return reply
 					.code(400)
 					.send({ error: "oauth capability key required" }) as unknown as DeployResult;

@@ -7,6 +7,7 @@ import type {
 	WorkerUsage,
 	Whoami,
 } from "@ntn-worker-tools/shared";
+import { DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS } from "@ntn-worker-tools/shared";
 import type { ApiRequestError } from "./api";
 
 const VALID_WORKER_NAME_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -24,6 +25,13 @@ export function normalizeWorkerName(input: string): string {
 
 export function isValidWorkerName(name: string): boolean {
 	return name.length > 0 && VALID_WORKER_NAME_REGEX.test(name);
+}
+
+// A dead run never reported an end, so its real duration is unknown. All that is
+// known is that it outlasted the dead timeout: ">5m 15s" for the default 315 s.
+export function formatDeadDuration(deadAfterSeconds: number | undefined): string {
+	const ms = (deadAfterSeconds ?? DEFAULT_WORKER_DEAD_TIMEOUT_SECONDS) * 1000;
+	return `>${formatDuration(new Date(0).toISOString(), new Date(ms).toISOString())}`;
 }
 
 export function formatDuration(startedAt: string, endedAt: string | null): string {
@@ -255,6 +263,25 @@ export function extractWebhookSecret(envText: string): string | undefined {
 	if (!m) return undefined;
 	const v = m[1]?.replace(/\r$/, "") ?? "";
 	return v || undefined;
+}
+
+// KEY=VALUE lines from `ntn workers env pull`, in file order. Comments and
+// blank lines are skipped, and one pair of matching quotes around a value is
+// removed. A repeated key keeps its last value, as a dotenv loader would.
+export function parseEnvText(envText: string): Array<{ key: string; value: string }> {
+	const byKey = new Map<string, string>();
+	for (const raw of envText.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+		if (!m) continue;
+		let value = m[2] ?? "";
+		const q = value[0];
+		if (value.length >= 2 && (q === '"' || q === "'") && value.endsWith(q)) {
+			value = value.slice(1, -1);
+		}
+		byKey.set(m[1]!, value);
+	}
+	return [...byKey].map(([key, value]) => ({ key, value }));
 }
 
 export function formatWebhookResult(r: WebhookFireResult): string {

@@ -13,8 +13,13 @@ import { SCAN_IGNORED_DIR_NAMES } from "./scan-ignore.js";
 
 // Matches `worker.sync("key", {` — the receiver is any identifier (projects
 // don't always name their Worker instance `worker`) and the match ends on the
-// config object's opening brace.
-const SYNC_CALL_RE = /\b[A-Za-z_$][\w$]*\s*\.\s*sync\s*\(\s*(['"])((?:[^'"\\\n]|\\.)*)\1\s*,\s*\{/g;
+// config object's opening brace. The key is a quoted string (groups 1-2) or a
+// template literal (group 3) — the latter is how a helper that registers the
+// same pair of syncs for several sources builds its keys, e.g.
+// `${prefix}Delta`. A template key is kept as written, `${...}` and all: it is
+// only ever used to find the call again, and to match it to deployed keys.
+const SYNC_CALL_RE =
+	/\b[A-Za-z_$][\w$]*\s*\.\s*sync\s*\(\s*(?:(['"])((?:[^'"\\\n]|\\.)*)\1|`((?:[^`\\]|\\.)*)`)\s*,\s*\{/g;
 
 // A whole string literal, for reading and rewriting a `schedule:` value while
 // preserving the file's quote style.
@@ -217,7 +222,7 @@ function parseSyncCalls(src: string): { calls: ParsedSyncCall[]; unparsed: boole
 			continue;
 		}
 		const schedule = scanned.props.get("schedule") ?? null;
-		calls.push({ key: m[2]!, objStart, objEnd: scanned.end, schedule });
+		calls.push({ key: m[2] ?? m[3]!, objStart, objEnd: scanned.end, schedule });
 		// Resume after the config object so a nested `.sync(` in a handler
 		// body can't be picked up as a second top-level declaration.
 		SYNC_CALL_RE.lastIndex = scanned.end;
@@ -321,6 +326,7 @@ export async function findSyncSchedules(
 			const resolved = call.schedule ? resolveScheduleSpan(src, call.schedule) : null;
 			entries.push({
 				key: call.key,
+				templated: call.key.includes("${"),
 				file: relPath(root, file),
 				line: lineOf(src, call.objStart),
 				schedule: resolved?.value ?? null,

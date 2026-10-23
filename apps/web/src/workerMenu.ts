@@ -29,6 +29,10 @@ export interface WorkerMenuItem {
 	hidden?: boolean;
 	dropdownOnly?: boolean;
 	contextMenuOnly?: boolean;
+	// Left out of the context menu only; the dropdown still offers it. For an
+	// action that is always reachable from the dropdown but only worth a
+	// right-click when it is the likely next step.
+	contextMenuHidden?: boolean;
 }
 
 export interface WorkerMenuGroup {
@@ -82,6 +86,8 @@ export interface WorkerMenuActions {
 	pnpmDeploy: () => void;
 	deployUpdatedWorkers: () => void;
 	pushSecrets: () => void;
+	pullSecrets: () => void;
+	editSecrets: () => void;
 	openTokenPush: () => void;
 	oauthShowRedirectUrl: () => void;
 	oauthStart: () => void;
@@ -144,7 +150,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "reveal",
-					label: "Reveal in Explorer",
+					label: "Reveal in EXPLORER",
 					contextMenuOnly: true,
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
@@ -160,7 +166,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "renameWorker",
-					label: "Rename worker",
+					label: "RENAME worker",
 					disabled: noFolder,
 					disabledReason: NO_FOLDER,
 					onSelect: actions.renameWorker,
@@ -183,7 +189,7 @@ export function buildWorkerMenuGroups(
 				},
 				{
 					id: "pnpmDeploy",
-					label: "pnpm run deploy",
+					label: "pnpm run DEPLOY",
 					disabled: noFolder || !hasDeployScript,
 					disabledReason: noFolder
 						? NEEDS_FOLDER
@@ -205,7 +211,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "pushSecrets",
-					label: "push secrets to Notion",
+					label: "PUSH Secrets to Notion",
 					disabled: noFolder || !hasEnvFile,
 					disabledReason: noFolder
 						? NEEDS_FOLDER
@@ -213,12 +219,29 @@ export function buildWorkerMenuGroups(
 					onSelect: actions.pushSecrets,
 				},
 				{
+					id: "pullSecrets",
+					label: "Pull secrets to .env",
+					disabled: !workerId || noFolder,
+					disabledReason: !workerId ? "Select a worker first." : NEEDS_FOLDER,
+					// The dropdown keeps it (with its overwrite prompt); a right-click
+					// offers it only where it is the obvious next step: no .env yet.
+					contextMenuHidden: hasEnvFile,
+					onSelect: actions.pullSecrets,
+				},
+				{
+					id: "editSecrets",
+					label: "EDIT Secrets",
+					disabled: !workerId,
+					disabledReason: "Select a worker first.",
+					onSelect: actions.editSecrets,
+				},
+				{
 					id: "openTokenPush",
 					label: "push NOTION_API_TOKEN",
 					disabled: !workerId || !noFolder,
 					disabledReason: !workerId
 						? "Select a worker first."
-						: "You have a local folder — use 'push secrets to Notion' to push all env vars from your .env file.",
+						: "You have a local folder — use 'PUSH Secrets to Notion' to push all env vars from your .env file.",
 					onSelect: actions.openTokenPush,
 				},
 			],
@@ -267,7 +290,7 @@ export function buildWorkerMenuGroups(
 			items: [
 				{
 					id: "fireWebhook",
-					label: "Fire Webhook",
+					label: "Fire WEBHOOK",
 					disabled: !workerId || !hasWebhook,
 					disabledReason: !workerId
 						? "Select a worker first."
@@ -340,12 +363,15 @@ export function dropdownGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] {
 
 // The context menu's view: worker-scoped groups only, and only the items that
 // can actually fire right now — a right-click menu offers no greyed rows.
+// `contextMenuHidden` items are dropped here too.
 export function contextMenuGroups(groups: WorkerMenuGroup[]): WorkerMenuGroup[] {
 	const usable = groups
 		.filter((g) => !g.hidden && !g.dropdownOnly && !g.disabled)
 		.map((g) => ({
 			...g,
-			items: g.items.filter((i) => !i.hidden && !i.dropdownOnly && !i.disabled),
+			items: g.items.filter(
+				(i) => !i.hidden && !i.dropdownOnly && !i.disabled && !i.contextMenuHidden,
+			),
 		}))
 		.filter((g) => g.items.length > 0);
 

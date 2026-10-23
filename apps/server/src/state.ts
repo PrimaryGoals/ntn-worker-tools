@@ -1,4 +1,4 @@
-import type { AppConfig, WorkerDeployRecord } from "@ntn-worker-tools/shared";
+import type { AppConfig, WorkerDeployRecord, WorkerEnvBlock } from "@ntn-worker-tools/shared";
 import {
 	APP_VERSION,
 	CONFIG_VERSION,
@@ -127,11 +127,58 @@ export async function recordCodeDeploy(workerId: string, dir?: string | null): P
 // Called after this app itself successfully pushes env vars (env/push or
 // env/set). env/set passes no folder: it targets a worker by id and never reads
 // a local .env, so there is nothing to fingerprint.
+// Called after the live env was changed by hand (Edit Secrets), so a local .env
+// that was in sync no longer is. The fingerprint is a value no file hashes to,
+// which keeps the "push secrets" badge lit for any .env until it is pushed again
+// - a timestamp alone would not, since .env itself has not changed.
+export const ENV_DIVERGED_FINGERPRINT = "diverged-from-live";
+
+export async function recordEnvDiverged(workerId: string): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
+	const record: WorkerDeployRecord = {
+		at: new Date().toISOString(),
+		fingerprint: ENV_DIVERGED_FINGERPRINT,
+	};
+	await updateConfig({
+		workerEnvPushes: { ...(config.workerEnvPushes ?? {}), [workerId]: record },
+	});
+}
+
 export async function recordEnvPush(workerId: string, dir?: string | null): Promise<void> {
 	if (skipRecordForNewerFile(workerId)) return;
 	const record = await deployRecord(dir, "env");
-	await updateConfig({
+	const patch: Partial<AppConfig> = {
 		workerLastEnvPushAt: { ...(config.workerLastEnvPushAt ?? {}), [workerId]: record.at },
 		workerEnvPushes: { ...(config.workerEnvPushes ?? {}), [workerId]: record },
-	});
+	};
+	// A push of the local .env that went through supersedes an earlier refusal.
+	// Not for env/set (no folder): that never reads the local file, so a wrong
+	// token sitting in it is still wrong.
+	if (dir && config.workerEnvBlocks?.[workerId]) {
+		const { [workerId]: _cleared, ...rest } = config.workerEnvBlocks;
+		patch.workerEnvBlocks = rest;
+	}
+	await updateConfig(patch);
+}
+
+// Called when a push was refused because the .env token does not belong to the
+// worker's workspace, or Notion rejects it. Never called when the check could
+// not be answered, so a record always stands for a definite answer. The push
+// result is what the caller reports, so a failure to save is only logged.
+export async function recordEnvBlocked(
+	workerId: string,
+	dir: string,
+	block: Pick<WorkerEnvBlock, "reason" | "message" | "tokenWorkspaceName">,
+): Promise<void> {
+	if (skipRecordForNewerFile(workerId)) return;
+	try {
+		const record: WorkerEnvBlock = { at: new Date().toISOString(), ...block };
+		const fingerprint = (await computeFingerprints(dir)).env;
+		if (fingerprint) record.fingerprint = fingerprint;
+		await updateConfig({
+			workerEnvBlocks: { ...(config.workerEnvBlocks ?? {}), [workerId]: record },
+		});
+	} catch (err) {
+		console.warn(`[config] Could not record the blocked push for ${workerId}: ${String(err)}`);
+	}
 }

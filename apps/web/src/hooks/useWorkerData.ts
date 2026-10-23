@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import type { RunHealth } from "@ntn-worker-tools/shared";
-import { computeRunHealth } from "@ntn-worker-tools/shared";
+import type { RunHealth, WorkerEnvBlock, WorkerRunHistory } from "@ntn-worker-tools/shared";
+import { buildWorkerHistory } from "@ntn-worker-tools/shared";
 import { api } from "../api";
 import type { RunsViewMode } from "./useUIState";
 
@@ -63,7 +63,8 @@ export function useWorkerData(
 		queryFn: api.getWorkers,
 		enabled: !!whoamiQ.data,
 	});
-	// Colors the status dot next to each worker in the sidebar. Fans out one
+	// Colors the status dot next to each worker in the sidebar, and feeds the
+	// health view's per-worker strips from the same runs. Fans out one
 	// `ntn workers runs list` call per worker server-side, so it is kept in its
 	// own query the refresh button can invalidate on its own.
 	const runHealthQ = useQuery({
@@ -132,44 +133,51 @@ export function useWorkerData(
 		enabled: !!selectedWorkerId,
 	});
 
-	// Colors derived from run lists the app fetched for other reasons —
+	// History derived from run lists the app fetched for other reasons —
 	// selecting a worker, firing its webhook, the cross-worker sweep. They are
 	// strictly fresher than the last full sweep, so they win over it, and they
 	// persist after you select something else rather than reverting a dot to
 	// older data. A new full sweep clears them (see below): it is newer still,
 	// and it covers every worker.
-	const [derivedHealth, setDerivedHealth] = useState<Record<string, RunHealth>>({});
+	const [derivedHistory, setDerivedHistory] = useState<Record<string, WorkerRunHistory>>({});
 
 	useEffect(() => {
-		setDerivedHealth({});
+		setDerivedHistory({});
 	}, [runHealthQ.dataUpdatedAt]);
 
 	// The selected worker's own run list. Also covers a webhook fire: its poll
-	// writes each fetched page into this same query, so the dot re-scores as
-	// soon as the triggered run reports an exit code.
+	// writes each fetched page into this same query, so the dot re-scores — and
+	// the worker's strip gains the new run — as soon as it reports an exit code.
 	useEffect(() => {
 		const runs = runsQ.data?.runs;
 		if (!selectedWorkerId || !runs) return;
-		const health = computeRunHealth(runs);
-		setDerivedHealth((prev) =>
-			prev[selectedWorkerId] === health ? prev : { ...prev, [selectedWorkerId]: health },
-		);
+		setDerivedHistory((prev) => ({ ...prev, [selectedWorkerId]: buildWorkerHistory(runs) }));
 	}, [selectedWorkerId, runsQ.data]);
 
-	// The cross-worker sweep scores every worker server-side while it is already
-	// paging their runs, so it lands as a batch of overrides.
+	// The cross-worker sweep reads every worker's runs server-side while it is
+	// already paging them, so it lands as a batch of overrides.
 	useEffect(() => {
-		const health = crossWorkerRunsQ.data?.health;
-		if (!health) return;
-		setDerivedHealth((prev) => ({ ...prev, ...health }));
+		const history = crossWorkerRunsQ.data?.history;
+		if (!history) return;
+		setDerivedHistory((prev) => ({ ...prev, ...history }));
 	}, [crossWorkerRunsQ.data]);
 
-	// What the sidebar dots actually read: the last full sweep, with any fresher
+	// What the health view reads: the last full sweep, with any fresher
 	// per-worker derivations layered on top.
-	const workerHealth = useMemo(
-		() => ({ ...(runHealthQ.data?.health ?? {}), ...derivedHealth }),
-		[runHealthQ.data, derivedHealth],
+	const workerHistory = useMemo(
+		() => ({ ...(runHealthQ.data?.history ?? {}), ...derivedHistory }),
+		[runHealthQ.data, derivedHistory],
 	);
+
+	// What the sidebar dots actually read, projected out of the same histories so
+	// a dot and a strip can never disagree about the same worker.
+	const workerHealth = useMemo(() => {
+		const map: Record<string, RunHealth> = {};
+		for (const [workerId, history] of Object.entries(workerHistory)) {
+			map[workerId] = history.health;
+		}
+		return map;
+	}, [workerHistory]);
 
 	const workerNamesById = useMemo(
 		() => Object.fromEntries((workersQ.data ?? []).map((w) => [w.workerId, w.name])),
@@ -245,6 +253,25 @@ export function useWorkerData(
 		return ids;
 	}, [workersQ.data, localMtimesQ.data, configQ.data, fingerprintsByWorkerId]);
 
+	// workerId -> the refused push, while the .env is still the one that was
+	// refused. Not a check made here: the server records it when a push is
+	// blocked, so a row means Notion actually said the token is wrong. Editing
+	// .env (or a push that goes through) changes the fingerprint or clears the
+	// record, and the row goes away.
+	const envBlockedByWorkerId = useMemo(() => {
+		const map = new Map<string, WorkerEnvBlock>();
+		const blocks = configQ.data?.workerEnvBlocks;
+		if (!blocks) return map;
+		for (const w of workersQ.data ?? []) {
+			const block = blocks[w.workerId];
+			const current = fingerprintsByWorkerId.get(w.workerId)?.env ?? null;
+			if (block?.fingerprint && current && block.fingerprint === current) {
+				map.set(w.workerId, block);
+			}
+		}
+		return map;
+	}, [workersQ.data, configQ.data, fingerprintsByWorkerId]);
+
 	// Sync polling intervals for every worker with a registered local folder.
 	// Read from source, so it needs no `ntn` call and covers the whole list at
 	// once rather than only the selected worker.
@@ -309,6 +336,11 @@ export function useWorkerData(
 		workersQ,
 		runHealthQ,
 		workerHealth,
+		workerHistory,
+		// Straight from the sweep, deliberately not layered with derivations: a
+		// run list can't report a capability that has never run, so a fresher
+		// derivation would silently drop it.
+		workerDeclaredCapabilities: runHealthQ.data?.declared ?? {},
 		localMtimesQ,
 		scanQ,
 		runsQ,
@@ -325,6 +357,7 @@ export function useWorkerData(
 		workerNamesById,
 		codeOutOfDateWorkerIds,
 		envOutOfDateWorkerIds,
+		envBlockedByWorkerId,
 		syncSchedulesQ,
 		syncPausedQ,
 		syncWorkerIds,

@@ -5,6 +5,7 @@ import type { DeployNewInspection, DeployResult } from "@ntn-worker-tools/shared
 import { runNtnRawAllowingFailure, runShellAllowingFailure } from "../ntn.js";
 import { invalidateScan } from "../scan-cache.js";
 import { getConfig, recordCodeDeploy, updateConfig } from "../state.js";
+import { readEnvToken, resolveTokenWorkspace } from "../token-workspace.js";
 
 // The only two files this flow is ever allowed to delete, and only inside
 // whatever directory the caller already told us they're inspecting — never
@@ -13,6 +14,47 @@ const CLEANABLE_FILES = ["workers.json", ".env"] as const;
 type CleanableFile = (typeof CLEANABLE_FILES)[number];
 
 const WORKER_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// A first deploy is two steps inside ntn: create the worker (which writes
+// workers.json), then upload the code. When the upload fails, the worker
+// already exists with no deployment. Refreshing the scan links the folder to
+// it, so the next Deploy updates that worker instead of creating another one.
+// No code deploy is recorded — nothing shipped.
+async function linkWorkerCreatedByFailedDeploy(abs: string): Promise<DeployResult["followup"]> {
+	let workerId: string | undefined;
+	try {
+		const wj = JSON.parse(await readFile(join(abs, "workers.json"), "utf8")) as { workerId?: string };
+		if (typeof wj.workerId === "string" && wj.workerId) workerId = wj.workerId;
+	} catch {
+		return undefined;
+	}
+	if (!workerId) return undefined;
+	invalidateScan();
+	return {
+		command: "worker created, deploy failed",
+		exitCode: 1,
+		stdout:
+			`ntn created worker ${workerId} before the deploy failed, so it exists with no code.\n` +
+			`This folder is now linked to it. Fix the error above, then use Deploy on that worker's row — ` +
+			`deploying this folder as new again would create another worker.`,
+		stderr: "",
+		durationMs: 0,
+	};
+}
+
+function joinFollowups(
+	a: DeployResult["followup"],
+	b: DeployResult["followup"],
+): DeployResult["followup"] {
+	if (!a || !b) return a ?? b;
+	return {
+		command: `${a.command}; ${b.command}`,
+		exitCode: a.exitCode || b.exitCode,
+		stdout: [a.stdout, b.stdout].filter(Boolean).join("\n\n"),
+		stderr: [a.stderr, b.stderr].filter(Boolean).join("\n\n"),
+		durationMs: a.durationMs + b.durationMs,
+	};
+}
 
 export default async function deployNewRoutes(app: FastifyInstance) {
 	// Inspects an arbitrary directory (not yet a registered worker — the
@@ -69,6 +111,22 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				/* no .env — leave false */
 			}
 
+			let envToken: DeployNewInspection["envToken"];
+			if (hasEnvFile) {
+				const token = await readEnvToken(abs);
+				const result = token ? await resolveTokenWorkspace(token) : null;
+				envToken =
+					result?.status === "ok"
+						? {
+								status: "ok",
+								workspaceId: result.workspace.workspaceId,
+								workspaceName: result.workspace.workspaceName,
+							}
+						: result?.status === "rejected"
+							? { status: "rejected" }
+							: { status: "unchecked" };
+			}
+
 			let hasDeployScript = false;
 			let deployScript: string | null = null;
 			let hasWorkspaceProtocolDeps = false;
@@ -103,6 +161,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				hasWorkersJson,
 				workersJson,
 				hasEnvFile,
+				envToken,
 				hasDeployScript,
 				deployScript,
 				hasWorkspaceProtocolDeps,
@@ -213,7 +272,10 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 			});
 
 			let summary: DeployResult["summary"];
-			if (exitCode === 0) {
+			let followup: DeployResult["followup"];
+			if (exitCode !== 0) {
+				followup = await linkWorkerCreatedByFailedDeploy(abs);
+			} else {
 				try {
 					summary = JSON.parse(stdout.trim()) as DeployResult["summary"];
 				} catch {
@@ -268,6 +330,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				stderr,
 				durationMs,
 				summary,
+				followup,
 			};
 		},
 	);
@@ -359,6 +422,11 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				shell: true,
 			});
 
+			// A script like PMFN's deploy-worker.ts copies workers.json back into
+			// the folder even when its deploy step fails, so this works for it too.
+			const failedFollowup =
+				result.exitCode !== 0 ? await linkWorkerCreatedByFailedDeploy(abs) : undefined;
+
 			if (result.exitCode === 0) {
 				let newWorkerId: string | undefined;
 				try {
@@ -383,7 +451,7 @@ export default async function deployNewRoutes(app: FastifyInstance) {
 				stdout: result.stdout,
 				stderr: result.stderr,
 				durationMs: result.durationMs,
-				followup: renameFollowup,
+				followup: joinFollowups(renameFollowup, failedFollowup),
 			};
 		},
 	);

@@ -62,9 +62,14 @@ export function useCommandMutations(
 					prev && workerId in prev
 						? {
 								...prev,
-								[workerId]: result.statuses
-									.filter((st) => st.disabled)
-									.map((st) => st.capabilityKey),
+								[workerId]: {
+									paused: result.statuses.filter((st) => st.disabled).map((st) => st.capabilityKey),
+									total: result.statuses.length,
+									// Read from source, so a pause or resume cannot have changed
+									// it — and keeping it is what lets the health view re-derive
+									// which cadences are live without another sweep.
+									schedules: prev[workerId]!.schedules,
+								},
 							}
 						: prev,
 				);
@@ -88,6 +93,10 @@ export function useCommandMutations(
 		qc.invalidateQueries({ queryKey: ["workers"] });
 		qc.invalidateQueries({ queryKey: ["config"] });
 		qc.invalidateQueries({ queryKey: ["localMtimes"] });
+		// The "needs redeploy" tag compares the fingerprint recorded by this deploy
+		// with the one in the scan. The scan is not polled, so without a re-read it
+		// still holds the pre-deploy fingerprint and the tag stays lit.
+		qc.invalidateQueries({ queryKey: ["scan"] });
 		// A deploy can change a sync's schedule, so the live interval the
 		// polling-interval dialog reports would otherwise keep showing the one
 		// the deploy just replaced.
@@ -133,6 +142,21 @@ export function useCommandMutations(
 			// against the recorded push time, and this refreshed neither.
 			invalidateAfterDeploy();
 		},
+		// A refused push (wrong-workspace token) is a 409, so onSuccess never runs;
+		// the server has recorded it and the "invalid secrets" badge needs the config.
+		onError: () => {
+			qc.invalidateQueries({ queryKey: ["config"] });
+		},
+	});
+	const pullSecrets = useMutation({
+		mutationFn: (workerId: string) => api.pullWorkerSecrets(workerId, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// .env now exists (or changed): the menu's gates read it, and the
+			// "push secrets" badge compares its mtime against the recorded push.
+			qc.invalidateQueries({ queryKey: ["localInfo"] });
+			invalidateAfterDeploy();
+		},
 	});
 	const setEnvVar = useMutation({
 		mutationFn: ({ workerId, key, value }: { workerId: string; key: string; value: string }) =>
@@ -140,6 +164,24 @@ export function useCommandMutations(
 		onSuccess: (data) => {
 			setDeployResult(data);
 			setTokenPushOpen(false);
+		},
+	});
+	const editSecrets = useMutation({
+		mutationFn: ({
+			workerId,
+			changes,
+		}: {
+			workerId: string;
+			changes: { set: Array<{ key: string; value: string }>; unset: string[] };
+		}) => api.applyWorkerEnvChanges(workerId, changes, verboseLogs),
+		onSuccess: (data) => {
+			setDeployResult(data);
+			// Even a partial failure changed some variables, so the remote env the
+			// dialog and the webhook secret read from is re-read either way.
+			qc.invalidateQueries({ queryKey: ["env"] });
+			// The server marked the local .env as out of sync with the live env; the
+			// "push secrets" badge reads that record from the config.
+			qc.invalidateQueries({ queryKey: ["config"] });
 		},
 	});
 	const syncTrigger = useMutation({
@@ -224,8 +266,12 @@ export function useCommandMutations(
 			? "pnpm run deploy"
 			: pushSecrets.isPending
 				? "ntn workers env push"
+				: pullSecrets.isPending
+					? "ntn workers env pull"
 				: setEnvVar.isPending
 					? "ntn workers env set"
+					: editSecrets.isPending
+						? "ntn workers env set/unset"
 					: syncTrigger.isPending
 						? "ntn workers sync trigger"
 						: syncPause.isPending
@@ -250,7 +296,9 @@ export function useCommandMutations(
 		(deployWorker.error as Error | null) ??
 		(pnpmDeployWorker.error as Error | null) ??
 		(pushSecrets.error as Error | null) ??
+		(pullSecrets.error as Error | null) ??
 		(setEnvVar.error as Error | null) ??
+		(editSecrets.error as Error | null) ??
 		(syncTrigger.error as Error | null) ??
 		(syncPause.error as Error | null) ??
 		(syncResume.error as Error | null) ??
@@ -268,7 +316,9 @@ export function useCommandMutations(
 		deployWorker.reset();
 		pnpmDeployWorker.reset();
 		pushSecrets.reset();
+		pullSecrets.reset();
 		setEnvVar.reset();
+		editSecrets.reset();
 		syncTrigger.reset();
 		syncPause.reset();
 		syncResume.reset();
@@ -285,7 +335,9 @@ export function useCommandMutations(
 		pnpmDeployWorker,
 		checkWorkerFolder,
 		pushSecrets,
+		pullSecrets,
 		setEnvVar,
+		editSecrets,
 		syncTrigger,
 		syncPause,
 		syncResume,

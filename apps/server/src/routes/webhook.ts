@@ -3,24 +3,28 @@ import type { WebhookFireResult } from "@ntn-worker-tools/shared";
 import { runShellAllowingFailure } from "../ntn.js";
 import { isVerbose } from "../route-helpers.js";
 
-// Notion moved worker webhook URLs from www.notion.so to app.notion.com
-// (the same cutover that broke the OAuth redirect URL). Accepting both
-// prefixes instead of swapping outright, in case any environment still
-// hands back the old domain.
-const NOTION_WEBHOOK_PREFIXES = [
-	"https://www.notion.so/webhooks/worker/",
-	"https://app.notion.com/webhooks/worker/",
-];
+// The URL is handed to curl as an argument, so it must be a real https URL:
+// anything starting with `-` would be read as a curl option, and curl also
+// speaks file://, ftp:// and the like. The host is deliberately not checked.
+// Notion has moved webhook URLs between hosts more than once, and each move
+// broke firing until this list was updated.
+function isHttpsUrl(url: string): boolean {
+	try {
+		return new URL(url).protocol === "https:";
+	} catch {
+		return false;
+	}
+}
 
 export default async function webhookRoutes(app: FastifyInstance) {
 	app.post<{ Body: { url: string; webhookSecret?: string }; Querystring: { verbose?: string } }>(
 		"/api/webhook/fire",
 		async (req, reply): Promise<WebhookFireResult> => {
 			const url = req.body?.url;
-			if (typeof url !== "string" || !NOTION_WEBHOOK_PREFIXES.some((p) => url.startsWith(p))) {
+			if (typeof url !== "string" || !isHttpsUrl(url)) {
 				return reply.code(400).send({
 					error: "invalid webhook url",
-					detail: `url must start with one of: ${NOTION_WEBHOOK_PREFIXES.join(", ")}`,
+					detail: "url must be a valid https:// URL",
 				}) as unknown as WebhookFireResult;
 			}
 			const verbose = isVerbose(req.query.verbose);

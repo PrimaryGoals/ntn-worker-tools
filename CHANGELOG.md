@@ -4,6 +4,75 @@ All notable changes to this project are documented here. Format loosely follows 
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-22
+
+Health views for workers and agents, and deploy runs no longer flatter a worker's health.
+
+### Added
+- A "Health" view on the Runs panel, beside Usage: every worker with the age of its most recent run and a strip of bubbles for its last 10 runs, newest on the right. Bubbles read green for exit 0, red for a failure, hollow while a run is in flight and grey for a dead run. Clicking one selects that worker and that run, so a failure's logs are one click from the overview; clicking the row elsewhere just selects the worker. Headings sort by name, by worst health first, or by stalest run first, and a checkbox narrows the table to workers with a failure or an overdue sync
+- An amber marker on a worker whose age has passed twice the interval of a sync that is still running — a sync that has stopped rather than failed, which a pass/fail history can't show. A paused sync is told not to run, so it is never counted late: its worker reads "paused", or "paused (1 of 3)" where only some are, beside the age instead
+- A worker with more than one capability expands: its row gets a disclosure triangle, and opening it lists each capability with its own history and age. The sweep keeps the newest 10 runs *per capability*, so a busy one can no longer fill the window and hide the rest — one worker's webhook had not fired in two days behind a sync running every few minutes, which its single strip could not show. Capabilities stay grouped under their worker whatever the table is sorted by, and re-sort within the group. Every capability the worker declares gets a row, not only the ones that have produced a run — a sync worker here declares five and three read "never", one of them a webhook that has never fired. That costs a second `ntn` call per worker in the sweep, run alongside the first
+- The same Health view on the Agents tab: every agent with the age of its most recent session and a strip of bubbles for its last 10, expanding to one row per trigger. Sessions are bucketed by trigger type for the same reason worker runs are bucketed by capability — an agent here scores yellow overall while the trigger that matters scores orange, diluted by chat sessions sitting in the same window. Every trigger the agent declares gets a row, so one that has never fired is visible, and a trigger that is switched off says so
+- An agent that reads as "active" while every one of its triggers is disabled is flagged: it cannot fire however healthy its past sessions look. An agent that has simply been turned off is not flagged — like a paused sync, it was told to stop
+
+### Changed
+- Health no longer counts `fetchAndSaveCapabilities` and `deploy` runs. They are the platform's, not the worker's: they fire in bursts when you deploy and are near-always green, so they outvoted real failures and could make a worker that has never once done its job read as healthy. A worker whose recent history is only these now reads "no runs" rather than green
+- The run-health sweep carries the runs it scores rather than only the resulting color, so the Health view costs no additional `ntn` calls. It now reads a full page of 100 runs per worker rather than 5 — the CLI's own default, so still one call each — and trims to 10 per capability before answering. The thresholds behind the sidebar dots still look at 5 runs, so no dot changes color except where deploy runs had been padding it
+
+### Security
+- Dependencies patched to clear every open Dependabot alert and `pnpm audit` finding: fastify 5.12.5 and vite 6.4.4 are direct bumps, and `pnpm.overrides` in `pnpm-workspace.yaml` pin the transitive fast-uri 3.x, shell-quote and nanoid 3.x. fast-uri 4.x and source-map-js were patched earlier
+- CORS is limited to the web UI's origin (`WEB_URL`, default `http://localhost:5173`). It reflected any origin with credentials, so another app on a different localhost port could have read the API using the session cookie. Opening the UI from an address that does not match `WEB_URL` (say `127.0.0.1` instead of `localhost`) is now blocked
+- Route parameters, sync and OAuth capability keys, and the run-list cursor and page size are checked before they reach `ntn` as arguments. A value beginning with `-` could have been read as a flag; anything that does not start with a letter or digit is now refused with a 400
+
+## [1.6.2] - 2026-10-19
+
+Webhooks on Notion's new URL host fire again.
+
+### Changed
+- Firing a webhook no longer checks the URL's host. The old `www.notion.so` / `app.notion.com` allowlist rejected the new `*.webhook.notionusercontent.com` URLs from `ntn workers webhooks list` before curl ran, and every Notion host move would have broken it again. The server now only requires a valid `https://` URL. The "(use old format)" link, a stopgap from 1.6.0, is gone
+
+## [1.6.1] - 2026-10-16
+
+Dead-run detection and a badge for refused secrets pushes.
+
+### Added
+- A "dead" badge on a run that has no exit code and no end time and started longer ago than `WORKER_DEAD_TIMEOUT` (default 315 seconds), which is what Notion leaves behind when it kills a worker. Its duration reads ">5m 15s", since the real one is unknown. Set `WORKER_DEAD_TIMEOUT` in the server's `.env` to change the threshold
+- A red "invalid secrets" badge on a worker whose last secrets push was refused because its `.env` `NOTION_API_TOKEN` belongs to another workspace, or is one Notion rejects. It replaces "push secrets" while it applies, since that push would only be refused again, and its tooltip carries the reason. The check is recorded when a push is blocked (single push or "Deploy updated workers"), so nothing is asked of Notion when the app opens. The badge clears when `.env` changes or a push goes through
+
+### Changed
+- Menu and context-menu labels capitalise the key word: "Fire WEBHOOK", "Reveal in EXPLORER", "RENAME worker", "pnpm run DEPLOY", "PUSH Secrets to Notion" and "EDIT Secrets"
+- The command output panel names the worker being deployed ("Running deploy for my-worker…")
+
+## [1.6.0] - 2026-10-06
+
+Workers with several syncs, pulling a worker's secrets into a new folder, and a stopgap for Notion's new webhook URLs.
+
+### Added
+- "Pull secrets to .env" in the Worker menu writes the worker's remote environment variables into the registered folder's `.env`, for a clone that does not have one yet. Pulling replaces the file wholesale, so when a `.env` already exists the app asks before overwriting it. A freshly pulled `.env` matches the remote by construction, so it does not light the "push secrets" badge
+- "(use old format)" after a webhook URL on `*.webhook.notionusercontent.com`. Notion now hands back webhook URLs on that host, which the server's `www.notion.so` / `app.notion.com` check rejected. The link fires the same webhook, with its `X-Webhook-Secret`, at the equivalent `https://app.notion.com/webhooks/worker/…` address. It is a temporary workaround until the new host is accepted directly
+- Sync pause, resume, trigger and state reset ask which sync when a worker has more than one. The picker names each sync with its interval and paused state, opens with nothing selected for trigger and reset, and greys out a pause on a sync already paused and a resume on one already running. A worker with a single sync acts on it directly, as before
+
+### Changed
+- The worker list's "paused" marker reads "paused (1 of 3)" when only some of a worker's syncs are paused, and the menu offers pause and resume while any sync has something for them to act on. Before, only the first sync was ever looked at
+- The sync interval dialog tucks `manual` syncs (backfills, typically) behind a Show link, since they are never polled and have no interval to set. A worker whose syncs are all manual still lists them
+- Sync keys built from a template literal, such as `${prefix}Delta` from a helper that registers the same pair of syncs for several sources, are found in source and matched to their deployed syncs. Editing one moves every sync built from that declaration, and the dialog says so
+- The repository is built with pnpm 12.5.1 (was 11.25.0)
+
+### Fixed
+- Pause, resume, trigger and state reset acted on whichever sync happened to be declared first in a worker with several
+
+## [1.5.1] - 2026-09-16
+
+Less friction deploying a worker to a workspace for the first time.
+
+### Changed
+- The deploy dialog no longer asks you to confirm the target workspace before anything else. The branch map's warnings and the `.env` token check already flag a wrong workspace, and the final confirmation names it
+- The `.env` notice in the deploy dialog says which workspace the file's `NOTION_API_TOKEN` belongs to instead of warning about every `.env`. A token for the workspace being deployed to shows a single green line; a token for another workspace, or one Notion rejects, is flagged in amber; a token that cannot be checked keeps the general notice
+- Deploying through a project's own deploy script no longer asks for confirmation a second time: the "I've checked this script" checkbox is that confirmation
+
+### Fixed
+- A first deploy that failed after `ntn` had created the worker left a worker with no code and a folder that still looked undeployed, so deploying again created a second worker. The folder is now linked to the worker that was created, and the output says to fix the error and use Deploy on that worker's row. This also covers deploy scripts that copy `workers.json` back into the folder when their deploy step fails
+
 ## [1.5.0] - 2026-09-12
 
 Working across more than one Notion workspace, where the same code is deployed to several and a git branch decides which one is current (#53, #57, #59, #61).

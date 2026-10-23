@@ -1,9 +1,9 @@
 import { useState } from "react";
 
 // Which source the Runs panel displays: the selected worker's own runs, an
-// aggregate across all workers since the time marker, or (not yet built)
-// per-worker usage.
-export type RunsViewMode = "worker" | "crossWorker" | "usage";
+// aggregate across all workers since the time marker, per-worker usage, or
+// every worker's recent-run history side by side.
+export type RunsViewMode = "worker" | "crossWorker" | "usage" | "health";
 
 // Which tab the left-hand panel shows. Workers and Agents are mutually
 // exclusive contexts: selecting in one clears the other, so worker-scoped
@@ -12,8 +12,9 @@ export type RunsViewMode = "worker" | "crossWorker" | "usage";
 export type BrowserTab = "workers" | "agents";
 
 // The Agents tab's counterpart to RunsViewMode: the selected agent's own
-// sessions, every agent's sessions since the time marker, or per-agent usage.
-export type AgentsViewMode = "agent" | "crossAgent" | "usage";
+// sessions, every agent's sessions since the time marker, per-agent usage, or
+// every agent's recent session history side by side.
+export type AgentsViewMode = "agent" | "crossAgent" | "usage" | "health";
 
 // Navigation selection, verbosity, and modal-visibility state shared across
 // the whole app. Kept separate from query/mutation hooks since those depend
