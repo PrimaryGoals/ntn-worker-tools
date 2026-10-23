@@ -592,22 +592,29 @@ function AppContent() {
 		clearTransientOutputs();
 	}
 
-	// The agents counterpart of selectWorkerRun: a bubble in the health view
-	// names both the agent and the session, so its transcript opens in one
-	// click. selectAgent clears the session id, so the session is set after it.
-	function selectAgentSession(agentId: string, sessionId: string) {
-		selectAgent(agentId);
-		setSelectedSessionId(sessionId);
+	// Clicking a bubble in the health view. Deliberately NOT selectWorker: the
+	// run opens in the output panel below while the health table stays put, so
+	// you can read one failure and carry on scanning. Leaving the view is the
+	// job of the worker's name, which is what calls selectWorker.
+	//
+	// The worker still has to be set, since the run list keyed on it is what
+	// resolves the run for the detail line. The logs query reads
+	// selectedWorkerId until that list arrives, so it fires straight away.
+	function inspectRun(workerId: string, runId: string) {
+		setSelectedWorkerId(workerId);
+		setSelectedRunId(runId);
+		setSelectedAgentId(null);
+		setSelectedSessionId(null);
+		clearTransientOutputs();
 	}
 
-	// Clicking a bubble in the health view: the worker AND the run it belongs to,
-	// so the logs open in one click from the overview. selectWorker clears the
-	// run id, so the run has to be set after it — both land in one batch, and the
-	// later call wins. The logs query reads selectedWorkerId until that worker's
-	// run list arrives, so it fires straight away rather than waiting for it.
-	function selectWorkerRun(workerId: string, runId: string) {
-		selectWorker(workerId);
-		setSelectedRunId(runId);
+	// The agents counterpart, for the same reason.
+	function inspectAgentSession(agentId: string, sessionId: string) {
+		setSelectedAgentId(agentId);
+		setSelectedSessionId(sessionId);
+		setSelectedWorkerId(null);
+		setSelectedRunId(null);
+		clearTransientOutputs();
 	}
 
 	// A selection belongs to the workspace it was made in. The connected
@@ -1094,8 +1101,9 @@ function AppContent() {
 												error={agentHealthQ.error as Error | null}
 												agents={agentsQ.data ?? []}
 												history={agentHistory}
+												selectedSessionId={selectedSessionId}
 												onSelectAgent={selectAgent}
-												onSelectSession={selectAgentSession}
+												onSelectSession={inspectAgentSession}
 											/>
 										) : agentsViewMode === "usage" ? (
 											<AgentUsageList
@@ -1139,9 +1147,10 @@ function AppContent() {
 											history={workerHistory}
 											declared={workerDeclaredCapabilities}
 											deadAfterSeconds={runHealthQ.data?.deadAfterSeconds}
+											selectedRunId={selectedRunId}
 											syncPaused={syncPausedQ.data ?? {}}
 											onSelectWorker={selectWorker}
-											onSelectRun={selectWorkerRun}
+											onSelectRun={inspectRun}
 										/>
 									) : runsViewMode === "usage" ? (
 										<UsageList
@@ -1231,7 +1240,7 @@ function AppContent() {
 							<>
 								<span className="font-mono text-xs text-neutral-500">{selectedRun.runId}</span>
 								<span className="font-medium">{selectedRun.name}</span>
-								{crossWorkerView ? (
+								{crossWorkerView || runsViewMode === "health" ? (
 									<span>
 										<span className="text-neutral-500">Worker:</span>{" "}
 										{selectedRun.workerName ??

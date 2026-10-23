@@ -80,10 +80,14 @@ export function sessionBubbles(sessions: HistorySession[]) {
 // table of these scannable instead of ragged.
 export function RunHistoryStrip({
 	bubbles,
+	selectedId,
 	onSelect,
 }: {
 	// Newest-first, as the history payloads deliver them.
 	bubbles: HistoryBubble[];
+	// The run or session being shown below, ringed so it stays findable among
+	// ten near-identical bubbles.
+	selectedId?: string | null;
 	onSelect?: (id: string) => void;
 }) {
 	const shown = bubbles.slice(0, RUN_HEALTH_FETCH);
@@ -113,8 +117,13 @@ export function RunHistoryStrip({
 							onSelect?.(bubble.id);
 						}}
 						// The ring is what makes the hollow "pending" bubble visible, and
-						// every bubble carries it so they all read the same size.
-						className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-neutral-400/70 transition hover:ring-2 hover:ring-blue-500 ${FILL[bubble.outcome]}`}
+						// every bubble carries one so they all read the same size — the
+						// selected bubble just wears a heavier, bluer one.
+						className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full transition hover:ring-2 hover:ring-blue-500 ${
+							bubble.id === selectedId
+								? "ring-2 ring-blue-600 dark:ring-blue-400"
+								: "ring-1 ring-neutral-400/70"
+						} ${FILL[bubble.outcome]}`}
 					/>
 				);
 			})}

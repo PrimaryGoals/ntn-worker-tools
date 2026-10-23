@@ -118,6 +118,7 @@ export function AgentHealthList({
 	error,
 	agents,
 	history,
+	selectedSessionId,
 	onSelectAgent,
 	onSelectSession,
 }: {
@@ -125,6 +126,8 @@ export function AgentHealthList({
 	error: Error | null;
 	agents: AgentSummary[];
 	history: Record<string, AgentRunHistory>;
+	// The session currently shown in the output panel, ringed in its strip.
+	selectedSessionId: string | null;
 	onSelectAgent: (agentId: string) => void;
 	onSelectSession: (agentId: string, sessionId: string) => void;
 }) {
@@ -261,10 +264,7 @@ export function AgentHealthList({
 							const isOpen = splittable && expanded.has(row.agent.id);
 							return (
 								<Fragment key={row.agent.id}>
-									<tr
-										onClick={() => onSelectAgent(row.agent.id)}
-										className="cursor-pointer border-t border-neutral-100 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900"
-									>
+									<tr className="border-t border-neutral-100 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900">
 										<td className="px-3 py-1.5 font-medium">
 											{splittable ? (
 												<button
@@ -282,11 +282,20 @@ export function AgentHealthList({
 											) : (
 												<span className="mr-1 inline-block w-3" />
 											)}
-											{row.agent.name}
+											{/* Only the name leaves this view, as on the workers tab. */}
+											<button
+												type="button"
+												onClick={() => onSelectAgent(row.agent.id)}
+												title={`Show ${row.agent.name}'s sessions`}
+												className="cursor-pointer hover:underline"
+											>
+												{row.agent.name}
+											</button>
 										</td>
 										<td className="px-3 py-1.5">
 											<RunHistoryStrip
 												bubbles={sessionBubbles(row.history.sessions)}
+												selectedId={selectedSessionId}
 												onSelect={(sessionId) => onSelectSession(row.agent.id, sessionId)}
 											/>
 										</td>
@@ -318,11 +327,17 @@ export function AgentHealthList({
 										? [...row.triggers].sort(compare).map((trigger) => (
 												<tr
 													key={trigger.label}
-													onClick={() => onSelectAgent(row.agent.id)}
-													className="cursor-pointer border-t border-neutral-100 bg-neutral-50/60 hover:bg-neutral-100 dark:border-neutral-900 dark:bg-neutral-900/40 dark:hover:bg-neutral-900"
+													className="border-t border-neutral-100 bg-neutral-50/60 hover:bg-neutral-100 dark:border-neutral-900 dark:bg-neutral-900/40 dark:hover:bg-neutral-900"
 												>
 													<td className="py-1 pl-10 pr-3 text-xs text-neutral-600 dark:text-neutral-400">
-														{trigger.label}
+														<button
+															type="button"
+															onClick={() => onSelectAgent(row.agent.id)}
+															title={`Show ${row.agent.name}'s sessions`}
+															className="cursor-pointer hover:underline"
+														>
+															{trigger.label}
+														</button>
 														{trigger.enabled === false ? (
 															<span
 																className="ml-1.5 text-neutral-400"
@@ -335,6 +350,7 @@ export function AgentHealthList({
 													<td className="px-3 py-1">
 														<RunHistoryStrip
 															bubbles={sessionBubbles(trigger.sessions)}
+															selectedId={selectedSessionId}
 															onSelect={(sessionId) =>
 																onSelectSession(row.agent.id, sessionId)
 															}

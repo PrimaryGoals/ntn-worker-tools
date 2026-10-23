@@ -119,6 +119,7 @@ export function HealthList({
 	history,
 	declared,
 	deadAfterSeconds,
+	selectedRunId,
 	syncPaused,
 	onSelectWorker,
 	onSelectRun,
@@ -133,6 +134,8 @@ export function HealthList({
 	// back to the capabilities its runs reveal.
 	declared: Record<string, DeclaredCapability[]>;
 	deadAfterSeconds?: number;
+	// The run currently shown in the output panel, ringed in its strip.
+	selectedRunId: string | null;
 	// Carries each sync's cadence and which are paused; the running ones are what
 	// "overdue" is measured against, since a paused sync is never late.
 	syncPaused: SyncPausedByWorker;
@@ -272,10 +275,7 @@ export function HealthList({
 							const isOpen = splittable && expanded.has(row.worker.workerId);
 							return (
 								<Fragment key={row.worker.workerId}>
-									<tr
-										onClick={() => onSelectWorker(row.worker.workerId)}
-										className="cursor-pointer border-t border-neutral-100 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900"
-									>
+									<tr className="border-t border-neutral-100 hover:bg-neutral-50 dark:border-neutral-900 dark:hover:bg-neutral-900">
 										<td className="px-3 py-1.5 font-medium">
 											{splittable ? (
 												<button
@@ -293,11 +293,22 @@ export function HealthList({
 											) : (
 												<span className="mr-1 inline-block w-3" />
 											)}
-											{row.worker.name}
+											{/* Only the name leaves this view. The rest of the row is
+											    inert so that scanning strips, which is what the table is
+											    for, can't navigate away by accident. */}
+											<button
+												type="button"
+												onClick={() => onSelectWorker(row.worker.workerId)}
+												title={`Show ${row.worker.name}'s runs`}
+												className="cursor-pointer hover:underline"
+											>
+												{row.worker.name}
+											</button>
 										</td>
 										<td className="px-3 py-1.5">
 											<RunHistoryStrip
 												bubbles={runBubbles(row.history.runs, deadAfterSeconds)}
+												selectedId={selectedRunId}
 												onSelect={(runId) => onSelectRun(row.worker.workerId, runId)}
 											/>
 										</td>
@@ -328,15 +339,22 @@ export function HealthList({
 										? [...row.capabilities].sort(compare).map((cap) => (
 												<tr
 													key={cap.label}
-													onClick={() => onSelectWorker(row.worker.workerId)}
-													className="cursor-pointer border-t border-neutral-100 bg-neutral-50/60 hover:bg-neutral-100 dark:border-neutral-900 dark:bg-neutral-900/40 dark:hover:bg-neutral-900"
+													className="border-t border-neutral-100 bg-neutral-50/60 hover:bg-neutral-100 dark:border-neutral-900 dark:bg-neutral-900/40 dark:hover:bg-neutral-900"
 												>
 													<td className="py-1 pl-10 pr-3 text-xs text-neutral-600 dark:text-neutral-400">
-														{cap.label}
+														<button
+															type="button"
+															onClick={() => onSelectWorker(row.worker.workerId)}
+															title={`Show ${row.worker.name}'s runs`}
+															className="cursor-pointer hover:underline"
+														>
+															{cap.label}
+														</button>
 													</td>
 													<td className="px-3 py-1">
 														<RunHistoryStrip
 															bubbles={runBubbles(cap.runs, deadAfterSeconds)}
+															selectedId={selectedRunId}
 															onSelect={(runId) => onSelectRun(row.worker.workerId, runId)}
 														/>
 													</td>
