@@ -19,6 +19,7 @@ import syncRoutes from "./routes/sync.js";
 import webhookRoutes from "./routes/webhook.js";
 import workerLocalRoutes from "./routes/worker-local.js";
 import workersRoutes from "./routes/workers.js";
+import { isSafeArg } from "./route-helpers.js";
 import { getTokenFilePath, loadOrCreateToken, SESSION_COOKIE_NAME, tokenMatches } from "./session.js";
 
 // Load apps/server/.env if present — gives PORT/HOST/LOG_LEVEL/DEBUG/WEB_URL
@@ -107,6 +108,15 @@ app.addHook("preHandler", async (req, reply) => {
 	if (OPEN_PATHS.has(path)) return;
 	if (tokenMatches(req.cookies[SESSION_COOKIE_NAME], sessionToken)) return;
 	return reply.code(401).send({ error: "session required" });
+});
+
+// Route params are forwarded to `ntn` as arguments: refuse anything that could
+// be read as a flag.
+app.addHook("preHandler", async (req, reply) => {
+	const params = (req.params ?? {}) as Record<string, unknown>;
+	for (const value of Object.values(params)) {
+		if (!isSafeArg(value)) return reply.code(400).send({ error: "invalid path parameter" });
+	}
 });
 
 app.log.info({ configPath: getConfigPath() }, "config loaded");

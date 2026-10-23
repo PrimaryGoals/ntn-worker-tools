@@ -10,7 +10,7 @@ import type {
 } from "@ntn-worker-tools/shared";
 import { DEFAULT_SYNC_SCHEDULE, isValidSyncSchedule } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace, runNtnRawAllowingFailure } from "../ntn.js";
-import { isVerbose } from "../route-helpers.js";
+import { isSafeArg, isVerbose } from "../route-helpers.js";
 import { applySyncScheduleUpdates, findSyncSchedules } from "../sync-schedule.js";
 import { folderForWorker, foldersByWorkerId } from "../scan-cache.js";
 
@@ -20,7 +20,10 @@ import { folderForWorker, foldersByWorkerId } from "../scan-cache.js";
 function registerSyncAction(app: FastifyInstance, path: string, subcommand: string[]) {
 	app.post<{ Params: { id: string }; Querystring: { verbose?: string }; Body: { syncKey: string } }>(
 		path,
-		async (req) => {
+		async (req, reply) => {
+			if (!isSafeArg(req.body?.syncKey)) {
+				return reply.code(400).send({ error: "invalid sync key" });
+			}
 			const args = ["workers", "sync", ...subcommand, "--worker-id", req.params.id, req.body.syncKey];
 			const verbose = isVerbose(req.query.verbose);
 			if (verbose) args.push("-v");

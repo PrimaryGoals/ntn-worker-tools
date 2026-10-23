@@ -15,7 +15,7 @@ import {
 	RUN_HEALTH_SCAN,
 } from "@ntn-worker-tools/shared";
 import { runNtnJson, runNtnJsonWithTrace } from "../ntn.js";
-import { attachTrace, isVerbose } from "../route-helpers.js";
+import { attachTrace, isSafeArg, isVerbose } from "../route-helpers.js";
 
 // Safety cap on pagination depth per worker — protects against an
 // unbounded loop if the CLI ever returns a cursor that never terminates.
@@ -128,7 +128,11 @@ export default async function runsRoutes(app: FastifyInstance) {
 
 	app.get<{ Params: { id: string }; Querystring: { cursor?: string; pageSize?: string } }>(
 		"/api/workers/:id/runs",
-		async (req): Promise<RunsPayload> => {
+		async (req, reply): Promise<RunsPayload> => {
+			const { cursor, pageSize } = req.query;
+			if ((cursor && !isSafeArg(cursor)) || (pageSize && !/^\d{1,4}$/.test(pageSize))) {
+				return reply.code(400).send({ error: "invalid cursor or pageSize" }) as unknown as RunsPayload;
+			}
 			const args = ["workers", "runs", "list", req.params.id];
 			if (req.query.cursor) args.push("--cursor", req.query.cursor);
 			if (req.query.pageSize) args.push("--page-size", req.query.pageSize);
